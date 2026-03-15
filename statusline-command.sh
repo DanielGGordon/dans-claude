@@ -2,8 +2,8 @@
 input=$(cat)
 
 user=$(whoami)
-host=$(hostname -s)
-dir=$(echo "$input" | jq -r '.cwd // empty')
+host=$(hostname 2>/dev/null | cut -d. -f1)
+dir=$(echo "$input" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('cwd',''))" 2>/dev/null)
 
 # Shorten home directory to ~
 home="$HOME"
@@ -11,8 +11,8 @@ if [ -n "$home" ] && [ -n "$dir" ]; then
   dir="${dir/#$home/~}"
 fi
 
-model=$(echo "$input" | jq -r '.model.id // empty')
-used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+model=$(echo "$input" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('model',{}).get('id',''))" 2>/dev/null)
+used=$(echo "$input" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('context_window',{}).get('used_percentage',''))" 2>/dev/null)
 
 # Build the status line
 status="${user}@${host}:${dir}"

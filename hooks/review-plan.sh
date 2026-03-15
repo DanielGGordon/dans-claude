@@ -7,7 +7,7 @@
 set -e
 
 INPUT=$(cat)
-CWD=$(echo "$INPUT" | jq -r '.cwd // "."')
+CWD=$(echo "$INPUT" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('cwd','.'))" 2>/dev/null)
 
 REQUIREMENTS_FILE="$HOME/.claude/plan-requirements.md"
 
