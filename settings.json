@@ -21,5 +21,6 @@
     "pyright-lsp@claude-plugins-official": true
   },
   "autoUpdatesChannel": "latest",
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "model": "opus[1m]"
 }
