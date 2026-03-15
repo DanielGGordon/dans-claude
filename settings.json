@@ -1,12 +1,4 @@
 {
-  "statusLine": {
-    "type": "command",
-    "command": "bash /c/Users/dgord/.claude/statusline-command.sh"
-  },
-  "autoUpdatesChannel": "latest",
-  "enabledPlugins": {
-    "pyright-lsp@claude-plugins-official": true
-  },
   "hooks": {
     "PreToolUse": [
       {
@@ -20,5 +12,14 @@
         ]
       }
     ]
-  }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash /c/Users/dgord/.claude/statusline-command.sh"
+  },
+  "enabledPlugins": {
+    "pyright-lsp@claude-plugins-official": true
+  },
+  "autoUpdatesChannel": "latest",
+  "skipDangerousModePermissionPrompt": true
 }
