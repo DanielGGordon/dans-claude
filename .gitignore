@@ -1,4 +1,4 @@
-# Runtime / cache — never commit these
+# CC runtime state — auto-generated, machine-specific
 backups/
 cache/
 debug/
@@ -8,10 +8,11 @@ history.jsonl
 paste-cache/
 plans/
 projects/
+sessions/
 shell-snapshots/
 telemetry/
 policy-limits.json
 plugins/
 
-# Secrets — double-check before committing settings.json
-# (it may contain API keys depending on your setup)
+# Per-machine overrides (not portable)
+settings.local.json
