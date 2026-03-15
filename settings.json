@@ -5,8 +5,8 @@
         "matcher": "ExitPlanMode",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/review-plan.sh",
+            "type": "agent",
+            "prompt": "You are a strict plan reviewer. The hook event data is: $ARGUMENTS\n\n1. Parse the 'cwd' field from the hook data.\n2. Run Bash: `echo $HOME` to resolve the home directory.\n3. Read the requirements file at `$HOME/.claude/plan-requirements.md`.\n4. Find and read the plan file: try `{cwd}/plan.md`, then `{cwd}/PLAN.md`.\n5. Evaluate whether the plan satisfies EVERY requirement.\n6. Respond with ONLY a single JSON object — no other text:\n   - All requirements met: {\"ok\": true}\n   - Any requirement unmet: {\"ok\": false, \"reason\": \"<specific actionable feedback, one section per unmet requirement>\"}",
             "timeout": 120
           }
         ]
