@@ -10,7 +10,7 @@ bash ~/dotfiles/claude/install.sh
 ```
 
 The install script:
-1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `plan-requirements.md`, and `statusline-command.sh` into `~/.claude/`
+1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, and `statusline-command.sh` into `~/.claude/`
 2. Deep-merges `settings.partial.json` into your existing `~/.claude/settings.json` (preserves CC-managed keys like model, permissions, plugins)
 3. Backs up any existing files before overwriting
 
@@ -35,6 +35,8 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── plan-requirements.md     # Requirements the plan reviewer enforces
 ├── agents/
 │   └── plan-reviewer.md     # Reusable named agent for plan review
+├── hooks/
+│   └── plan-review-stop.sh  # Stop hook: auto-review plan before Claude proceeds
 ├── skills/
 │   └── ralph/
 │       └── SKILL.md         # Ralph loop: execute plans task-by-task with context reset
@@ -50,6 +52,7 @@ After install, `~/.claude/` looks like:
 ├── CLAUDE.md → ~/dotfiles/claude/CLAUDE.md
 ├── CODING_AGENTS.md → ~/dotfiles/claude/CODING_AGENTS.md
 ├── agents/ → ~/dotfiles/claude/agents/
+├── hooks/ → ~/dotfiles/claude/hooks/
 ├── skills/ → ~/dotfiles/claude/skills/
 ├── plan-requirements.md → ~/dotfiles/claude/plan-requirements.md
 ├── statusline-command.sh → ~/dotfiles/claude/statusline-command.sh
@@ -60,9 +63,11 @@ After install, `~/.claude/` looks like:
 
 ## Plan Review Hook
 
-A `PreToolUse` agent hook on `ExitPlanMode` fires automatically when Claude finishes a plan. It spins up a fresh subagent with only the plan and requirements in context (no conversation history) and blocks plan approval if requirements are unmet.
+A `Stop` command hook runs automatically when Claude finishes a turn. It short-circuits fast (single `stat` call) on non-plan turns. When `plan.md` or `PLAN.md` was modified within the last 120 seconds, it runs a Python-based review against `plan-requirements.md` and blocks Claude from proceeding if requirements are unmet.
 
-The subagent reads the plan file and `plan-requirements.md` using its own tool calls, then returns `{"ok": true}` or `{"ok": false, "reason": "..."}`. On rejection, Claude sees the feedback, revises, and tries again.
+This means the review fires **right after Claude writes the plan** — before you're asked to proceed — so you don't have to manually approve a plan that hasn't been reviewed yet.
+
+The hook exits with code 2 and sends feedback on stderr to make Claude revise. It checks `stop_hook_active` to prevent infinite review loops (only blocks once per stop).
 
 **Requirements enforced:**
 
@@ -74,6 +79,7 @@ The subagent reads the plan file and `plan-requirements.md` using its own tool c
 6. Full lifecycle coverage: setup → development → testing → deployment
 
 **To edit requirements:** modify `plan-requirements.md` and commit.
+**To edit review logic:** modify `hooks/plan-review-stop.sh` and commit.
 
 ## Named Agents
 

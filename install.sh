@@ -11,6 +11,7 @@
 #   ~/.claude/agents/              → Named agents (e.g. plan-reviewer)
 #   ~/.claude/skills/              → Skills (e.g. /ralph)
 #   ~/.claude/plan-requirements.md → Requirements enforced by the plan review hook
+#   ~/.claude/hooks/                → Hook scripts (e.g. plan review on Stop)
 #   ~/.claude/statusline-command.sh → Status bar renderer (model, tokens, context, cost)
 #
 # Settings merge:
@@ -60,6 +61,7 @@ link "$REPO_DIR/skills"              "$CLAUDE_DIR/skills"
 link "$REPO_DIR/plan-requirements.md" "$CLAUDE_DIR/plan-requirements.md"
 link "$REPO_DIR/statusline-command.sh" "$CLAUDE_DIR/statusline-command.sh"
 link "$REPO_DIR/CODING_AGENTS.md"    "$CLAUDE_DIR/CODING_AGENTS.md"
+link "$REPO_DIR/hooks"               "$CLAUDE_DIR/hooks"
 
 # --- Merge settings.partial.json into settings.json ---
 
@@ -107,6 +109,14 @@ def deep_merge(base, override):
     return base
 
 merged = deep_merge(settings, partial)
+
+# Remove deprecated PreToolUse plan review hook (replaced by Stop hook)
+pre = merged.get('hooks', {}).get('PreToolUse', [])
+merged.setdefault('hooks', {})['PreToolUse'] = [
+    h for h in pre if h.get('matcher') != 'ExitPlanMode'
+]
+if not merged['hooks']['PreToolUse']:
+    del merged['hooks']['PreToolUse']
 
 with open(settings_path, 'w') as f:
     json.dump(merged, f, indent=2, ensure_ascii=False)
