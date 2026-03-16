@@ -34,6 +34,8 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── plan-requirements.md     # Requirements the plan reviewer enforces
 ├── agents/
 │   └── plan-reviewer.md     # Reusable named agent for plan review
+├── skills/
+│   └── ralph.md             # Ralph loop: execute plans task-by-task with context reset
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md
 ```
@@ -45,6 +47,7 @@ After install, `~/.claude/` looks like:
 ├── settings.json              ← CC-managed, with your hooks merged in
 ├── CLAUDE.md → ~/dotfiles/claude/CLAUDE.md
 ├── agents/ → ~/dotfiles/claude/agents/
+├── skills/ → ~/dotfiles/claude/skills/
 ├── plan-requirements.md → ~/dotfiles/claude/plan-requirements.md
 ├── statusline-command.sh → ~/dotfiles/claude/statusline-command.sh
 ├── projects/                  ← CC runtime (untouched)
@@ -78,6 +81,31 @@ The plan reviewer as a standalone named agent. While the hook runs it automatica
 ```
 Use the plan-reviewer agent to check plan.md
 ```
+
+## Skills
+
+### `skills/ralph.md` — Ralph Loop
+
+Executes a plan file task-by-task, dispatching each task to a fresh subagent so context resets between tasks. The plan file on disk is the shared state.
+
+```
+/ralph                          # auto-finds plan.md or checks ~/.claude/plans/
+/ralph path/to/my-plan.md      # explicit plan path
+```
+
+**What it does:**
+1. Finds and reads the plan file
+2. Adds `- [ ]` checkboxes to tasks if they don't exist (converts tables to checkbox lists)
+3. Shows you each task and asks before executing
+4. Launches a subagent per task (fresh context, no history bleed)
+5. Subagent checks off the task (`- [x]`) when the completion criterion is met
+6. Respects parallel/sequential markers in the plan — offers to run parallel tasks concurrently
+
+**Stopping and resuming:** Ctrl+C or tell it to stop. Next time you run `/ralph`, it picks up from the first unchecked task.
+
+### Adding a new skill
+
+Create a markdown file in `skills/` with `user_invocable: true` in frontmatter.
 
 ### Adding a new agent
 
