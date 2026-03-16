@@ -10,7 +10,7 @@ bash ~/dotfiles/claude/install.sh
 ```
 
 The install script:
-1. Symlinks `CLAUDE.md`, `agents/`, `plan-requirements.md`, and `statusline-command.sh` into `~/.claude/`
+1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `plan-requirements.md`, and `statusline-command.sh` into `~/.claude/`
 2. Deep-merges `settings.partial.json` into your existing `~/.claude/settings.json` (preserves CC-managed keys like model, permissions, plugins)
 3. Backs up any existing files before overwriting
 
@@ -30,12 +30,14 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ~/dotfiles/claude/
 ├── install.sh               # Sets up symlinks + merges settings
 ├── CLAUDE.md                # Global instructions (symlinked to ~/.claude/CLAUDE.md)
+├── CODING_AGENTS.md         # Coding agent rules (symlinked to ~/.claude/CODING_AGENTS.md)
 ├── settings.partial.json    # Hook and statusline config (merged into settings.json)
 ├── plan-requirements.md     # Requirements the plan reviewer enforces
 ├── agents/
 │   └── plan-reviewer.md     # Reusable named agent for plan review
 ├── skills/
-│   └── ralph.md             # Ralph loop: execute plans task-by-task with context reset
+│   └── ralph/
+│       └── SKILL.md         # Ralph loop: execute plans task-by-task with context reset
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md
 ```
@@ -46,6 +48,7 @@ After install, `~/.claude/` looks like:
 ~/.claude/
 ├── settings.json              ← CC-managed, with your hooks merged in
 ├── CLAUDE.md → ~/dotfiles/claude/CLAUDE.md
+├── CODING_AGENTS.md → ~/dotfiles/claude/CODING_AGENTS.md
 ├── agents/ → ~/dotfiles/claude/agents/
 ├── skills/ → ~/dotfiles/claude/skills/
 ├── plan-requirements.md → ~/dotfiles/claude/plan-requirements.md
@@ -96,16 +99,17 @@ Executes a plan file task-by-task, dispatching each task to a fresh subagent so 
 **What it does:**
 1. Finds and reads the plan file
 2. Adds `- [ ]` checkboxes to tasks if they don't exist (converts tables to checkbox lists)
-3. Shows you each task and asks before executing
-4. Launches a subagent per task (fresh context, no history bleed)
-5. Subagent checks off the task (`- [x]`) when the completion criterion is met
-6. Respects parallel/sequential markers in the plan — offers to run parallel tasks concurrently
+3. Pre-loads plan context and `CODING_AGENTS.md` once, injecting them into every subagent (avoids redundant re-reads)
+4. Prints ASCII Ralph Wiggum, then shows each task with a 15-second countdown before executing
+5. Launches a subagent per task (fresh context, no history bleed)
+6. Subagent checks off the task (`- [x]`) when the completion criterion is met
+7. Respects parallel/sequential markers in the plan — offers to run parallel tasks concurrently
 
 **Stopping and resuming:** Ctrl+C or tell it to stop. Next time you run `/ralph`, it picks up from the first unchecked task.
 
 ### Adding a new skill
 
-Create a markdown file in `skills/` with `user_invocable: true` in frontmatter.
+Create a subdirectory in `skills/` with a `SKILL.md` file containing `user_invocable: true` in frontmatter (e.g., `skills/my-skill/SKILL.md`).
 
 ### Adding a new agent
 

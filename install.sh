@@ -33,6 +33,7 @@ link "$REPO_DIR/agents"              "$CLAUDE_DIR/agents"
 link "$REPO_DIR/skills"              "$CLAUDE_DIR/skills"
 link "$REPO_DIR/plan-requirements.md" "$CLAUDE_DIR/plan-requirements.md"
 link "$REPO_DIR/statusline-command.sh" "$CLAUDE_DIR/statusline-command.sh"
+link "$REPO_DIR/CODING_AGENTS.md"    "$CLAUDE_DIR/CODING_AGENTS.md"
 
 # --- Merge settings.partial.json into settings.json ---
 
