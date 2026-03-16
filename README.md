@@ -34,7 +34,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── plan-requirements.md     # Requirements the plan reviewer enforces
 ├── agents/
 │   └── plan-reviewer.md     # Reusable named agent for plan review
-├── statusline-command.sh    # Custom status bar: user@host:dir | model | context%
+├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md
 ```
 
@@ -111,6 +111,6 @@ Add entries to `settings.partial.json` and re-run `install.sh`:
 
 ## Notes
 
-- `statusline-command.sh` uses Python for JSON parsing (no `jq` dependency).
+- `statusline-command.sh` uses Python for JSON parsing (no `jq` dependency). Displays: green directory, magenta model, yellow context (% + compact token count), green session cost.
 - `settings.partial.json` is deep-merged — it won't overwrite CC-managed keys like `model` or `permissions` unless you add them to the partial.
 - Per-machine overrides go in `~/.claude/settings.local.json` (CC-managed, not tracked here).
