@@ -63,12 +63,12 @@ After install, `~/.claude/` looks like:
 
 ## Plan Review Hook
 
-A `Stop` command hook runs automatically when Claude finishes a turn. It detects plans via two paths:
+A `Stop` command hook runs automatically when Claude finishes a turn. It looks for the most recently modified plan file (within 120 seconds) in two locations:
 
-1. **Plan mode** (`permission_mode == "plan"`): reads the plan directly from `last_assistant_message` in the hook input — no file on disk needed. This fires right when Claude finishes writing the plan, before you're asked to confirm exiting plan mode.
-2. **File fallback**: if `plan.md` or `PLAN.md` in the working directory was modified within the last 120 seconds, reads the plan from that file.
+1. **`~/.claude/plans/*.md`** — where Claude Code writes plans during plan mode
+2. **`plan.md` / `PLAN.md` in the working directory** — for manually created plan files
 
-Non-plan turns short-circuit fast. The hook runs a Python-based review against `plan-requirements.md` and blocks Claude (exit 2 + stderr feedback) if requirements are unmet. It checks `stop_hook_active` to prevent infinite review loops (only blocks once per stop).
+If no recently modified plan file is found, the hook exits immediately (fast path). When a plan file is found, it runs a Python-based review against `plan-requirements.md` and blocks Claude (exit 2 + stderr feedback) if requirements are unmet. It checks `stop_hook_active` to prevent infinite review loops (only blocks once per stop).
 
 **Requirements enforced:**
 

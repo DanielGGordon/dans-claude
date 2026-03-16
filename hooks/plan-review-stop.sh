@@ -2,9 +2,9 @@
 #
 # Stop hook: review plan before Claude stops after writing one.
 #
-# Two detection paths:
-# 1. permission_mode == "plan" → reads plan from last_assistant_message
-# 2. Fallback: plan.md/PLAN.md modified in CWD within 120s → reads from file
+# Detection: finds the most recently modified plan file (within 120s) from:
+# 1. ~/.claude/plans/*.md  (where Claude Code writes plans in plan mode)
+# 2. plan.md / PLAN.md in the working directory
 #
 # To block the stop and send Claude back to revise, exit 2 with
 # feedback on stderr. To allow the stop, exit 0.
@@ -21,42 +21,41 @@ if [ "$STOP_ACTIVE" = "True" ] || [ "$STOP_ACTIVE" = "true" ]; then
   exit 0
 fi
 
-# Extract fields from hook data
-eval "$(echo "$INPUT" | python3 -c "
-import sys, json, shlex
-d = json.load(sys.stdin)
-print(f'PERM_MODE={shlex.quote(str(d.get(\"permission_mode\", \"\")))}')
-print(f'CWD={shlex.quote(str(d.get(\"cwd\", \"\")))}')
-" 2>/dev/null)"
+# Extract CWD from hook data
+CWD=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd', ''))" 2>/dev/null)
 
-# Determine plan source: plan mode message or file on disk
-PLAN_SOURCE=""  # "message" or "file"
+# Find the most recently modified plan file (must be within 120s)
 PLAN_FILE=""
+NOW=$(date +%s)
+BEST_AGE=999999
 
-if [ "$PERM_MODE" = "plan" ]; then
-  # In plan mode — the plan is in last_assistant_message
-  PLAN_SOURCE="message"
-else
-  # Not in plan mode — check for recently modified plan file
-  if [ -n "$CWD" ]; then
-    for name in plan.md PLAN.md; do
-      candidate="$CWD/$name"
-      if [ -f "$candidate" ]; then
-        mod_time=$(stat -c %Y "$candidate" 2>/dev/null || stat -f %m "$candidate" 2>/dev/null)
-        now=$(date +%s)
-        age=$(( now - mod_time ))
-        if [ "$age" -le 120 ]; then
-          PLAN_SOURCE="file"
-          PLAN_FILE="$candidate"
-          break
-        fi
-      fi
-    done
+# Check ~/.claude/plans/*.md
+for candidate in "$HOME"/.claude/plans/*.md; do
+  [ -f "$candidate" ] || continue
+  mod_time=$(stat -c %Y "$candidate" 2>/dev/null || stat -f %m "$candidate" 2>/dev/null)
+  age=$(( NOW - mod_time ))
+  if [ "$age" -le 120 ] && [ "$age" -lt "$BEST_AGE" ]; then
+    BEST_AGE="$age"
+    PLAN_FILE="$candidate"
   fi
+done
+
+# Check plan.md / PLAN.md in CWD
+if [ -n "$CWD" ]; then
+  for name in plan.md PLAN.md; do
+    candidate="$CWD/$name"
+    [ -f "$candidate" ] || continue
+    mod_time=$(stat -c %Y "$candidate" 2>/dev/null || stat -f %m "$candidate" 2>/dev/null)
+    age=$(( NOW - mod_time ))
+    if [ "$age" -le 120 ] && [ "$age" -lt "$BEST_AGE" ]; then
+      BEST_AGE="$age"
+      PLAN_FILE="$candidate"
+    fi
+  done
 fi
 
-# No plan detected — allow stop
-if [ -z "$PLAN_SOURCE" ]; then
+# No recently modified plan file — allow stop
+if [ -z "$PLAN_FILE" ]; then
   exit 0
 fi
 
@@ -67,37 +66,7 @@ if [ ! -f "$REQUIREMENTS" ]; then
 fi
 
 # Run the plan review
-FEEDBACK=$(echo "$INPUT" | python3 -c "
-import sys, json
-hook_data = json.load(sys.stdin)
-plan_source = sys.argv[1]
-plan_file = sys.argv[2]
-
-if plan_source == 'message':
-    plan = hook_data.get('last_assistant_message', '')
-elif plan_source == 'file':
-    with open(plan_file) as f:
-        plan = f.read()
-else:
-    sys.exit(0)
-
-if not plan.strip():
-    sys.exit(0)
-
-# Write plan to temp file for the review script
-import tempfile, os
-fd, tmp = tempfile.mkstemp(suffix='.md')
-with os.fdopen(fd, 'w') as f:
-    f.write(plan)
-print(tmp)
-" "$PLAN_SOURCE" "$PLAN_FILE" 2>/dev/null)
-
-PLAN_TMP="$FEEDBACK"
-if [ -z "$PLAN_TMP" ] || [ ! -f "$PLAN_TMP" ]; then
-  exit 0
-fi
-
-FEEDBACK=$(python3 - "$PLAN_TMP" "$REQUIREMENTS" << 'PYEOF'
+FEEDBACK=$(python3 - "$PLAN_FILE" "$REQUIREMENTS" << 'PYEOF'
 import sys, re
 
 plan_path = sys.argv[1]
@@ -188,9 +157,6 @@ else:
 
 PYEOF
 )
-
-# Clean up temp file
-rm -f "$PLAN_TMP"
 
 # Parse result
 RESULT=$(echo "$FEEDBACK" | head -1)
