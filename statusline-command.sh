@@ -2,7 +2,7 @@
 input=$(cat)
 
 # Parse all fields in a single python call for efficiency
-eval "$(echo "$input" | python -c "
+parsed="$(echo "$input" | python -c "
 import sys, json, shlex
 
 d = json.load(sys.stdin)
@@ -12,9 +12,9 @@ model_id = d.get('model', {}).get('id', '')
 ctx = d.get('context_window', {})
 used_pct = ctx.get('used_percentage', '') or 0
 usage = ctx.get('current_usage') or {}
-input_tokens = usage.get('input_tokens', 0) + usage.get('cache_creation_input_tokens', 0) + usage.get('cache_read_input_tokens', 0)
-output_tokens = usage.get('output_tokens', 0)
-cost_data = d.get('cost', {})
+input_tokens = (usage.get('input_tokens') or 0) + (usage.get('cache_creation_input_tokens') or 0) + (usage.get('cache_read_input_tokens') or 0)
+output_tokens = usage.get('output_tokens') or 0
+cost_data = d.get('cost') or {}
 total_cost = cost_data.get('total_cost_usd', '')
 
 # Agent and worktree info
@@ -32,10 +32,9 @@ def fmt_tokens(n):
 # Context bar: 10 chars wide, based on 200k ceiling
 bar_width = 10
 pct_val = float(used_pct) if used_pct else 0
-# Normalize to 200k regardless of actual context window size
 filled = int(round(pct_val / 100 * bar_width))
 filled = min(filled, bar_width)
-bar = '\u2588' * filled + '\u2591' * (bar_width - filled)
+bar = chr(0x2588) * filled + chr(0x2591) * (bar_width - filled)
 
 # Bar color: green <50%, yellow 50-80%, red >80%
 if pct_val > 80:
@@ -56,7 +55,15 @@ print(f'SL_COST={shlex.quote(str(total_cost))}')
 print(f'SL_AGENT={shlex.quote(agent_name)}')
 print(f'SL_WORKTREE={shlex.quote(worktree_name)}')
 print(f'SL_WORKTREE_BRANCH={shlex.quote(worktree_branch)}')
-" 2>/dev/null)"
+" 2>&1)"
+
+if [ $? -ne 0 ] || [ -z "$parsed" ]; then
+  # Fallback: show basic info if python parsing fails
+  printf "statusline parse error"
+  exit 0
+fi
+
+eval "$parsed"
 
 # Shorten home directory to ~
 dir="${SL_CWD/#$HOME/\~}"
@@ -90,8 +97,10 @@ if [ -n "$SL_MODEL" ]; then
 fi
 
 # 📊 Context bar with token counts
-status="${status} ${DIM}|${RESET} \033[${SL_BAR_COLOR}m${SL_BAR} ${SL_PCT}%${RESET}"
-status="${status} ${YELLOW}${SL_IN_TOKENS}↑ ${SL_OUT_TOKENS}↓${RESET}"
+if [ -n "$SL_BAR_COLOR" ]; then
+  status="${status} ${DIM}|${RESET} \033[${SL_BAR_COLOR}m${SL_BAR} ${SL_PCT}%${RESET}"
+  status="${status} ${YELLOW}${SL_IN_TOKENS}↑ ${SL_OUT_TOKENS}↓${RESET}"
+fi
 
 # 💰 Green: session cost
 if [ -n "$SL_COST" ] && [ "$SL_COST" != "None" ] && [ "$SL_COST" != "" ]; then
