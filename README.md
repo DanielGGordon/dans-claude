@@ -111,6 +111,6 @@ Add entries to `settings.partial.json` and re-run `install.sh`:
 
 ## Notes
 
-- `statusline-command.sh` uses Python for JSON parsing (no `jq` dependency). Displays: green directory, magenta model, yellow context (% + compact token count), green session cost.
+- `statusline-command.sh` uses Python for JSON parsing (no `jq` dependency). Displays: 📁 directory, 🌿 git branch, 🧠 model, context bar (color shifts green→yellow→red, capped at 200k), input/output tokens, 💰 session cost, 🌲 worktree, 🤖 agent name.
 - `settings.partial.json` is deep-merged — it won't overwrite CC-managed keys like `model` or `permissions` unless you add them to the partial.
 - Per-machine overrides go in `~/.claude/settings.local.json` (CC-managed, not tracked here).
