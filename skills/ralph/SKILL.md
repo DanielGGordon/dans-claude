@@ -48,33 +48,10 @@ Store both as variables (e.g., `plan_content` and `coding_agent_rules`) to injec
 
 ## Step 4: Print Ralph and begin the loop
 
-Before executing the first task, print this ASCII art to the console using the Bash tool:
+Before executing the first task, print Ralph to the console using the Bash tool:
 
 ```bash
-cat << 'RALPH'
-
-        ⢀⣀⣤⣤⣤⣤⣤⣤⣤⣤⣀⡀
-      ⣠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣄
-    ⢀⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⡀
-   ⢀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⡀
-  ⢠⣿⣿⣿⣿⣿⣿⣿⣿⡿⠟⠛⠛⠛⠻⢿⣿⣿⣿⣿⣿⣿⡄
-  ⣼⣿⣿⣿⣿⣿⣿⡿⠋        ⠙⢿⣿⣿⣿⣿⣿⣧
-  ⣿⣿⣿⣿⣿⣿⡟⠁   ⢀⣀⣀⡀   ⠈⢻⣿⣿⣿⣿⣿⣿
- ⢸⣿⣿⣿⣿⣿⡟   ⢰⣿⣿⣿⣿⣿⡆   ⢻⣿⣿⣿⣿⣿⡇
- ⢸⣿⣿⣿⣿⣿⡇   ⢸⣿⣿⣿⣿⣿⡇   ⢸⣿⣿⣿⣿⣿⡇
-  ⣿⣿⣿⣿⣿⣿⡀   ⠈⠻⣿⣿⠟⠁   ⢀⣿⣿⣿⣿⣿⣿
-  ⢸⣿⣿⣿⣿⣿⣧    ⢀⣤⣤⡀    ⣼⣿⣿⣿⣿⣿⡇
-  ⠈⣿⣿⣿⣿⣿⣿⣧⡀  ⢸⡇⢸⡇  ⢀⣼⣿⣿⣿⣿⣿⣿⠁
-   ⢸⣿⣿⣿⣿⣿⣿⣿⣶⣤⣀⣀⣀⣤⣶⣿⣿⣿⣿⣿⣿⣿⡇
-    ⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟
-      ⠙⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠟⠁
-         ⠉⠛⠿⠿⣿⣿⣿⣿⣿⠿⠿⠛⠉
-    ───────────────────────────────
-     "I'm helping!" 🖐👃
-         - Ralph Wiggum
-    ───────────────────────────────
-
-RALPH
+cat ~/.claude/skills/ralph/ralph-ascii.txt
 ```
 
 ## Step 5: Execute tasks one at a time

@@ -38,8 +38,10 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── hooks/
 │   └── plan-review-stop.sh  # Stop hook: auto-review plan before Claude proceeds
 ├── skills/
-│   └── ralph/
-│       └── SKILL.md         # Ralph loop: execute plans task-by-task with context reset
+│   ├── ralph/
+│   │   └── SKILL.md         # Ralph loop: execute plans task-by-task with context reset
+│   └── review-plan/
+│       └── SKILL.md         # On-demand plan review and auto-fix
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md
 ```
@@ -113,6 +115,24 @@ Executes a plan file task-by-task, dispatching each task to a fresh subagent so 
 7. Respects parallel/sequential markers in the plan — offers to run parallel tasks concurrently
 
 **Stopping and resuming:** Ctrl+C or tell it to stop. Next time you run `/ralph`, it picks up from the first unchecked task.
+
+### `skills/review-plan` — Plan Review & Auto-Fix
+
+On-demand plan review that finds the active plan, runs the `plan-reviewer` agent against `plan-requirements.md`, and automatically edits the plan to fix any issues. Capped at 2 revision rounds to avoid loops.
+
+```
+/review-plan                    # auto-finds plan in ~/.claude/plans/ or CWD
+```
+
+**What it does:**
+1. Finds the active plan file (most recent in `~/.claude/plans/*.md`, or `plan.md`/`PLAN.md` in CWD)
+2. Launches the `plan-reviewer` agent to validate against requirements
+3. If the plan passes, reports success and stops
+4. If the plan fails, reads the reviewer feedback and edits the plan to address every issue
+5. Re-runs the reviewer to confirm fixes landed
+6. If still failing, makes one more revision pass (max 2 rounds), then reports any remaining issues
+
+**When to use it:** Mid-planning when you want to check your plan without exiting plan mode. The Stop hook reviews automatically on exit; this skill lets you review on demand at any point.
 
 ### Adding a new skill
 
