@@ -2,9 +2,9 @@
 #
 # Stop hook: review plan before Claude stops after writing one.
 #
-# Fires on every turn end but short-circuits fast when no plan was
-# recently written. Only runs the full review if plan.md/PLAN.md in
-# the working directory was modified within the last 120 seconds.
+# Two detection paths:
+# 1. permission_mode == "plan" → reads plan from last_assistant_message
+# 2. Fallback: plan.md/PLAN.md modified in CWD within 120s → reads from file
 #
 # To block the stop and send Claude back to revise, exit 2 with
 # feedback on stderr. To allow the stop, exit 0.
@@ -21,30 +21,42 @@ if [ "$STOP_ACTIVE" = "True" ] || [ "$STOP_ACTIVE" = "true" ]; then
   exit 0
 fi
 
-# Extract cwd from hook data
-CWD=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd', ''))" 2>/dev/null)
-if [ -z "$CWD" ]; then
-  exit 0
+# Extract fields from hook data
+eval "$(echo "$INPUT" | python3 -c "
+import sys, json, shlex
+d = json.load(sys.stdin)
+print(f'PERM_MODE={shlex.quote(str(d.get(\"permission_mode\", \"\")))}')
+print(f'CWD={shlex.quote(str(d.get(\"cwd\", \"\")))}')
+" 2>/dev/null)"
+
+# Determine plan source: plan mode message or file on disk
+PLAN_SOURCE=""  # "message" or "file"
+PLAN_FILE=""
+
+if [ "$PERM_MODE" = "plan" ]; then
+  # In plan mode — the plan is in last_assistant_message
+  PLAN_SOURCE="message"
+else
+  # Not in plan mode — check for recently modified plan file
+  if [ -n "$CWD" ]; then
+    for name in plan.md PLAN.md; do
+      candidate="$CWD/$name"
+      if [ -f "$candidate" ]; then
+        mod_time=$(stat -c %Y "$candidate" 2>/dev/null || stat -f %m "$candidate" 2>/dev/null)
+        now=$(date +%s)
+        age=$(( now - mod_time ))
+        if [ "$age" -le 120 ]; then
+          PLAN_SOURCE="file"
+          PLAN_FILE="$candidate"
+          break
+        fi
+      fi
+    done
+  fi
 fi
 
-# Find plan file — must have been modified within the last 120 seconds
-PLAN_FILE=""
-for name in plan.md PLAN.md; do
-  candidate="$CWD/$name"
-  if [ -f "$candidate" ]; then
-    # Check modification time (seconds since epoch)
-    mod_time=$(stat -c %Y "$candidate" 2>/dev/null || stat -f %m "$candidate" 2>/dev/null)
-    now=$(date +%s)
-    age=$(( now - mod_time ))
-    if [ "$age" -le 120 ]; then
-      PLAN_FILE="$candidate"
-      break
-    fi
-  fi
-done
-
-# No recently modified plan file — allow stop
-if [ -z "$PLAN_FILE" ]; then
+# No plan detected — allow stop
+if [ -z "$PLAN_SOURCE" ]; then
   exit 0
 fi
 
@@ -55,17 +67,29 @@ if [ ! -f "$REQUIREMENTS" ]; then
 fi
 
 # Run the plan review
-FEEDBACK=$(python3 << 'PYEOF'
-import sys, re
+FEEDBACK=$(echo "$INPUT" | python3 - "$PLAN_SOURCE" "$PLAN_FILE" "$REQUIREMENTS" << 'PYEOF'
+import sys, re, json
 
 def read_file(path):
     with open(path) as f:
         return f.read()
 
-plan_path = sys.argv[1]
-req_path = sys.argv[2]
+plan_source = sys.argv[1]  # "message" or "file"
+plan_file = sys.argv[2]    # path (only used if source == "file")
+req_path = sys.argv[3]
 
-plan = read_file(plan_path)
+# Get plan text
+if plan_source == "message":
+    hook_data = json.load(sys.stdin)
+    plan = hook_data.get("last_assistant_message", "")
+elif plan_source == "file":
+    plan = read_file(plan_file)
+else:
+    sys.exit(0)
+
+if not plan.strip():
+    sys.exit(0)
+
 plan_lower = plan.lower()
 
 issues = []
@@ -93,7 +117,6 @@ dep_keywords = ["docker", "database", "api key", "credential", "cli tool", "brow
                 "mongo", "infrastructure", "pip install", "npm install", "brew install",
                 "apt install", "dependencies", "requirements.txt", "package.json"]
 has_deps_section = any(kw in plan_lower for kw in dep_keywords)
-# Check for explicit section headers about deps/tools
 dep_headers = re.findall(r'#+\s*.*(dependenc|tool|prerequisite|requirement|setup|install).*', plan_lower)
 if not has_deps_section and not dep_headers:
     issues.append("**System Tools & Dependencies**: No section enumerating external tools/services needed for testing.")
@@ -106,7 +129,6 @@ if not has_human_policy:
     issues.append("**Human-in-the-Loop**: Plan must explicitly state whether human steps are required. If none, say so.")
 
 # 4. Agent-Loop Compatible Task Lists — needs structured tasks with completion criteria
-# Look for checkbox items or numbered task items
 has_checkbox = bool(re.search(r'- \[[ x]\]', plan))
 has_numbered_tasks = bool(re.search(r'^\d+\.\d*\s', plan, re.MULTILINE))
 has_task_table = bool(re.search(r'\|.*task.*\|', plan_lower))
@@ -146,18 +168,24 @@ else:
     print("PASS")
 
 PYEOF
-"$PLAN_FILE" "$REQUIREMENTS" 2>/dev/null)
+)
 
 # Parse result
 RESULT=$(echo "$FEEDBACK" | head -1)
 
 if [ "$RESULT" = "FAIL" ]; then
   DETAILS=$(echo "$FEEDBACK" | tail -n +2)
-  echo "Plan review failed. Revise the plan to address these issues before proceeding:" >&2
+  if [ "$PLAN_SOURCE" = "message" ]; then
+    echo "Plan review failed. Revise the plan to address these issues before exiting plan mode:" >&2
+  else
+    echo "Plan review failed. Revise the plan to address these issues before proceeding:" >&2
+  fi
   echo "" >&2
   echo "$DETAILS" >&2
-  echo "" >&2
-  echo "Plan file: $PLAN_FILE" >&2
+  if [ -n "$PLAN_FILE" ]; then
+    echo "" >&2
+    echo "Plan file: $PLAN_FILE" >&2
+  fi
   exit 2
 fi
 
