@@ -67,25 +67,44 @@ if [ ! -f "$REQUIREMENTS" ]; then
 fi
 
 # Run the plan review
-FEEDBACK=$(echo "$INPUT" | python3 - "$PLAN_SOURCE" "$PLAN_FILE" "$REQUIREMENTS" << 'PYEOF'
-import sys, re, json
+FEEDBACK=$(echo "$INPUT" | python3 -c "
+import sys, json
+hook_data = json.load(sys.stdin)
+plan_source = sys.argv[1]
+plan_file = sys.argv[2]
 
-def read_file(path):
-    with open(path) as f:
-        return f.read()
-
-plan_source = sys.argv[1]  # "message" or "file"
-plan_file = sys.argv[2]    # path (only used if source == "file")
-req_path = sys.argv[3]
-
-# Get plan text
-if plan_source == "message":
-    hook_data = json.load(sys.stdin)
-    plan = hook_data.get("last_assistant_message", "")
-elif plan_source == "file":
-    plan = read_file(plan_file)
+if plan_source == 'message':
+    plan = hook_data.get('last_assistant_message', '')
+elif plan_source == 'file':
+    with open(plan_file) as f:
+        plan = f.read()
 else:
     sys.exit(0)
+
+if not plan.strip():
+    sys.exit(0)
+
+# Write plan to temp file for the review script
+import tempfile, os
+fd, tmp = tempfile.mkstemp(suffix='.md')
+with os.fdopen(fd, 'w') as f:
+    f.write(plan)
+print(tmp)
+" "$PLAN_SOURCE" "$PLAN_FILE" 2>/dev/null)
+
+PLAN_TMP="$FEEDBACK"
+if [ -z "$PLAN_TMP" ] || [ ! -f "$PLAN_TMP" ]; then
+  exit 0
+fi
+
+FEEDBACK=$(python3 - "$PLAN_TMP" "$REQUIREMENTS" << 'PYEOF'
+import sys, re
+
+plan_path = sys.argv[1]
+req_path = sys.argv[2]
+
+with open(plan_path) as f:
+    plan = f.read()
 
 if not plan.strip():
     sys.exit(0)
@@ -170,16 +189,15 @@ else:
 PYEOF
 )
 
+# Clean up temp file
+rm -f "$PLAN_TMP"
+
 # Parse result
 RESULT=$(echo "$FEEDBACK" | head -1)
 
 if [ "$RESULT" = "FAIL" ]; then
   DETAILS=$(echo "$FEEDBACK" | tail -n +2)
-  if [ "$PLAN_SOURCE" = "message" ]; then
-    echo "Plan review failed. Revise the plan to address these issues before exiting plan mode:" >&2
-  else
-    echo "Plan review failed. Revise the plan to address these issues before proceeding:" >&2
-  fi
+  echo "Plan review failed. Revise the plan to address these issues before exiting plan mode:" >&2
   echo "" >&2
   echo "$DETAILS" >&2
   if [ -n "$PLAN_FILE" ]; then
