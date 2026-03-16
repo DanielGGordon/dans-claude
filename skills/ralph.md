@@ -42,8 +42,8 @@ Write the updated plan file back to disk.
 Find the first unchecked task (`- [ ]`). For each task:
 
 1. **Show the user** what task you're about to execute: print the task number, description, and completion criterion.
-2. **Ask the user** if they want to proceed, skip this task, or stop the loop.
-3. If proceeding, **launch a subagent** using the Agent tool with this prompt:
+2. **Give a 15-second input window.** Use the AskUserQuestion tool with a message like: `Starting **{task number}** in 15s. Type to give guidance, or press Enter / wait to auto-proceed. Type "skip" to skip or "stop" to end the loop.` Set the timeout to 15 seconds (or use a Bash `read -t 15` if the tool doesn't support timeouts). If the user provides input, follow their guidance. If they say "skip", move to the next task. If they say "stop", end the loop. If the timeout expires with no input, **auto-proceed**.
+3. **Launch a subagent** using the Agent tool with this prompt:
 
 ```
 You are executing a single task from a plan. Here is your task:
@@ -61,13 +61,13 @@ Instructions:
 - When done, respond with a brief summary of what you did.
 ```
 
-4. After the subagent completes, **show the user** the summary and move to the next unchecked task.
+4. After the subagent completes, **show the user** a one-line summary and immediately move to the next unchecked task.
 5. Repeat until all tasks are checked or the user stops the loop.
 
 ## Important rules
 
+- **Auto-proceed by default.** Do NOT block waiting for user confirmation. Show the task, give a 15-second window, then go. The user can always type during the window or interrupt with Ctrl+C.
 - **One task at a time.** Never run multiple tasks in a single subagent.
-- **Respect parallel markers.** If the plan marks tasks as parallelizable (e.g., "PARALLEL", "Yes" in a parallel column), you MAY launch multiple subagents concurrently for those tasks. Ask the user first.
+- **Respect parallel markers.** If the plan marks tasks as parallelizable (e.g., "PARALLEL", "Yes" in a parallel column), you MAY launch multiple subagents concurrently for those tasks. Show what you're about to launch and give the 15-second window before starting the batch.
 - **Respect sequential markers.** If tasks are marked sequential or have dependencies, run them one at a time in order.
-- **Always give the user control.** Before each task (or batch of parallel tasks), confirm with the user.
-- **Don't accumulate context.** Each subagent is independent. The plan file on disk is the shared state.
+- **Don't accumulate context.** Each subagent is independent. The plan file on disk is the shared state. Never pass conversation history or prior subagent results into a new subagent — only the task description and plan file path.
