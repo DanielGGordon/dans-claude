@@ -28,6 +28,7 @@ link() {
   echo "  Linked $dst → $src"
 }
 
+link "$REPO_DIR/CLAUDE.md"            "$CLAUDE_DIR/CLAUDE.md"
 link "$REPO_DIR/agents"              "$CLAUDE_DIR/agents"
 link "$REPO_DIR/plan-requirements.md" "$CLAUDE_DIR/plan-requirements.md"
 link "$REPO_DIR/statusline-command.sh" "$CLAUDE_DIR/statusline-command.sh"

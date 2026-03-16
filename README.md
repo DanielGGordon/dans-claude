@@ -10,7 +10,7 @@ bash ~/dotfiles/claude/install.sh
 ```
 
 The install script:
-1. Symlinks `agents/`, `plan-requirements.md`, and `statusline-command.sh` into `~/.claude/`
+1. Symlinks `CLAUDE.md`, `agents/`, `plan-requirements.md`, and `statusline-command.sh` into `~/.claude/`
 2. Deep-merges `settings.partial.json` into your existing `~/.claude/settings.json` (preserves CC-managed keys like model, permissions, plugins)
 3. Backs up any existing files before overwriting
 
@@ -29,6 +29,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ```
 ~/dotfiles/claude/
 ├── install.sh               # Sets up symlinks + merges settings
+├── CLAUDE.md                # Global instructions (symlinked to ~/.claude/CLAUDE.md)
 ├── settings.partial.json    # Hook and statusline config (merged into settings.json)
 ├── plan-requirements.md     # Requirements the plan reviewer enforces
 ├── agents/
@@ -42,6 +43,7 @@ After install, `~/.claude/` looks like:
 ```
 ~/.claude/
 ├── settings.json              ← CC-managed, with your hooks merged in
+├── CLAUDE.md → ~/dotfiles/claude/CLAUDE.md
 ├── agents/ → ~/dotfiles/claude/agents/
 ├── plan-requirements.md → ~/dotfiles/claude/plan-requirements.md
 ├── statusline-command.sh → ~/dotfiles/claude/statusline-command.sh
