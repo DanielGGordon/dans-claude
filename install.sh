@@ -1,4 +1,30 @@
 #!/bin/bash
+#
+# install.sh — Install dans-claude config into ~/.claude/
+#
+# Creates symlinks from ~/.claude/ back to this repo so that Claude Code
+# picks up custom config while the source of truth stays in ~/dotfiles/claude/.
+#
+# Symlinks created:
+#   ~/.claude/CLAUDE.md            → Global instructions loaded every session
+#   ~/.claude/CODING_AGENTS.md     → Coding agent rules injected by the ralph skill
+#   ~/.claude/agents/              → Named agents (e.g. plan-reviewer)
+#   ~/.claude/skills/              → Skills (e.g. /ralph)
+#   ~/.claude/plan-requirements.md → Requirements enforced by the plan review hook
+#   ~/.claude/statusline-command.sh → Status bar renderer (model, tokens, context, cost)
+#
+# Settings merge:
+#   Deep-merges settings.partial.json into ~/.claude/settings.json so that
+#   hooks, statusline config, and other custom keys are applied without
+#   overwriting Claude Code-managed keys (model, permissions, plugins).
+#   Requires Python.
+#
+# Safe to re-run: existing symlinks are replaced; regular files are backed up
+# to *.bak before being overwritten.
+#
+# Usage:
+#   bash ~/dotfiles/claude/install.sh
+#
 set -e
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
