@@ -54,24 +54,33 @@ Before executing the first task, print Ralph to the console using the Bash tool:
 cat ~/.claude/skills/ralph/ralph-ascii.txt
 ```
 
-## Step 5: Execute tasks one at a time
+## Step 5: Execute tasks
 
-Find the first unchecked task (`- [ ]`). For each task:
+Find the first unchecked task (`- [ ]`). Before launching, check whether it is part of a **batch**.
 
-1. **Show the user** what task you're about to execute: print the task number, description, and completion criterion.
+### Batch detection
+
+A `<!-- BATCH -->` comment on the line immediately before a group of consecutive unchecked tasks means those tasks should all go to **one** subagent. Collect every consecutive `- [ ]` task following the `<!-- BATCH -->` marker (stop at the first non-task line, checked task, or another marker). These tasks form a single unit of work for one subagent.
+
+If there is no `<!-- BATCH -->` marker before the current task, treat it as a single task (the default).
+
+### For each task (or batch):
+
+1. **Show the user** what you're about to execute. For a batch, list all tasks in the group.
 2. **Give a 15-second countdown with auto-proceed.** Do NOT use AskUserQuestion (it blocks forever). Instead, use the Bash tool to run a countdown timer that auto-proceeds:
 
    ```bash
-   echo "⏳ Starting **{task number}**: {short description}"; echo "   Type 'skip' or 'stop', or press Enter to go now."; input=""; for i in $(seq 15 -1 1); do printf "\r   %2ds remaining... " "$i"; if read -t 1 -r input 2>/dev/null; then break; fi; done; printf "\r                       \r"; echo "${input:-auto}"
+   echo "⏳ Starting **{task number(s)}**: {short description}"; echo "   Type 'skip' or 'stop', or press Enter to go now."; input=""; for i in $(seq 15 -1 1); do printf "\r   %2ds remaining... " "$i"; if read -t 1 -r input 2>/dev/null; then break; fi; done; printf "\r                       \r"; echo "${input:-auto}"
    ```
 
    Parse the output:
    - If output is "auto" or empty → **auto-proceed** (launch the subagent).
-   - If output is "skip" → skip to the next task.
+   - If output is "skip" → skip to the next task/batch.
    - If output is "stop" → end the loop.
    - Any other text → treat as guidance and pass it to the subagent as additional context.
 3. **Launch a subagent** using the Agent tool with this prompt:
 
+For a **single task**:
 ```
 You are executing a single task from a plan.
 
@@ -102,13 +111,45 @@ The full plan is provided below so you do not need to read the plan file. Use th
 - When done, respond with a brief summary of what you did.
 ```
 
-4. After the subagent completes, **re-read the plan file from disk** to pick up the checked-off task, then find the next unchecked task (`- [ ]`).
+For a **batch of tasks**:
+```
+You are executing a batch of related tasks from a plan.
+
+## Your Tasks
+
+{numbered list of all tasks in the batch, each with its description}
+
+**Plan file:** {plan_path}
+**Working directory:** {cwd}
+
+## Plan Context
+
+The full plan is provided below so you do not need to read the plan file. Use this for architecture, project structure, and dependency context:
+
+<plan>
+{plan_content}
+</plan>
+
+## Coding Agent Rules
+
+{coding_agent_rules OR "No coding agent rules file found — use your best judgment."}
+
+## Instructions
+
+- Execute ALL of the tasks listed above. They are related and should be done together.
+- Work through them in order, but use your judgment — if implementing one naturally completes another, that's fine.
+- When each task is complete, edit the plan file to check it off: change `- [ ]` to `- [x]` for that task's line.
+- If you need clarification from the user, ask — do not guess.
+- When done, respond with a brief summary of what you did for each task.
+```
+
+4. After the subagent completes, **re-read the plan file from disk** to pick up the checked-off tasks, then find the next unchecked task (`- [ ]`).
 5. Repeat until all tasks are checked or the user stops the loop.
 
 ## Important rules
 
 - **Auto-proceed by default.** Do NOT block waiting for user confirmation. Show the task, give a 15-second window, then go. The user can always type during the window or interrupt with Ctrl+C.
-- **One task at a time.** Never run multiple tasks in a single subagent.
+- **One task at a time by default.** Never run multiple tasks in a single subagent unless they are grouped by a `<!-- BATCH -->` marker in the plan.
 - **Respect parallel markers.** If the plan marks tasks as parallelizable (e.g., "PARALLEL", "Yes" in a parallel column), you MAY launch multiple subagents concurrently for those tasks. Show what you're about to launch and give the 15-second window before starting the batch.
 - **Respect sequential markers.** If tasks are marked sequential or have dependencies, run them one at a time in order.
 - **Don't accumulate context.** Each subagent is independent. The plan file on disk is the shared state for *completion tracking only*. Never pass conversation history or prior subagent results into a new subagent — only the task description, pre-loaded plan context, and coding agent rules.

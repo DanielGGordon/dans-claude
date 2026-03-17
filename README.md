@@ -150,6 +150,7 @@ Use the plan-reviewer agent to check plan.md
   5. Launches a subagent per task (fresh context, no history bleed)
   6. Subagent checks off the task (`- [x]`) when the completion criterion is met
   7. Respects parallel/sequential markers in the plan — offers to run parallel tasks concurrently
+  8. Respects `<!-- BATCH -->` markers — sends all consecutive unchecked tasks after the marker to a single subagent
 
   **Stopping and resuming:** Ctrl+C or tell it to stop. Next time you run `/ralph`, it picks up from the first unchecked task.
 
