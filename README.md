@@ -40,6 +40,8 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── skills/
 │   ├── ralph/
 │   │   └── SKILL.md         # Ralph loop: execute plans task-by-task with context reset
+│   ├── ralph-codex/
+│   │   └── SKILL.md         # Ralph-Codex: execute plans with OpenAI Codex CLI in one shot
 │   ├── review-plan/
 │   │   └── SKILL.md         # On-demand plan review and auto-fix
 │   ├── write-a-prd/
@@ -150,6 +152,24 @@ Use the plan-reviewer agent to check plan.md
   7. Respects parallel/sequential markers in the plan — offers to run parallel tasks concurrently
 
   **Stopping and resuming:** Ctrl+C or tell it to stop. Next time you run `/ralph`, it picks up from the first unchecked task.
+
+- **`skills/ralph-codex`** — Ralph-Codex: executes a plan file using OpenAI Codex CLI in a single automated shot. Codex reads the plan, executes the next unchecked task, and checks it off — with full permissions and zero user interaction.
+  ```
+  /ralph-codex                       # auto-finds plan.md or checks ~/.claude/plans/
+  /ralph-codex path/to/my-plan.md   # explicit plan path
+  ```
+  **What it does:**
+  1. Finds and reads the plan file
+  2. Adds `- [ ]` checkboxes to tasks if they don't exist (converts tables to checkbox lists)
+  3. Pre-loads plan context and `CODING_AGENTS.md`, embedding them in the codex prompt
+  4. Builds a comprehensive prompt with all plan context, coding standards, and working directory
+  5. Calls `codex exec --full-auto --dangerously-bypass-approvals-and-sandbox` with full permissions
+  6. Codex executes the next unchecked task and checks it off (`- [x]`) when complete
+  7. Reports task completion and repeats for the next unchecked task
+
+  **When to use it:** For linear, independent tasks where you want pure automation without user interaction or approval windows. Codex operates in a single execution context, so all plan context is visible at once — useful for interdependent tasks but less transparent than ralph's step-by-step progress.
+
+  **Stopping and resuming:** Same as `/ralph` — the plan file on disk is the source of truth. Run `/ralph-codex` again to pick up from the first unchecked task.
 
 - **`skills/review-plan`** — Plan Review & Auto-Fix: on-demand plan review that finds the active plan, runs the `plan-reviewer` agent against `plan-requirements.md`, and automatically edits the plan to fix any issues.
   ```
