@@ -40,8 +40,21 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── skills/
 │   ├── ralph/
 │   │   └── SKILL.md         # Ralph loop: execute plans task-by-task with context reset
-│   └── review-plan/
-│       └── SKILL.md         # On-demand plan review and auto-fix
+│   ├── review-plan/
+│   │   └── SKILL.md         # On-demand plan review and auto-fix
+│   ├── write-a-prd/
+│   │   └── SKILL.md         # Create a PRD through interview and design
+│   ├── prd-to-plan/
+│   │   └── SKILL.md         # Break a PRD into tracer-bullet phases
+│   ├── grill-me/
+│   │   └── SKILL.md         # Interview relentlessly about a plan
+│   └── tdd/
+│       ├── SKILL.md         # Test-driven development workflow
+│       ├── deep-modules.md  # Designing deep modules for testability
+│       ├── interface-design.md  # API design for testability
+│       ├── mocking.md       # Mocking guidelines
+│       ├── refactoring.md   # Refactoring checklist
+│       └── tests.md         # Test examples
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md
 ```
@@ -96,43 +109,61 @@ Use the plan-reviewer agent to check plan.md
 
 ## Skills
 
-### `skills/ralph.md` — Ralph Loop
+### Planning & Design
 
-Executes a plan file task-by-task, dispatching each task to a fresh subagent so context resets between tasks. The plan file on disk is the shared state.
+- **`skills/write-a-prd`** — Create a PRD through user interview, codebase exploration, and module design, then submit as a GitHub issue.
+  ```
+  /write-a-prd
+  ```
 
-```
-/ralph                          # auto-finds plan.md or checks ~/.claude/plans/
-/ralph path/to/my-plan.md      # explicit plan path
-```
+- **`skills/prd-to-plan`** — Break a PRD into a phased implementation plan using vertical slices (tracer bullets), saved as a Markdown file in `./plans/`.
+  ```
+  /prd-to-plan
+  ```
 
-**What it does:**
-1. Finds and reads the plan file
-2. Adds `- [ ]` checkboxes to tasks if they don't exist (converts tables to checkbox lists)
-3. Pre-loads plan context and `CODING_AGENTS.md` once, injecting them into every subagent (avoids redundant re-reads)
-4. Prints ASCII Ralph Wiggum, then shows each task with a 15-second countdown before executing
-5. Launches a subagent per task (fresh context, no history bleed)
-6. Subagent checks off the task (`- [x]`) when the completion criterion is met
-7. Respects parallel/sequential markers in the plan — offers to run parallel tasks concurrently
+- **`skills/grill-me`** — Interview you relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree.
+  ```
+  /grill-me
+  ```
 
-**Stopping and resuming:** Ctrl+C or tell it to stop. Next time you run `/ralph`, it picks up from the first unchecked task.
+### Development
 
-### `skills/review-plan` — Plan Review & Auto-Fix
+- **`skills/tdd`** — Test-driven development with red-green-refactor loop. Builds features or fixes bugs one vertical slice at a time.
+  ```
+  /tdd
+  ```
 
-On-demand plan review that finds the active plan, runs the `plan-reviewer` agent against `plan-requirements.md`, and automatically edits the plan to fix any issues. Capped at 2 revision rounds to avoid loops.
+### Execution & Review
 
-```
-/review-plan                    # auto-finds plan in ~/.claude/plans/ or CWD
-```
+- **`skills/ralph`** — Ralph Loop: executes a plan file task-by-task, dispatching each task to a fresh subagent so context resets between tasks.
+  ```
+  /ralph                          # auto-finds plan.md or checks ~/.claude/plans/
+  /ralph path/to/my-plan.md      # explicit plan path
+  ```
+  **What it does:**
+  1. Finds and reads the plan file
+  2. Adds `- [ ]` checkboxes to tasks if they don't exist (converts tables to checkbox lists)
+  3. Pre-loads plan context and `CODING_AGENTS.md` once, injecting them into every subagent (avoids redundant re-reads)
+  4. Prints ASCII Ralph Wiggum, then shows each task with a 15-second countdown before executing
+  5. Launches a subagent per task (fresh context, no history bleed)
+  6. Subagent checks off the task (`- [x]`) when the completion criterion is met
+  7. Respects parallel/sequential markers in the plan — offers to run parallel tasks concurrently
 
-**What it does:**
-1. Finds the active plan file (most recent in `~/.claude/plans/*.md`, or `plan.md`/`PLAN.md` in CWD)
-2. Launches the `plan-reviewer` agent to validate against requirements
-3. If the plan passes, reports success and stops
-4. If the plan fails, reads the reviewer feedback and edits the plan to address every issue
-5. Re-runs the reviewer to confirm fixes landed
-6. If still failing, makes one more revision pass (max 2 rounds), then reports any remaining issues
+  **Stopping and resuming:** Ctrl+C or tell it to stop. Next time you run `/ralph`, it picks up from the first unchecked task.
 
-**When to use it:** Mid-planning when you want to check your plan without exiting plan mode. The Stop hook reviews automatically on exit; this skill lets you review on demand at any point.
+- **`skills/review-plan`** — Plan Review & Auto-Fix: on-demand plan review that finds the active plan, runs the `plan-reviewer` agent against `plan-requirements.md`, and automatically edits the plan to fix any issues.
+  ```
+  /review-plan                    # auto-finds plan in ~/.claude/plans/ or CWD
+  ```
+  **What it does:**
+  1. Finds the active plan file (most recent in `~/.claude/plans/*.md`, or `plan.md`/`PLAN.md` in CWD)
+  2. Launches the `plan-reviewer` agent to validate against requirements
+  3. If the plan passes, reports success and stops
+  4. If the plan fails, reads the reviewer feedback and edits the plan to address every issue
+  5. Re-runs the reviewer to confirm fixes landed
+  6. If still failing, makes one more revision pass (max 2 rounds), then reports any remaining issues
+
+  **When to use it:** Mid-planning when you want to check your plan without exiting plan mode. The Stop hook reviews automatically on exit; this skill lets you review on demand at any point.
 
 ### Adding a new skill
 
