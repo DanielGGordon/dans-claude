@@ -43,8 +43,9 @@ Before entering the task loop, read the following files **once** and hold their 
 
 1. **The plan file** — read the full contents. This gives you the architecture, project structure, dependencies, and all task context that subagents will need.
 2. **CODING_AGENTS.md** — read `~/.claude/CODING_AGENTS.md` (coding agent rules). If the file doesn't exist, skip it and continue.
+3. **Recent git history** — run `git log --oneline -3` and store the output. This gives subagents context on what has been done recently.
 
-Store both as variables (e.g., `plan_content` and `coding_agent_rules`) to inject into subagent prompts. This avoids every subagent redundantly re-reading the same files.
+Store all as variables (e.g., `plan_content`, `coding_agent_rules`, and `recent_commits`) to inject into subagent prompts. This avoids every subagent redundantly re-reading the same files.
 
 ## Step 4: Print Ralph and begin the loop
 
@@ -67,10 +68,10 @@ If there is no `<!-- BATCH -->` marker before the current task, treat it as a si
 ### For each task (or batch):
 
 1. **Show the user** what you're about to execute. For a batch, list all tasks in the group.
-2. **Give a 15-second countdown with auto-proceed.** Do NOT use AskUserQuestion (it blocks forever). Instead, use the Bash tool to run a countdown timer that auto-proceeds:
+2. **Give a 3-second countdown with auto-proceed.** Do NOT use AskUserQuestion (it blocks forever). Instead, use the Bash tool to run a countdown timer that auto-proceeds:
 
    ```bash
-   echo "⏳ Starting **{task number(s)}**: {short description}"; echo "   Type 'skip' or 'stop', or press Enter to go now."; input=""; for i in $(seq 15 -1 1); do printf "\r   %2ds remaining... " "$i"; if read -t 1 -r input 2>/dev/null; then break; fi; done; printf "\r                       \r"; echo "${input:-auto}"
+   echo "⏳ Starting **{task number(s)}**: {short description}"; echo "   Type 'skip' or 'stop', or press Enter to go now."; input=""; for i in $(seq 3 -1 1); do printf "\r   %2ds remaining... " "$i"; if read -t 1 -r input 2>/dev/null; then break; fi; done; printf "\r                       \r"; echo "${input:-auto}"
    ```
 
    Parse the output:
@@ -98,6 +99,12 @@ The full plan is provided below so you do not need to read the plan file. Use th
 <plan>
 {plan_content}
 </plan>
+
+## Recent Commits
+
+These are the last 3 commits in the repo — read them to understand what work has been done recently:
+
+{recent_commits OR "No git history available."}
 
 ## Coding Agent Rules
 
@@ -130,6 +137,12 @@ The full plan is provided below so you do not need to read the plan file. Use th
 {plan_content}
 </plan>
 
+## Recent Commits
+
+These are the last 3 commits in the repo — read them to understand what work has been done recently:
+
+{recent_commits OR "No git history available."}
+
 ## Coding Agent Rules
 
 {coding_agent_rules OR "No coding agent rules file found — use your best judgment."}
@@ -144,11 +157,12 @@ The full plan is provided below so you do not need to read the plan file. Use th
 ```
 
 4. After the subagent completes, **re-read the plan file from disk** to pick up the checked-off tasks, then find the next unchecked task (`- [ ]`).
-5. Repeat until all tasks are checked or the user stops the loop.
+5. **Compact every 3 tasks.** Keep a counter of completed tasks in the current session. After every 3rd task completes, run `/compact` to free up context before continuing. Also re-read the recent git history (`git log --oneline -3`) to refresh `recent_commits` for the next subagent.
+6. Repeat until all tasks are checked or the user stops the loop.
 
 ## Important rules
 
-- **Auto-proceed by default.** Do NOT block waiting for user confirmation. Show the task, give a 15-second window, then go. The user can always type during the window or interrupt with Ctrl+C.
+- **Auto-proceed by default.** Do NOT block waiting for user confirmation. Show the task, give a 3-second window, then go. The user can always type during the window or interrupt with Ctrl+C.
 - **One task at a time by default.** Never run multiple tasks in a single subagent unless they are grouped by a `<!-- BATCH -->` marker in the plan.
 - **Respect parallel markers.** If the plan marks tasks as parallelizable (e.g., "PARALLEL", "Yes" in a parallel column), you MAY launch multiple subagents concurrently for those tasks. Show what you're about to launch and give the 15-second window before starting the batch.
 - **Respect sequential markers.** If tasks are marked sequential or have dependencies, run them one at a time in order.
