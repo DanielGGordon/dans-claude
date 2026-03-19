@@ -25,6 +25,8 @@ PLAN_PATH=""
 INBOX_FILE=".ralph-inbox"       # user drops guidance here from any terminal
 LAST_RESULT=""                  # captured from agent's final output
 USER_GUIDANCE=""                # accumulated from inbox + countdown + follow-up
+START_TIME=""                   # epoch seconds, set when loop begins
+INPUT_PID=""                    # background stdin reader PID
 
 # ─── Argument parsing ────────────────────────────────────────────────────────
 
@@ -266,6 +268,70 @@ handle_followup() {
     fi
 }
 
+# ─── Time tracking ──────────────────────────────────────────────────────────
+
+elapsed() {
+    local now
+    now="$(date +%s)"
+    local secs=$(( now - START_TIME ))
+    local h=$(( secs / 3600 ))
+    local m=$(( (secs % 3600) / 60 ))
+    local s=$(( secs % 60 ))
+    if [[ $h -gt 0 ]]; then
+        printf "%dh%02dm%02ds" "$h" "$m" "$s"
+    elif [[ $m -gt 0 ]]; then
+        printf "%dm%02ds" "$m" "$s"
+    else
+        printf "%ds" "$s"
+    fi
+}
+
+# Count total and completed tasks in plan
+count_tasks() {
+    local total=0 done=0
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*-\ \[[xX]\] ]]; then
+            done=$((done + 1))
+            total=$((total + 1))
+        elif [[ "$line" =~ ^[[:space:]]*-\ \[\ \] ]]; then
+            total=$((total + 1))
+        fi
+    done < "$PLAN_PATH"
+    echo "${done}/${total}"
+}
+
+# Print a status line with time, cost, progress
+status_line() {
+    local progress
+    progress="$(count_tasks)"
+    echo "  ⏱ $(elapsed) | 💰 \$${total_cost} | 📋 ${progress} tasks"
+}
+
+# ─── Same-terminal chat ─────────────────────────────────────────────────────
+
+# Start a background reader on stdin so user can type messages while agent runs.
+# Messages go to the inbox file; ralph picks them up before the next task.
+start_input_reader() {
+    # Only start if stdin is a terminal
+    [[ -t 0 ]] || return 0
+    (
+        while IFS= read -r line </dev/tty 2>/dev/null; do
+            [[ -z "$line" ]] && continue
+            echo "$line" >> "$INBOX_FILE"
+            echo "  📬 Queued: $line" >/dev/tty
+        done
+    ) &
+    INPUT_PID=$!
+}
+
+stop_input_reader() {
+    if [[ -n "$INPUT_PID" ]] && kill -0 "$INPUT_PID" 2>/dev/null; then
+        kill "$INPUT_PID" 2>/dev/null
+        wait "$INPUT_PID" 2>/dev/null || true
+        INPUT_PID=""
+    fi
+}
+
 # ─── Build prompt ────────────────────────────────────────────────────────────
 
 build_single_prompt() {
@@ -389,6 +455,7 @@ GUIDE
 CLAUDE_PID=""
 
 cleanup() {
+    stop_input_reader
     if [[ -n "$CLAUDE_PID" ]] && kill -0 "$CLAUDE_PID" 2>/dev/null; then
         kill "$CLAUDE_PID" 2>/dev/null
         wait "$CLAUDE_PID" 2>/dev/null
@@ -397,6 +464,8 @@ cleanup() {
 
 run_claude() {
     local prompt="$1"
+    # Start background stdin reader so user can chat while agent works
+    start_input_reader
     # Run claude in a background job so we can track its PID for cleanup
     coproc CLAUDE_PROC {
         claude -p \
@@ -411,6 +480,8 @@ run_claude() {
     wait "$CLAUDE_PID" 2>/dev/null
     local rc=$?
     CLAUDE_PID=""
+    # Stop background stdin reader
+    stop_input_reader
     return $rc
 }
 
@@ -548,7 +619,7 @@ trap '
     echo ""
     cleanup
     accumulate_cost
-    echo "🛑 Stopped by user after ${completed} tasks completed, ${failed} failed. 💰 Total: \$${total_cost}"
+    echo "🛑 Stopped after ${completed} tasks, ${failed} failed. ⏱ $(elapsed) | 💰 \$${total_cost}"
     if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
         git stash push -u -m "ralph: interrupted after ${completed} tasks completed" 2>/dev/null \
             && echo "📦 Changes stashed (git stash pop to restore)" \
@@ -557,13 +628,16 @@ trap '
     exit 0
 ' INT
 
-echo "📬 Tip: send guidance any time with: echo 'your message' > $INBOX_FILE"
+START_TIME="$(date +%s)"
+
+echo "📬 Type a message any time — it will be sent to the next agent."
 echo ""
 
 while true; do
     local_result="$(find_next_task)"
     if [[ -z "$local_result" ]]; then
-        echo "✅ All tasks complete! (${completed} completed, ${failed} failed) 💰 Total: \$${total_cost}"
+        echo "✅ All tasks complete! (${completed} completed, ${failed} failed)"
+        status_line
         break
     fi
 
@@ -621,7 +695,7 @@ while true; do
             echo ""
             echo "❌ Batch failed (exit code: $?)"
         fi
-        echo "  💰 Running total: \$${total_cost}"
+        status_line
 
         # Check if agent asked a question — pause for user if so
         if [[ -s "$RESULT_TMPFILE" ]]; then
@@ -670,7 +744,7 @@ while true; do
             echo ""
             echo "❌ Task failed (exit code: $?)"
         fi
-        echo "  💰 Running total: \$${total_cost}"
+        status_line
 
         # Check if agent asked a question — pause for user if so
         if [[ -s "$RESULT_TMPFILE" ]]; then
