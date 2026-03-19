@@ -538,7 +538,7 @@ accumulate_cost() {
     if [[ -s "$COST_TMPFILE" ]]; then
         local task_cost
         task_cost="$(cat "$COST_TMPFILE")"
-        total_cost="$(echo "$total_cost + $task_cost" | bc 2>/dev/null || echo "$total_cost")"
+        total_cost="$(awk "BEGIN {printf \"%.8f\", $total_cost + $task_cost}")"
         > "$COST_TMPFILE"
     fi
 }
