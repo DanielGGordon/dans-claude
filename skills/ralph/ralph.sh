@@ -7,16 +7,24 @@ set -euo pipefail
 #
 # Each task gets a fresh claude invocation with zero context carryover.
 # The plan file on disk is the only shared state.
+#
+# Interactive features:
+#   Inbox:     echo "guidance" > .ralph-inbox  (from any terminal, any time)
+#   Countdown: type during the between-task pause to add guidance
+#   Follow-up: ralph detects when an agent asks a question and pauses for you
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 CODING_AGENTS_FILE="$HOME/.claude/CODING_AGENTS.md"
 RALPH_ASCII="$HOME/.claude/skills/ralph/ralph-ascii.txt"
 MAX_TURNS="${RALPH_MAX_TURNS:-50}"
-DELAY="${RALPH_DELAY:-3}"       # seconds between tasks (for user to ctrl+c)
+DELAY="${RALPH_DELAY:-5}"       # seconds between tasks (interactive countdown)
 DRY_RUN=false
 BATCH_MODE=false
 PLAN_PATH=""
+INBOX_FILE=".ralph-inbox"       # user drops guidance here from any terminal
+LAST_RESULT=""                  # captured from agent's final output
+USER_GUIDANCE=""                # accumulated from inbox + countdown + follow-up
 
 # ─── Argument parsing ────────────────────────────────────────────────────────
 
@@ -32,8 +40,13 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --dry-run     Show what would be executed without running claude"
             echo "  --max-turns   Max agentic turns per task (default: 50, env: RALPH_MAX_TURNS)"
-            echo "  --delay       Seconds to wait between tasks for ctrl+c (default: 3, env: RALPH_DELAY)"
+            echo "  --delay       Seconds for interactive countdown (default: 5, env: RALPH_DELAY)"
             echo "  --batch       Process <!-- BATCH --> groups as single invocations"
+            echo ""
+            echo "Interactive features:"
+            echo "  Inbox:     echo 'guidance' > .ralph-inbox  (from any terminal, any time)"
+            echo "  Countdown: type during the pause between tasks to add guidance"
+            echo "  Follow-up: ralph pauses when an agent asks a question"
             echo ""
             echo "Environment variables:"
             echo "  RALPH_MAX_TURNS  Same as --max-turns"
@@ -99,6 +112,7 @@ echo ""
 [[ -f "$RALPH_ASCII" ]] && cat "$RALPH_ASCII"
 echo "Plan: $PLAN_PATH"
 echo "Working directory: $WORK_DIR"
+echo "Inbox: $WORK_DIR/$INBOX_FILE"
 echo ""
 
 # ─── Pre-load context ────────────────────────────────────────────────────────
@@ -171,6 +185,87 @@ extract_criterion() {
     fi
 }
 
+# ─── Inbox & interaction ─────────────────────────────────────────────────────
+
+# Read and clear the inbox file (user can write to it any time from any terminal)
+read_inbox() {
+    if [[ -f "$INBOX_FILE" ]] && [[ -s "$INBOX_FILE" ]]; then
+        local contents
+        contents="$(cat "$INBOX_FILE")"
+        > "$INBOX_FILE"  # clear it (one-shot)
+        echo "$contents"
+    fi
+}
+
+# Check if the agent's output looks like it's asking the user a question
+needs_followup() {
+    local result="$1"
+    [[ -z "$result" ]] && return 1
+    echo "$result" | grep -qiE \
+        '(need clarification|which approach|should [iI]|blocked by|unclear|question:|please confirm|please advise|awaiting|before I proceed|could you|can you clarify|not sure whether|two options|either .+ or)'
+}
+
+# Interactive countdown — user can type guidance, skip, or stop
+# Also checks inbox file. Returns accumulated guidance in $USER_GUIDANCE.
+interactive_countdown() {
+    local task_desc="$1"
+    local guidance=""
+
+    # Always check inbox first (may have been written while previous task ran)
+    local inbox_msg
+    inbox_msg="$(read_inbox)"
+    if [[ -n "$inbox_msg" ]]; then
+        echo "  📬 Inbox: ${inbox_msg}"
+        guidance+="${inbox_msg}"$'\n'
+    fi
+
+    if [[ "$DELAY" -le 0 ]]; then
+        USER_GUIDANCE="$guidance"
+        return 0  # auto-proceed
+    fi
+
+    # Show prompt and countdown with read -t
+    printf "  > (%ds) guidance, 'skip', 'stop', or Enter: " "$DELAY"
+    local input=""
+    if read -t "$DELAY" -r input; then
+        # User typed something before timer expired
+        case "$input" in
+            skip) USER_GUIDANCE=""; return 1 ;;
+            stop) USER_GUIDANCE=""; return 2 ;;
+            "")   ;;  # just pressed Enter — proceed
+            *)    guidance+="${input}"$'\n' ;;
+        esac
+    fi
+    printf "\r%80s\r" ""  # clear the countdown line
+
+    USER_GUIDANCE="$guidance"
+    return 0  # proceed
+}
+
+# After an agent finishes, check if it asked a question. If so, pause and prompt user.
+# Appends user's reply to $USER_GUIDANCE for the next task.
+handle_followup() {
+    local result="$1"
+    USER_GUIDANCE=""
+
+    if needs_followup "$result"; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "⚠️  Agent is asking for input:"
+        # Show last 5 lines of result (likely contains the question)
+        echo "$result" | tail -5 | sed 's/^/  /'
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        printf "  > reply, 'skip', or 'stop': "
+        local reply=""
+        read -r reply
+        case "$reply" in
+            skip) return 0 ;;
+            stop) echo "🛑 Stopped by user."; exit 0 ;;
+            *)    USER_GUIDANCE="$reply" ;;
+        esac
+    fi
+}
+
 # ─── Build prompt ────────────────────────────────────────────────────────────
 
 build_single_prompt() {
@@ -212,8 +307,21 @@ ${CODING_RULES:-No coding agent rules file found — use your best judgment.}
 
 - Execute ONLY this single task. Do not work on other tasks.
 - When the task is complete and the completion criterion is met, edit the plan file to check off this task: change \`- [ ]\` to \`- [x]\` for this task's line.
+- If you need clarification from the user, say so clearly at the end of your response. The orchestrator will detect this and pause for user input.
 - When done, respond with a brief summary of what you did.
 PROMPT
+
+    # Append user guidance if present
+    if [[ -n "$USER_GUIDANCE" ]]; then
+        cat <<GUIDE
+
+## User Guidance
+
+The user has provided the following context for this task. Read carefully and follow:
+
+${USER_GUIDANCE}
+GUIDE
+    fi
 }
 
 build_batch_prompt() {
@@ -259,31 +367,203 @@ ${CODING_RULES:-No coding agent rules file found — use your best judgment.}
 - Execute ALL of the tasks listed above. They are related and should be done together.
 - Work through them in order, but use your judgment — if implementing one naturally completes another, that's fine.
 - When each task is complete, edit the plan file to check it off: change \`- [ ]\` to \`- [x]\` for that task's line.
+- If you need clarification from the user, say so clearly at the end of your response. The orchestrator will detect this and pause for user input.
 - When done, respond with a brief summary of what you did for each task.
 PROMPT
+
+    # Append user guidance if present
+    if [[ -n "$USER_GUIDANCE" ]]; then
+        cat <<GUIDE
+
+## User Guidance
+
+The user has provided the following context for this task. Read carefully and follow:
+
+${USER_GUIDANCE}
+GUIDE
+    fi
 }
 
 # ─── Execute ─────────────────────────────────────────────────────────────────
 
+CLAUDE_PID=""
+
+cleanup() {
+    if [[ -n "$CLAUDE_PID" ]] && kill -0 "$CLAUDE_PID" 2>/dev/null; then
+        kill "$CLAUDE_PID" 2>/dev/null
+        wait "$CLAUDE_PID" 2>/dev/null
+    fi
+}
+
 run_claude() {
     local prompt="$1"
-    claude -p \
-        --max-turns "$MAX_TURNS" \
-        --dangerously-skip-permissions \
-        --output-format text \
-        <<< "$prompt"
+    # Run claude in a background job so we can track its PID for cleanup
+    coproc CLAUDE_PROC {
+        claude -p \
+            --max-turns "$MAX_TURNS" \
+            --dangerously-skip-permissions \
+            --verbose \
+            --output-format stream-json \
+            <<< "$prompt"
+    }
+    CLAUDE_PID=$CLAUDE_PROC_PID
+    parse_stream <&"${CLAUDE_PROC[0]}"
+    wait "$CLAUDE_PID" 2>/dev/null
+    local rc=$?
+    CLAUDE_PID=""
+    return $rc
+}
+
+# Format tool detail from tool name + input JSON
+format_tool_detail() {
+    local name="$1" input="$2"
+    local detail=""
+    case "$name" in
+        Read|Write)
+            detail="$(printf '%s' "$input" | jq -r '.file_path // empty' 2>/dev/null)"
+            [[ -n "$detail" ]] && detail="$(basename "$detail")"
+            ;;
+        Edit)
+            local fp
+            fp="$(printf '%s' "$input" | jq -r '.file_path // empty' 2>/dev/null)"
+            [[ -n "$fp" ]] && detail="$(basename "$fp")"
+            ;;
+        Bash)
+            detail="$(printf '%s' "$input" | jq -r '.command // empty' 2>/dev/null)"
+            # Truncate long commands
+            if [[ ${#detail} -gt 80 ]]; then
+                detail="${detail:0:77}..."
+            fi
+            ;;
+        Grep)
+            local pat path
+            pat="$(printf '%s' "$input" | jq -r '.pattern // empty' 2>/dev/null)"
+            path="$(printf '%s' "$input" | jq -r '.path // empty' 2>/dev/null)"
+            [[ -n "$path" ]] && path="$(basename "$path")"
+            detail="${pat:+/$pat/}${path:+ in $path}"
+            ;;
+        Glob)
+            detail="$(printf '%s' "$input" | jq -r '.pattern // empty' 2>/dev/null)"
+            ;;
+        Agent)
+            detail="$(printf '%s' "$input" | jq -r '.description // empty' 2>/dev/null)"
+            ;;
+        *)
+            detail=""
+            ;;
+    esac
+    if [[ -n "$detail" ]]; then
+        echo "  🔧 $name — $detail"
+    else
+        echo "  🔧 $name"
+    fi
+}
+
+# Parse stream-json output to show live progress
+parse_stream() {
+    local final_text=""
+    while IFS= read -r line; do
+        # Skip empty lines
+        [[ -z "$line" ]] && continue
+
+        local type
+        type="$(printf '%s' "$line" | jq -r '.type // empty' 2>/dev/null)" || continue
+
+        case "$type" in
+            assistant)
+                # Tool use — show which tool is being called with detail
+                printf '%s' "$line" | jq -r '
+                    .message.content[]? |
+                    select(.type == "tool_use") |
+                    "\(.name)\t\(.input | @json)"
+                ' 2>/dev/null | while IFS=$'\t' read -r tool_name tool_input; do
+                    [[ -n "$tool_name" ]] && format_tool_detail "$tool_name" "$tool_input"
+                done
+                ;;
+            content_block_start)
+                local block_type tool
+                block_type="$(printf '%s' "$line" | jq -r '.content_block.type // empty' 2>/dev/null)"
+                if [[ "$block_type" == "tool_use" ]]; then
+                    tool="$(printf '%s' "$line" | jq -r '.content_block.name // empty' 2>/dev/null)"
+                    [[ -n "$tool" ]] && echo "  🔧 $tool"
+                fi
+                ;;
+            content_block_delta)
+                # Capture text deltas for final summary
+                local delta_type text_val
+                delta_type="$(printf '%s' "$line" | jq -r '.delta.type // empty' 2>/dev/null)"
+                if [[ "$delta_type" == "text_delta" ]]; then
+                    text_val="$(printf '%s' "$line" | jq -r '.delta.text // empty' 2>/dev/null)"
+                    final_text+="$text_val"
+                fi
+                ;;
+            result)
+                # Final result — extract and display the text
+                local result_text
+                result_text="$(printf '%s' "$line" | jq -r '.result // empty' 2>/dev/null)"
+                if [[ -n "$result_text" ]]; then
+                    echo ""
+                    echo "$result_text"
+                    echo "$result_text" > "$RESULT_TMPFILE"
+                elif [[ -n "$final_text" ]]; then
+                    echo ""
+                    echo "$final_text"
+                    echo "$final_text" > "$RESULT_TMPFILE"
+                fi
+                # Show cost if available
+                local cost_usd
+                cost_usd="$(printf '%s' "$line" | jq -r '.total_cost_usd // empty' 2>/dev/null)"
+                if [[ -n "$cost_usd" ]]; then
+                    echo "  💰 Cost: \$${cost_usd}"
+                    # Write cost to temp file so parent shell can read it
+                    echo "$cost_usd" > "$COST_TMPFILE"
+                fi
+                ;;
+        esac
+    done
 }
 
 completed=0
 failed=0
+consecutive_fails=0
+MAX_CONSECUTIVE_FAILS=3
+last_failed_task=""
+total_cost=0
+COST_TMPFILE="$(mktemp)"
+RESULT_TMPFILE="$(mktemp)"   # agent's final output, for follow-up detection
+trap 'rm -f "$COST_TMPFILE" "$RESULT_TMPFILE"' EXIT
 
-# Trap ctrl+c for clean exit
-trap 'echo ""; echo "🛑 Stopped by user after ${completed} tasks completed, ${failed} failed."; exit 0' INT
+# Read task cost from temp file and accumulate
+accumulate_cost() {
+    if [[ -s "$COST_TMPFILE" ]]; then
+        local task_cost
+        task_cost="$(cat "$COST_TMPFILE")"
+        total_cost="$(echo "$total_cost + $task_cost" | bc 2>/dev/null || echo "$total_cost")"
+        > "$COST_TMPFILE"
+    fi
+}
+
+# Trap ctrl+c for clean exit — kill the running claude process
+trap '
+    echo ""
+    cleanup
+    accumulate_cost
+    echo "🛑 Stopped by user after ${completed} tasks completed, ${failed} failed. 💰 Total: \$${total_cost}"
+    if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+        git stash push -u -m "ralph: interrupted after ${completed} tasks completed" 2>/dev/null \
+            && echo "📦 Changes stashed (git stash pop to restore)" \
+            || echo "⚠️  git stash failed — changes left in working tree"
+    fi
+    exit 0
+' INT
+
+echo "📬 Tip: send guidance any time with: echo 'your message' > $INBOX_FILE"
+echo ""
 
 while true; do
     local_result="$(find_next_task)"
     if [[ -z "$local_result" ]]; then
-        echo "✅ All tasks complete! (${completed} completed, ${failed} failed)"
+        echo "✅ All tasks complete! (${completed} completed, ${failed} failed) 💰 Total: \$${total_cost}"
         break
     fi
 
@@ -302,7 +582,6 @@ while true; do
 
         if $DRY_RUN; then
             echo "[dry-run] Would execute batch of ${#batch_tasks[@]} tasks"
-            # Mark them done for dry-run progression
             for entry in "${batch_tasks[@]}"; do
                 local ln="${entry%%|*}"
                 sed -i "${ln}s/- \[ \]/- [x]/" "$PLAN_PATH"
@@ -311,22 +590,42 @@ while true; do
             continue
         fi
 
-        # Countdown
-        if [[ "$DELAY" -gt 0 ]]; then
-            echo "   Starting in ${DELAY}s... (ctrl+c to stop)"
-            sleep "$DELAY"
-        fi
+        # Interactive countdown (reads inbox + accepts typed input)
+        interactive_countdown "batch of ${#batch_tasks[@]} tasks"
+        rc=$?
+        if [[ $rc -eq 1 ]]; then echo "  ⏭️  Skipped"; continue; fi
+        if [[ $rc -eq 2 ]]; then echo "🛑 Stopped by user."; break; fi
 
+        > "$RESULT_TMPFILE"
         prompt="$(build_batch_prompt "${batch_tasks[@]}")"
         echo ""
         if run_claude "$prompt"; then
-            completed=$((completed + ${#batch_tasks[@]}))
-            echo ""
-            echo "✅ Batch complete"
+            accumulate_cost
+            new_result="$(find_next_task)"
+            new_task="${new_result#*|}"
+            if [[ "$new_task" == "${batch_tasks[0]#*|}" ]]; then
+                failed=$((failed + ${#batch_tasks[@]}))
+                consecutive_fails=$((consecutive_fails + 1))
+                echo ""
+                echo "❌ Batch failed (task not checked off)"
+            else
+                completed=$((completed + ${#batch_tasks[@]}))
+                consecutive_fails=0
+                echo ""
+                echo "✅ Batch complete"
+            fi
         else
+            accumulate_cost
             failed=$((failed + ${#batch_tasks[@]}))
+            consecutive_fails=$((consecutive_fails + 1))
             echo ""
             echo "❌ Batch failed (exit code: $?)"
+        fi
+        echo "  💰 Running total: \$${total_cost}"
+
+        # Check if agent asked a question — pause for user if so
+        if [[ -s "$RESULT_TMPFILE" ]]; then
+            handle_followup "$(cat "$RESULT_TMPFILE")"
         fi
     else
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -340,23 +639,51 @@ while true; do
             continue
         fi
 
-        # Countdown
-        if [[ "$DELAY" -gt 0 ]]; then
-            echo "   Starting in ${DELAY}s... (ctrl+c to stop)"
-            sleep "$DELAY"
-        fi
+        # Interactive countdown (reads inbox + accepts typed input)
+        interactive_countdown "$task_text"
+        rc=$?
+        if [[ $rc -eq 1 ]]; then echo "  ⏭️  Skipped"; continue; fi
+        if [[ $rc -eq 2 ]]; then echo "🛑 Stopped by user."; break; fi
 
+        > "$RESULT_TMPFILE"
         prompt="$(build_single_prompt "$task_text")"
         echo ""
         if run_claude "$prompt"; then
-            completed=$((completed + 1))
-            echo ""
-            echo "✅ Task complete"
+            accumulate_cost
+            new_result="$(find_next_task)"
+            new_task="${new_result#*|}"
+            if [[ "$new_task" == "$task_text" ]]; then
+                failed=$((failed + 1))
+                consecutive_fails=$((consecutive_fails + 1))
+                echo ""
+                echo "❌ Task failed (task not checked off)"
+            else
+                completed=$((completed + 1))
+                consecutive_fails=0
+                echo ""
+                echo "✅ Task complete"
+            fi
         else
+            accumulate_cost
             failed=$((failed + 1))
+            consecutive_fails=$((consecutive_fails + 1))
             echo ""
             echo "❌ Task failed (exit code: $?)"
         fi
+        echo "  💰 Running total: \$${total_cost}"
+
+        # Check if agent asked a question — pause for user if so
+        if [[ -s "$RESULT_TMPFILE" ]]; then
+            handle_followup "$(cat "$RESULT_TMPFILE")"
+        fi
+    fi
+
+    # Bail out if same task keeps failing
+    if [[ $consecutive_fails -ge $MAX_CONSECUTIVE_FAILS ]]; then
+        echo ""
+        echo "🛑 Stopping: $MAX_CONSECUTIVE_FAILS consecutive failures on the same task."
+        echo "   Fix the issue manually, then re-run ralph."
+        exit 1
     fi
 
     # Refresh plan content every 3 tasks for the prompt context
