@@ -157,7 +157,7 @@ These are the last 3 commits in the repo — read them to understand what work h
 ```
 
 4. After the subagent completes, **re-read the plan file from disk** to pick up the checked-off tasks, then find the next unchecked task (`- [ ]`).
-5. **Compact every 3 tasks.** Keep a counter of completed tasks in the current session. After every 3rd task completes, run `/compact` to free up context before continuing. Also re-read the recent git history (`git log --oneline -3`) to refresh `recent_commits` for the next subagent.
+5. **Refresh git history every 3 tasks.** Keep a counter of completed tasks. After every 3rd task, re-read the recent git history (`git log --oneline -3`) to refresh `recent_commits` for the next subagent.
 6. Repeat until all tasks are checked or the user stops the loop.
 
 ## Important rules
@@ -168,3 +168,8 @@ These are the last 3 commits in the repo — read them to understand what work h
 - **Respect sequential markers.** If tasks are marked sequential or have dependencies, run them one at a time in order.
 - **Don't accumulate context.** Each subagent is independent. The plan file on disk is the shared state for *completion tracking only*. Never pass conversation history or prior subagent results into a new subagent — only the task description, pre-loaded plan context, and coding agent rules.
 - **Re-read plan for task status only.** Between tasks, re-read the plan file only to find the next unchecked `- [ ]` task. Do not re-read for context — you already have that from Step 3.
+- **Minimize orchestrator output.** Do NOT echo or summarize subagent results. After a subagent completes, only output which task finished and whether it succeeded or failed. The subagent's detailed work is visible in its own output — repeating it in the orchestrator wastes context.
+
+## Known limitation
+
+There is no way to programmatically trigger `/compact` from within a skill. Context will grow over long runs as subagent result metadata accumulates. For plans with many tasks (20+), the orchestrator may hit context limits. Mitigation: keep orchestrator output minimal (see rule above), and the user can manually run `/compact` between tasks if needed.
