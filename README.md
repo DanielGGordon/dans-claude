@@ -12,7 +12,8 @@ bash ~/dotfiles/claude/install.sh
 The install script:
 1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, and `statusline-command.sh` into `~/.claude/`
 2. Deep-merges `settings.partial.json` into your existing `~/.claude/settings.json` (preserves CC-managed keys like model, permissions, plugins)
-3. Backs up any existing files before overwriting
+3. Adds `source ~/dotfiles/claude/aliases.sh` to `~/.bash_aliases` (creates the file if needed)
+4. Backs up any existing files before overwriting
 
 Then restart Claude Code (`/exit` or Ctrl+C, then run `claude`).
 
@@ -50,6 +51,9 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │   │   └── SKILL.md         # Break a PRD into tracer-bullet phases
 │   ├── grill-me/
 │   │   └── SKILL.md         # Interview relentlessly about a plan
+│   ├── excalidraw-diagram/  # Excalidraw diagram generation (cloned from GitHub)
+│   │   ├── SKILL.md         # Diagram design methodology + workflow
+│   │   └── references/      # Renderer, templates, color palette
 │   └── tdd/
 │       ├── SKILL.md         # Test-driven development workflow
 │       ├── deep-modules.md  # Designing deep modules for testability
@@ -57,6 +61,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │       ├── mocking.md       # Mocking guidelines
 │       ├── refactoring.md   # Refactoring checklist
 │       └── tests.md         # Test examples
+├── aliases.sh               # Shell aliases sourced from ~/.bash_aliases
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md
 ```
@@ -126,6 +131,13 @@ Use the plan-reviewer agent to check plan.md
 - **`skills/grill-me`** — Interview you relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree.
   ```
   /grill-me
+  ```
+
+### Diagrams
+
+- **`skills/excalidraw-diagram`** — Generate Excalidraw diagrams as `.excalidraw` JSON files and render them to PNG using headless Chromium. Cloned from [coleam00/excalidraw-diagram-skill](https://github.com/coleam00/excalidraw-diagram-skill). Requires `uv` and Playwright+Chromium (installed automatically by `install.sh` if `uv` is present).
+  ```
+  /excalidraw-diagram
   ```
 
 ### Development
@@ -222,6 +234,6 @@ Add entries to `settings.partial.json` and re-run `install.sh`:
 
 ## Notes
 
-- `statusline-command.sh` uses Python for JSON parsing (no `jq` dependency). Displays: 📁 directory, 🌿 git branch, 🧠 model, context bar (color shifts green→yellow→red, capped at 200k), input/output tokens, 💰 session cost, 🌲 worktree, 🤖 agent name.
+- `statusline-command.sh` uses Python for JSON parsing (no `jq` dependency). Displays: 📁 directory, 🌿 git branch, model + effort level (🔥 high / ⚡ medium / 🧊 low), true-color gradient context bar (green→yellow→red, fully red at 70%, capped at 200k), input/output tokens, 💰 session cost, 🌲 worktree, 🤖 agent name, 📡 remote control. Requires true-color (24-bit) terminal support.
 - `settings.partial.json` is deep-merged — it won't overwrite CC-managed keys like `model` or `permissions` unless you add them to the partial.
 - Per-machine overrides go in `~/.claude/settings.local.json` (CC-managed, not tracked here).

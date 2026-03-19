@@ -63,6 +63,31 @@ link "$REPO_DIR/statusline-command.sh" "$CLAUDE_DIR/statusline-command.sh"
 link "$REPO_DIR/CODING_AGENTS.md"    "$CLAUDE_DIR/CODING_AGENTS.md"
 link "$REPO_DIR/hooks"               "$CLAUDE_DIR/hooks"
 
+# --- Install excalidraw-diagram-skill ---
+
+EXCALIDRAW_REPO="https://github.com/coleam00/excalidraw-diagram-skill.git"
+EXCALIDRAW_DIR="$REPO_DIR/skills/excalidraw-diagram"
+
+if [ -d "$EXCALIDRAW_DIR/.git" ]; then
+  echo "  Updating excalidraw-diagram-skill..."
+  git -C "$EXCALIDRAW_DIR" pull --ff-only
+else
+  echo "  Cloning excalidraw-diagram-skill..."
+  git clone "$EXCALIDRAW_REPO" "$EXCALIDRAW_DIR"
+fi
+
+# Install Python deps for the renderer if uv is available
+if command -v uv >/dev/null 2>&1; then
+  echo "  Installing excalidraw renderer dependencies..."
+  (cd "$EXCALIDRAW_DIR/references" && uv sync && uv run playwright install chromium)
+else
+  echo "  WARNING: 'uv' not found — skipping excalidraw renderer setup."
+  echo "  Install uv (https://docs.astral.sh/uv/) then run:"
+  echo "    cd $EXCALIDRAW_DIR/references && uv sync && uv run playwright install chromium"
+fi
+
+echo ""
+
 # --- Merge settings.partial.json into settings.json ---
 
 SETTINGS="$CLAUDE_DIR/settings.json"
@@ -125,5 +150,26 @@ with open(settings_path, 'w') as f:
 print('  Merged successfully.')
 " "$SETTINGS" "$PARTIAL"
 
+# --- Shell aliases ---
+
+ALIASES_FILE="$HOME/.bash_aliases"
+SOURCE_LINE="source ~/dotfiles/claude/aliases.sh"
+
+# Create ~/.bash_aliases if it doesn't exist
+if [ ! -f "$ALIASES_FILE" ]; then
+  echo "  Creating $ALIASES_FILE"
+  touch "$ALIASES_FILE"
+fi
+
+# Add source line if not already present
+if ! grep -qF "$SOURCE_LINE" "$ALIASES_FILE" 2>/dev/null; then
+  echo "" >> "$ALIASES_FILE"
+  echo "# Claude Code aliases (managed by ~/dotfiles/claude/install.sh)" >> "$ALIASES_FILE"
+  echo "$SOURCE_LINE" >> "$ALIASES_FILE"
+  echo "  Added source line to $ALIASES_FILE"
+else
+  echo "  $ALIASES_FILE already sources aliases.sh"
+fi
+
 echo ""
-echo "Done. Restart Claude Code to pick up changes (/exit or Ctrl+C, then run 'claude')."
+echo "Done. Restart Claude Code and run 'source ~/.bash_aliases' to pick up changes."
