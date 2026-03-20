@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Dependency: pip install textual (required for TUI mode)
 """ralph.py — Execute a plan file task-by-task using claude -p.
 
 Each task gets a fresh claude invocation with zero context carryover.
