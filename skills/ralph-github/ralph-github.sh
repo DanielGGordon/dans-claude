@@ -396,7 +396,7 @@ ${task_text}
 EOF
 )" 2>&1)"
 
-    local pr_num; pr_num="$(echo "$pr_url" | grep -oP '/pull/\K\d+' || echo "")"
+    local pr_num; pr_num="$(echo "$pr_url" | sed -n 's|.*/pull/\([0-9]*\).*|\1|p')"
     echo "${pr_num}|${pr_url}"
 }
 
