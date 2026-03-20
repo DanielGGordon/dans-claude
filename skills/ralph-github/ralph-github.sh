@@ -782,7 +782,11 @@ while true; do
         git checkout "${PREV_BRANCH:-$MAIN_BRANCH}" 2>/dev/null
         git branch -D "$CURRENT_BRANCH" 2>/dev/null || true
         # Handle outstanding previous PR before continuing
-        handle_previous_pr "${PREV_BRANCH:-$MAIN_BRANCH}"
+        # Pass MAIN_BRANCH as return branch since PREV_BRANCH will be deleted by merge
+        handle_previous_pr "$MAIN_BRANCH"
+        PREV_PR=""
+        PREV_PR_URL=""
+        PREV_BRANCH=""
         continue
     fi
 
