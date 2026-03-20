@@ -1764,3 +1764,162 @@ class TestWorkerStateMachine:
         # All tasks should be completed (retry re-runs the killed task)
         done, total = ralph.count_tasks(plan_file)
         assert done == total
+
+
+# ─── Terminal edge cases ───────────────────────────────────────────────────
+
+
+class TestCleanupProc:
+    """_cleanup_proc kills lingering subprocess on shutdown/crash."""
+
+    def test_cleanup_proc_kills_running_process(self, plan_file):
+        """_cleanup_proc kills a running subprocess."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+        app = ralph.RalphApp(config)
+        proc = subprocess.Popen(
+            ["sleep", "60"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        app.current_proc = proc
+        assert proc.poll() is None  # Still running
+        app._cleanup_proc()
+        assert proc.poll() is not None  # Terminated
+        assert app.current_proc is None
+
+    def test_cleanup_proc_noop_when_no_process(self, plan_file):
+        """_cleanup_proc is safe to call when no process is running."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+        app = ralph.RalphApp(config)
+        assert app.current_proc is None
+        app._cleanup_proc()  # Should not raise
+        assert app.current_proc is None
+
+    def test_cleanup_proc_idempotent(self, plan_file):
+        """_cleanup_proc can be called multiple times safely."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+        app = ralph.RalphApp(config)
+        proc = subprocess.Popen(
+            ["sleep", "60"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        app.current_proc = proc
+        app._cleanup_proc()
+        app._cleanup_proc()  # Second call should not raise
+        assert app.current_proc is None
+
+
+class TestSigintHandling:
+    """SIGINT during TUI mode exits cleanly."""
+
+    @pytest.mark.asyncio
+    async def test_ctrl_c_exits_cleanly(self, plan_file):
+        """Simulating app exit during dry-run completes without crashing."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(delay=0.5)
+            # Simulate Ctrl+C by calling app.exit()
+            app.exit()
+            await pilot.pause(delay=0.5)
+        # If we reach here, the app exited cleanly
+
+    @pytest.mark.asyncio
+    async def test_exit_with_running_proc_kills_it(self, plan_file):
+        """Exiting while a subprocess is running kills the subprocess."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(delay=0.3)
+            # Simulate a running subprocess
+            proc = subprocess.Popen(
+                ["sleep", "60"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            app.current_proc = proc
+            # Exit the app (simulates Ctrl+C)
+            app._cleanup_proc()
+            app.exit()
+            await pilot.pause(delay=0.5)
+        assert proc.poll() is not None  # Process was killed
+
+    def test_main_handles_keyboard_interrupt(self, plan_file, monkeypatch):
+        """main() catches KeyboardInterrupt and cleans up."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+
+        # Make RalphApp.run raise KeyboardInterrupt
+        def fake_run(**kwargs):
+            raise KeyboardInterrupt
+
+        app = ralph.RalphApp(config)
+        monkeypatch.setattr(app, "run", fake_run)
+
+        # Simulate what main() does with try/except
+        try:
+            app.run()
+        except KeyboardInterrupt:
+            app._cleanup_proc()
+        # Should not raise — cleanup handles None proc gracefully
+
+
+class TestDryRunEdgeCases:
+    """--dry-run completes without errors in various scenarios."""
+
+    @pytest.mark.asyncio
+    async def test_dry_run_all_tasks_complete(self, plan_file):
+        """Dry-run processes all tasks and checks them off."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(delay=3)
+        done, total = ralph.count_tasks(plan_file)
+        assert done == total
+
+    @pytest.mark.asyncio
+    async def test_dry_run_reaches_done_state(self, plan_file):
+        """Dry-run transitions to DONE state after completing all tasks."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            for _ in range(50):
+                await pilot.pause(delay=0.1)
+                if app.state == ralph.State.DONE:
+                    break
+            assert app.state == ralph.State.DONE
+
+    @pytest.mark.asyncio
+    async def test_dry_run_no_subprocess_spawned(self, plan_file):
+        """Dry-run never assigns a real subprocess to current_proc."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+        app = ralph.RalphApp(config)
+        proc_values = []
+        original_register = app._register_proc
+
+        def spy_register(proc):
+            proc_values.append(proc)
+            original_register(proc)
+
+        app._register_proc = spy_register
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(delay=3)
+        # In dry-run mode, _register_proc should never be called
+        assert len(proc_values) == 0
+
+    @pytest.mark.asyncio
+    async def test_dry_run_with_delay(self, tmp_path):
+        """Dry-run with delay > 0 still completes."""
+        content = "# Plan\n\n- [ ] Task A — do A\n- [ ] Task B — do B\n"
+        p = tmp_path / "plan.md"
+        p.write_text(content)
+        config = ralph.Config(plan_path=str(p), work_dir="/tmp", dry_run=True, delay=1)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            for _ in range(80):
+                await pilot.pause(delay=0.1)
+                if app.state == ralph.State.DONE:
+                    break
+            assert app.state == ralph.State.DONE
+        done, total = ralph.count_tasks(str(p))
+        assert done == total

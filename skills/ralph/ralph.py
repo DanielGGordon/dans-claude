@@ -801,6 +801,16 @@ class RalphApp(App):
         self.set_interval(1, self.update_status)
         self._run_tasks()
 
+    def _cleanup_proc(self) -> None:
+        """Kill the running subprocess if any. Called on shutdown/crash."""
+        if self.current_proc is not None:
+            try:
+                self.current_proc.kill()
+                self.current_proc.wait(timeout=5)
+            except Exception:
+                pass
+            self.current_proc = None
+
     @work(thread=True)
     def _run_tasks(self) -> None:
         config = self.config
@@ -1207,7 +1217,14 @@ Environment variables:
 def main() -> None:
     config = parse_args()
     app = RalphApp(config)
-    app.run()
+    try:
+        app.run()
+    except KeyboardInterrupt:
+        # Textual restores the terminal; just kill any lingering subprocess
+        app._cleanup_proc()
+    finally:
+        # Safety net: kill subprocess on any unexpected exit
+        app._cleanup_proc()
 
 
 if __name__ == "__main__":
