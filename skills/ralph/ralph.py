@@ -571,7 +571,7 @@ class RalphApp(App):
         padding: 0 1;
     }
     Input {
-        height: 1;
+        height: 3;
     }
     """
 
@@ -610,6 +610,7 @@ class RalphApp(App):
             "pause": self.cmd_kill,
             "resume": self.cmd_resume,
             "retry": self.cmd_retry,
+            "help": self.cmd_help,
         }
 
     def output(self, text: str = "") -> None:
@@ -679,6 +680,25 @@ class RalphApp(App):
             self.current_proc = None
         self.skip_event.set()
         self.output("⏭️  Skipping current task...")
+
+    def cmd_help(self, _arg: str = "") -> None:
+        """Handle /help: show available commands."""
+        lines = [
+            "━━━ Ralph Commands ━━━",
+            "  /skip     — Kill current task, move to next",
+            "  /stop     — Kill current task, stash changes, exit",
+            "  /kill     — Kill current task, stash changes, pause",
+            "  /pause    — Pause after current task finishes",
+            "  /resume   — Unpause, move to next task (pops stash)",
+            "  /retry    — Unpause, re-run same task (pops stash)",
+            "  /plan     — Show plan progress",
+            "  /help     — Show this help",
+            "━━━ Guidance ━━━",
+            "  Type anything else to queue guidance for the next task.",
+            "  You can also: echo 'guidance' > .ralph-inbox",
+        ]
+        for line in lines:
+            self.output(line)
 
     def cmd_plan(self, _arg: str = "") -> None:
         """Handle /plan: show current plan status in the output log."""
