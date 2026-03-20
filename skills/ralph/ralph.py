@@ -608,7 +608,7 @@ class RalphApp(App):
             "skip": self.cmd_skip,
             "plan": self.cmd_plan,
             "kill": self.cmd_kill,
-            "pause": self.cmd_kill,
+            "pause": self.cmd_pause,
             "resume": self.cmd_resume,
             "retry": self.cmd_retry,
             "help": self.cmd_help,
@@ -743,6 +743,11 @@ class RalphApp(App):
         self.state = State.PAUSED
         self.pause_event.set()
         self.output("⏸️  Paused. Use /resume or /retry to continue.")
+
+    def cmd_pause(self, _arg: str = "") -> None:
+        """Handle /pause: set pause flag so worker pauses after current task finishes."""
+        self.pause_event.set()
+        self.output("⏸️  Will pause after current task finishes...")
 
     def cmd_resume(self, _arg: str = "") -> None:
         """Handle /resume: set retry=False, signal resume_event. Worker moves to next task."""
@@ -951,7 +956,7 @@ class RalphApp(App):
                         self.current_proc = None
                         self.total_cost += result.cost
 
-                        new_task = find_next_task(config.plan_path)
+                        new_task = find_next_task(config.plan_path, min_line=task.line_num)
                         if new_task and new_task.text == batch_tasks[0].text:
                             self._failed += len(batch_tasks)
                             consecutive_fails += 1
@@ -964,8 +969,8 @@ class RalphApp(App):
                                 auto_commit()
                                 out("🔍 Reviewing changes...")
                                 review_out = run_review(
-                                    review_base, batch_tasks[0].text, config)
-                                fix_review_issues(review_out, config)
+                                    review_base, batch_tasks[0].text, config, out=out)
+                                fix_review_issues(review_out, config, out=out)
 
                         if needs_followup(result.text):
                             out("⚠️  Agent may need input — check output above")
@@ -983,7 +988,7 @@ class RalphApp(App):
                         self.current_proc = None
                         self.total_cost += result.cost
 
-                        new_task = find_next_task(config.plan_path)
+                        new_task = find_next_task(config.plan_path, min_line=task.line_num)
                         if new_task and new_task.text == task.text:
                             self._failed += 1
                             consecutive_fails += 1
@@ -996,8 +1001,8 @@ class RalphApp(App):
                                 auto_commit()
                                 out("🔍 Reviewing changes...")
                                 review_out = run_review(
-                                    review_base, task.text, config)
-                                fix_review_issues(review_out, config)
+                                    review_base, task.text, config, out=out)
+                                fix_review_issues(review_out, config, out=out)
 
                         if needs_followup(result.text):
                             out("⚠️  Agent may need input — check output above")
@@ -1065,7 +1070,8 @@ def auto_commit() -> None:
         )
 
 
-def run_review(base_sha: str, task_text: str, config: Config) -> str:
+def run_review(base_sha: str, task_text: str, config: Config,
+               out: Callable[[str], None] = print) -> str:
     if config.skip_review:
         return "LGTM (review skipped)"
 
@@ -1088,7 +1094,7 @@ def run_review(base_sha: str, task_text: str, config: Config) -> str:
         ).returncode == 0
 
     if use_codex:
-        print("  🔍 Codex reviewing changes...")
+        out("  🔍 Codex reviewing changes...")
         try:
             result = subprocess.run(
                 ["codex", "review", "--base", base_sha],
@@ -1098,7 +1104,7 @@ def run_review(base_sha: str, task_text: str, config: Config) -> str:
         except Exception:
             return "LGTM (codex error)"
     else:
-        print("  🔍 Claude reviewing changes...")
+        out("  🔍 Claude reviewing changes...")
         review_prompt = f"""Review this diff for bugs, edge cases, and issues the implementing agent may not have considered. Be specific about file and line. If the code looks good, just say LGTM.
 
 ## Task Context
@@ -1127,15 +1133,15 @@ def has_review_issues(output: str) -> bool:
     ))
 
 
-def fix_review_issues(review_output: str, config: Config) -> None:
+def fix_review_issues(review_output: str, config: Config,
+                      out: Callable[[str], None] = print) -> None:
     if not has_review_issues(review_output):
-        print("  ✅ Review passed — LGTM")
+        out("  ✅ Review passed — LGTM")
         return
 
-    print("  🔧 Fixing review findings...")
-    # Show first 20 lines
+    out("  🔧 Fixing review findings...")
     for line in review_output.splitlines()[:20]:
-        print(f"    {line}")
+        out(f"    {line}")
 
     fix_prompt = f"""A code reviewer found the following issues. Fix each one. Commit when done.
 
