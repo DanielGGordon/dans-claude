@@ -659,8 +659,12 @@ class RalphApp(App):
         self.total_cost: float = 0.0
         self.current_task: str = ""
         self._completed: int = 0
+        self._failed: int = 0
         self.guidance_queue: deque[str] = deque()
-        self.command_handlers: dict[str, Callable[[str], None]] = {}
+        self.current_proc: subprocess.Popen | None = None
+        self.command_handlers: dict[str, Callable[[str], None]] = {
+            "stop": self.cmd_stop,
+        }
 
     def output(self, text: str = "") -> None:
         """Write a line to the RichLog widget (thread-safe)."""
@@ -677,6 +681,45 @@ class RalphApp(App):
         if self.current_task:
             parts.append(self.current_task)
         self.query_one("#status", Static).update(" | ".join(parts))
+
+    def cmd_stop(self, _arg: str = "") -> None:
+        """Handle /stop: kill running proc, git stash if dirty, log summary, exit."""
+        # Kill the running subprocess if any
+        if self.current_proc is not None:
+            try:
+                self.current_proc.kill()
+                self.current_proc.wait(timeout=5)
+            except Exception:
+                pass
+            self.current_proc = None
+
+        # Git stash if working tree is dirty
+        try:
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True, text=True, timeout=5,
+                cwd=self.config.work_dir,
+            )
+            if result.stdout.strip():
+                stash_result = subprocess.run(
+                    ["git", "stash", "push", "-u", "-m",
+                     f"ralph: stopped after {self._completed} tasks completed"],
+                    capture_output=True, text=True, timeout=10,
+                    cwd=self.config.work_dir,
+                )
+                if stash_result.returncode == 0:
+                    self.output("📦 Changes stashed (git stash pop to restore)")
+                else:
+                    self.output("⚠️  git stash failed — changes left in working tree")
+        except Exception:
+            pass
+
+        # Write summary to log
+        self.output("")
+        self.output(f"🛑 Stopped after {self._completed} tasks, {self._failed} failed. "
+                     f"⏱ {elapsed(self.start_time)} | 💰 ${self.total_cost:.4f}")
+
+        self.exit()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission: dispatch /commands or queue guidance."""
