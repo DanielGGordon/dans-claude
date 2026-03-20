@@ -21,6 +21,10 @@ MAX_TURNS="${RALPH_MAX_TURNS:-50}"
 DELAY="${RALPH_DELAY:-5}"       # seconds between tasks (interactive countdown)
 DRY_RUN=false
 BATCH_MODE=false
+SKIP_REVIEW=true                # --review enables codex/claude review after each task
+REVIEWER="${RALPH_REVIEWER:-auto}" # auto|codex|claude — which reviewer to use
+MODEL="${RALPH_MODEL:-}"        # --model sets claude model + effort (empty = default)
+EFFORT=""                       # parsed from model preset
 PLAN_PATH=""
 INBOX_FILE=".ralph-inbox"       # user drops guidance here from any terminal
 LAST_RESULT=""                  # captured from agent's final output
@@ -36,6 +40,9 @@ while [[ $# -gt 0 ]]; do
         --max-turns) MAX_TURNS="$2"; shift 2 ;;
         --delay)    DELAY="$2"; shift 2 ;;
         --batch)    BATCH_MODE=true; shift ;;
+        --review)   SKIP_REVIEW=false; shift ;;
+        --model)    MODEL="$2"; shift 2 ;;
+        --reviewer) REVIEWER="$2"; shift 2 ;;
         --help|-h)
             echo "Usage: ralph.sh [plan_path] [--dry-run] [--max-turns N] [--delay N] [--batch]"
             echo ""
@@ -44,6 +51,19 @@ while [[ $# -gt 0 ]]; do
             echo "  --max-turns   Max agentic turns per task (default: 50, env: RALPH_MAX_TURNS)"
             echo "  --delay       Seconds for interactive countdown (default: 5, env: RALPH_DELAY)"
             echo "  --batch       Process <!-- BATCH --> groups as single invocations"
+            echo "  --review      Run codex/claude review after each task"
+            echo "  --reviewer X  Reviewer: auto (default), codex, or claude"
+            echo "  --model NAME  Model preset (default: your claude default)"
+            echo ""
+            echo "Model presets:"
+            echo "  opus-max       Opus 4.6, max thinking      (most capable, slowest)"
+            echo "  opus-high      Opus 4.6, high thinking     (default for hard tasks)"
+            echo "  opus-med       Opus 4.6, medium thinking"
+            echo "  opus           Opus 4.6, no effort set"
+            echo "  sonnet-high    Sonnet 4.6, high thinking"
+            echo "  sonnet         Sonnet 4.6, no effort set   (fast, good for simple tasks)"
+            echo "  haiku          Haiku 4.5, no effort set    (fastest, cheapest)"
+            echo "  Or pass any claude model ID directly (e.g. claude-opus-4-6)"
             echo ""
             echo "Interactive features:"
             echo "  Inbox:     echo 'guidance' > .ralph-inbox  (from any terminal, any time)"
@@ -53,6 +73,8 @@ while [[ $# -gt 0 ]]; do
             echo "Environment variables:"
             echo "  RALPH_MAX_TURNS  Same as --max-turns"
             echo "  RALPH_DELAY      Same as --delay"
+            echo "  RALPH_MODEL      Same as --model"
+            echo "  RALPH_REVIEWER   Same as --reviewer"
             exit 0
             ;;
         *)
@@ -66,6 +88,26 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ─── Resolve model preset ────────────────────────────────────────────────────
+
+if [[ -n "$MODEL" ]]; then
+    case "$MODEL" in
+        opus-max)   MODEL="claude-opus-4-6";   EFFORT="max" ;;
+        opus-high)  MODEL="claude-opus-4-6";   EFFORT="high" ;;
+        opus-med)   MODEL="claude-opus-4-6";   EFFORT="medium" ;;
+        opus)       MODEL="claude-opus-4-6" ;;
+        sonnet-high) MODEL="claude-sonnet-4-6"; EFFORT="high" ;;
+        sonnet)     MODEL="claude-sonnet-4-6" ;;
+        haiku)      MODEL="claude-haiku-4-5-20251001" ;;
+        *)          ;; # treat as raw model ID
+    esac
+fi
+
+# Build model flags for claude -p
+CLAUDE_MODEL_FLAGS=()
+[[ -n "$MODEL" ]]  && CLAUDE_MODEL_FLAGS+=(--model "$MODEL")
+[[ -n "$EFFORT" ]] && CLAUDE_MODEL_FLAGS+=(--effort "$EFFORT")
 
 # ─── Find plan file ──────────────────────────────────────────────────────────
 
@@ -115,6 +157,8 @@ echo ""
 echo "Plan: $PLAN_PATH"
 echo "Working directory: $WORK_DIR"
 echo "Inbox: $WORK_DIR/$INBOX_FILE"
+if [[ -n "$MODEL" ]]; then echo "Model: ${MODEL}${EFFORT:+ (effort: $EFFORT)}"; fi
+if ! $SKIP_REVIEW; then echo "Review: enabled (reviewer: $REVIEWER)"; fi
 echo ""
 
 # ─── Pre-load context ────────────────────────────────────────────────────────
@@ -307,6 +351,81 @@ status_line() {
     echo "  ⏱ $(elapsed) | 💰 \$${total_cost} | 📋 ${progress} tasks"
 }
 
+# ─── Review (codex / claude fallback) ───────────────────────────────────────
+
+log_phase() {
+    echo "  $1 $2"
+}
+
+auto_commit() {
+    if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+        git add -A
+        git commit -m "ralph: auto-commit before review" 2>/dev/null || true
+    fi
+}
+
+run_review() {
+    local base="$1" task_text="$2"
+    if $SKIP_REVIEW; then echo "LGTM (review skipped)"; return; fi
+
+    local diff; diff="$(git diff "$base"..HEAD 2>/dev/null)"
+    if [[ -z "$diff" ]]; then echo "LGTM — no changes to review"; return; fi
+
+    local use_codex=false
+    case "$REVIEWER" in
+        codex) use_codex=true ;;
+        claude) use_codex=false ;;
+        auto)  command -v codex &>/dev/null && use_codex=true ;;
+    esac
+
+    if $use_codex; then
+        log_phase "🔍" "Codex reviewing changes..."
+        codex review --base "$base" \
+            2>&1 || echo "LGTM (codex error)"
+    else
+        log_phase "🔍" "Claude reviewing changes..."
+        claude -p \
+            --model claude-opus-4-6 \
+            --max-turns 5 \
+            --dangerously-skip-permissions \
+            <<< "Review this diff for bugs, edge cases, and issues the implementing agent may not have considered. Be specific about file and line. If the code looks good, just say LGTM.
+
+## Task Context
+${task_text}
+
+## Diff
+${diff}" 2>&1 || echo "LGTM (claude error)"
+    fi
+}
+
+has_review_issues() {
+    local output="$1"
+    [[ -z "$output" ]] && return 1
+    # Check both head and tail — codex puts its verdict at the end after a verbose banner
+    echo "$output" | grep -qiE '(LGTM|no issues|looks good|no bugs|clean|no discrete|did not find|did not identify)' && return 1
+    return 0
+}
+
+fix_review_issues() {
+    local review_output="$1"
+    if ! has_review_issues "$review_output"; then
+        log_phase "✅" "Review passed — LGTM"
+        return
+    fi
+    log_phase "🔧" "Fixing review findings..."
+    echo "$review_output" | head -20 | sed 's/^/    /'
+    claude -p \
+        --max-turns 15 \
+        --dangerously-skip-permissions \
+        <<< "A code reviewer found the following issues. Fix each one. Commit when done.
+
+## Review Findings
+${review_output}
+
+## Working Directory
+$(pwd)" 2>/dev/null || true
+}
+
 # ─── Same-terminal chat ─────────────────────────────────────────────────────
 
 # Start a background reader on stdin so user can type messages while agent runs.
@@ -469,6 +588,7 @@ run_claude() {
     # Run claude in a background job so we can track its PID for cleanup
     coproc CLAUDE_PROC {
         claude -p \
+            "${CLAUDE_MODEL_FLAGS[@]}" \
             --max-turns "$MAX_TURNS" \
             --dangerously-skip-permissions \
             --verbose \
@@ -670,6 +790,7 @@ while true; do
         if [[ $rc -eq 1 ]]; then echo "  ⏭️  Skipped"; continue; fi
         if [[ $rc -eq 2 ]]; then echo "🛑 Stopped by user."; break; fi
 
+        review_base="$(git rev-parse HEAD 2>/dev/null || echo "")"
         > "$RESULT_TMPFILE"
         prompt="$(build_batch_prompt "${batch_tasks[@]}")"
         echo ""
@@ -687,6 +808,12 @@ while true; do
                 consecutive_fails=0
                 echo ""
                 echo "✅ Batch complete"
+                # Codex/Claude review
+                if ! $SKIP_REVIEW && [[ -n "$review_base" ]]; then
+                    auto_commit
+                    review_out="$(run_review "$review_base" "${batch_tasks[0]#*|}")"
+                    fix_review_issues "$review_out"
+                fi
             fi
         else
             accumulate_cost
@@ -719,6 +846,7 @@ while true; do
         if [[ $rc -eq 1 ]]; then echo "  ⏭️  Skipped"; continue; fi
         if [[ $rc -eq 2 ]]; then echo "🛑 Stopped by user."; break; fi
 
+        review_base="$(git rev-parse HEAD 2>/dev/null || echo "")"
         > "$RESULT_TMPFILE"
         prompt="$(build_single_prompt "$task_text")"
         echo ""
@@ -736,6 +864,12 @@ while true; do
                 consecutive_fails=0
                 echo ""
                 echo "✅ Task complete"
+                # Codex/Claude review
+                if ! $SKIP_REVIEW && [[ -n "$review_base" ]]; then
+                    auto_commit
+                    review_out="$(run_review "$review_base" "$task_text")"
+                    fix_review_issues "$review_out"
+                fi
             fi
         else
             accumulate_cost

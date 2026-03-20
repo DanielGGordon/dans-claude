@@ -44,8 +44,8 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │   ├── ralph-codex/
 │   │   └── SKILL.md         # Ralph-Codex: execute plans with OpenAI Codex CLI in one shot
 │   ├── ralph-github/
-│   │   ├── SKILL.md         # Ralph-GitHub: plan execution with PR pipeline + bugbot
-│   │   └── ralph-github.sh  # Standalone bash script with full GitHub integration
+│   │   ├── SKILL.md         # Ralph-GitHub: wrapper for ralph.sh --review
+│   │   └── ralph-github.sh  # Thin wrapper that runs ralph.sh --review
 │   ├── review-plan/
 │   │   └── SKILL.md         # On-demand plan review and auto-fix
 │   ├── write-a-prd/
@@ -167,6 +167,8 @@ Use the plan-reviewer agent to check plan.md
   7. Respects parallel/sequential markers in the plan — offers to run parallel tasks concurrently
   8. Respects `<!-- BATCH -->` markers — sends all consecutive unchecked tasks after the marker to a single subagent
 
+  **Code review:** Use `--review` to enable codex review (falls back to Claude Opus 4.6) after each task. The reviewer checks for bugs, edge cases, and issues the implementing agent may have missed. If issues are found, a fix agent addresses them automatically.
+
   **Stopping and resuming:** Ctrl+C or tell it to stop. Next time you run `/ralph`, it picks up from the first unchecked task.
 
 - **`skills/ralph-codex`** — Ralph-Codex: executes a plan file using OpenAI Codex CLI in a single automated shot. Codex reads the plan, executes the next unchecked task, and checks it off — with full permissions and zero user interaction.
@@ -187,25 +189,18 @@ Use the plan-reviewer agent to check plan.md
 
   **Stopping and resuming:** Same as `/ralph` — the plan file on disk is the source of truth. Run `/ralph-codex` again to pick up from the first unchecked task.
 
-- **`skills/ralph-github`** — Ralph-GitHub: executes a plan file task-by-task with full GitHub integration — per-task branches, codex review, PR creation, bugbot checking, and auto-merge.
+- **`skills/ralph-github`** — Ralph with codex review: thin wrapper that runs `ralph.sh --review`, enabling codex (or Claude Opus 4.6 fallback) code review after each task.
   ```
-  bash ~/dotfiles/claude/skills/ralph-github/ralph-github.sh           # auto-finds plan.md
-  bash ~/dotfiles/claude/skills/ralph-github/ralph-github.sh plan.md   # explicit plan path
+  ralph.sh plan.md --review                                             # direct usage
+  bash ~/dotfiles/claude/skills/ralph-github/ralph-github.sh plan.md   # via wrapper
   ```
-  **What it does (per task):**
-  1. Creates a git branch off the previous task's branch (or master)
-  2. Executes the task with `claude -p` (fresh context, includes previous PR link)
-  3. Runs `codex review` on the changes (falls back to Claude Opus 4.6 if no codex)
-  4. Fixes any review issues found
-  5. Creates a GitHub PR (triggers bugbot)
-  6. Checks the **previous** PR for bugbot (`cursor[bot]`) comments — polls every 30s
-  7. Examines bugbot findings with Claude, fixes if needed, pushes to the previous PR
-  8. Merges the previous PR, rebases the current branch on updated master
-  9. After the last task: waits for bugbot on the final PR, fixes, merges
+  **Review pipeline (per task):**
+  1. Executes the task with `claude -p` (fresh context)
+  2. Auto-commits any uncommitted changes
+  3. Runs `codex review` on the diff (falls back to Claude Opus 4.6 if codex unavailable)
+  4. If issues found, launches a fix agent to address them
 
-  **Options:** `--no-review` (skip codex/claude review), `--no-bugbot` (skip bugbot waiting), `--base-branch main` (default: master), `--bugbot-user NAME` (default: cursor[bot]), `--delay N`, `--max-turns N`, `--dry-run`
-
-  **Stopping and resuming:** Same as `/ralph`. Ctrl+C returns to the original branch. Re-run to pick up from the first unchecked task.
+  **Options:** Same as `/ralph`, plus `--review` (enabled by default via wrapper). Use `--no-review` to skip the review step.
 
 - **`skills/review-plan`** — Plan Review & Auto-Fix: on-demand plan review that finds the active plan, runs the `plan-reviewer` agent against `plan-requirements.md`, and automatically edits the plan to fix any issues.
   ```

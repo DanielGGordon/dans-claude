@@ -1,6 +1,6 @@
 ---
 name: ralph-github
-description: Execute a plan file task-by-task with GitHub PR pipeline, codex review, and bugbot integration. Each task gets its own branch and PR.
+description: Run ralph with codex/claude code review after each task. Wrapper for ralph.sh --review.
 user_invocable: true
 arguments:
   - name: plan_path
@@ -8,41 +8,37 @@ arguments:
     required: false
 ---
 
-Ralph-GitHub is a terminal-based plan executor with full GitHub integration. Each task gets its own branch, codex review, and PR — with automatic bugbot checking and merging between tasks.
+Ralph-GitHub runs the standard ralph loop with codex review enabled after each task. It's a thin wrapper around `ralph.sh --review`.
 
 ## Launch
 
 Tell the user to run in their terminal:
 
 ```
+bash ~/dotfiles/claude/skills/ralph/ralph.sh [plan_path] --review
+```
+
+Or via the wrapper:
+
+```
 bash ~/dotfiles/claude/skills/ralph-github/ralph-github.sh [plan_path]
 ```
 
-Or with options:
+## Review Pipeline (per task)
 
 ```
-bash ~/dotfiles/claude/skills/ralph-github/ralph-github.sh plan.md --delay 10 --base-branch main
-```
-
-## Pipeline (per task)
-
-```
-① Branch off previous task (or master)
-② Execute task (claude -p, fresh context)
+① Execute task (claude -p, fresh context)
+② Auto-commit any uncommitted changes
 ③ Codex review (falls back to Claude Opus 4.6 if no codex)
-④ Fix review findings
-⑤ Create PR (triggers bugbot)
-⑥ Check previous PR for bugbot → examine → fix → merge → rebase
+④ Fix review findings (if any)
 ```
-
-After the last task: waits for bugbot on the final PR, fixes findings, merges.
 
 ## Options
+
+All ralph.sh options are supported. Key ones:
 
 - `--delay N` — seconds for interactive countdown (default: 5)
 - `--max-turns N` — max agentic turns per task (default: 50)
 - `--dry-run` — preview without executing
-- `--no-review` — skip codex/claude review step
-- `--no-bugbot` — skip bugbot waiting/checking
-- `--base-branch NAME` — main branch name (default: master)
-- `--bugbot-user NAME` — bugbot GitHub username (default: cursor[bot])
+- `--batch` — process `<!-- BATCH -->` groups as single invocations
+- `--no-review` — skip the review step (overrides the wrapper's --review)
