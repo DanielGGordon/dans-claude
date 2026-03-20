@@ -104,7 +104,7 @@ WORK_DIR="$(pwd)"
 # ─── Detect GitHub repo ──────────────────────────────────────────────────────
 
 detect_repo() {
-    git remote get-url origin 2>/dev/null | sed -E 's|.*github\.com[:/](.+/.+?)(\.git)?$|\1|'
+    git remote get-url origin 2>/dev/null | sed -E 's|.*github\.com[:/]||; s|\.git$||'
 }
 
 GITHUB_REPO="$(detect_repo)"
@@ -314,12 +314,12 @@ run_review() {
     fi
 
     if command -v codex &>/dev/null; then
-        log_phase "🔍" "Codex reviewing changes..."
+        log_phase "🔍" "Codex reviewing changes..." >&2
         codex review --base "$base" \
             "Review for: ${task_text}. Look for bugs, edge cases, and things the implementing agent may not have considered. Say LGTM if the code looks good." \
             2>&1 || echo "LGTM (codex error)"
     else
-        log_phase "🔍" "Claude Opus reviewing changes..."
+        log_phase "🔍" "Claude Opus reviewing changes..." >&2
         local diff; diff="$(git diff "$base"..HEAD 2>/dev/null)"
         if [[ -z "$diff" ]]; then
             echo "LGTM — no changes to review"
@@ -375,7 +375,7 @@ create_pr() {
     local branch="$1" task_text="$2" task_num="$3"
     local title="Task ${task_num}: ${task_text:0:60}"
 
-    git push -u origin "$branch" 2>&1
+    git push -u origin "$branch" >&2
 
     local pr_url
     pr_url="$(gh pr create \
@@ -737,8 +737,8 @@ while true; do
     fi
 
     # Interactive countdown
-    interactive_countdown "$task_text"
-    rc=$?
+    rc=0
+    interactive_countdown "$task_text" || rc=$?
     if [[ $rc -eq 1 ]]; then echo "  ⏭️  Skipped"; continue; fi
     if [[ $rc -eq 2 ]]; then echo "🛑 Stopped by user."; break; fi
 
