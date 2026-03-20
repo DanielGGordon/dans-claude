@@ -742,7 +742,7 @@ parse_stream() {
             local result_text
             result_text="$(printf '%s' "$line" | jq -r '.result // empty' 2>/dev/null)"
             if [[ -z "$result_text" && -s "$delta_tmpfile" ]]; then
-                result_text="$(jq -r 'select(.delta.type == "text_delta") | .delta.text // empty' "$delta_tmpfile" 2>/dev/null)"
+                result_text="$(jq -j 'select(.delta.type == "text_delta") | .delta.text // empty' "$delta_tmpfile" 2>/dev/null)"
             fi
             if [[ -n "$result_text" ]]; then
                 echo ""
