@@ -572,6 +572,7 @@ class RalphApp(App):
     }
     Input {
         height: 3;
+        color: #e8a735;
     }
     """
 
