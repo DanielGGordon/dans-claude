@@ -169,21 +169,16 @@ if [[ -f "$CODING_AGENTS_FILE" ]]; then
     CODING_RULES="$(cat "$CODING_AGENTS_FILE")"
 fi
 
-PLAN_CONTENT="$(cat "$PLAN_PATH")"
-
 # ─── Task parsing ────────────────────────────────────────────────────────────
 
 # Find the next unchecked task line number and text
 # Returns: "LINE_NUM|TASK_TEXT" or empty if none
 find_next_task() {
-    local line_num=0
-    while IFS= read -r line; do
-        line_num=$((line_num + 1))
-        if [[ "$line" =~ ^[[:space:]]*-\ \[\ \]\ (.+)$ ]]; then
-            echo "${line_num}|${BASH_REMATCH[1]}"
-            return
-        fi
-    done < "$PLAN_PATH"
+    local match
+    match="$(grep -n '^[[:space:]]*- \[ \] ' "$PLAN_PATH" | head -1)" || return
+    local line_num="${match%%:*}"
+    local task_text="${match#*- \[ \] }"
+    echo "${line_num}|${task_text}"
 }
 
 # Check if the line before a task has <!-- BATCH -->
@@ -229,6 +224,67 @@ extract_criterion() {
         echo "${BASH_REMATCH[1]}"
     else
         echo "Task is complete and working correctly"
+    fi
+}
+
+# ─── Plan trimming ──────────────────────────────────────────────────────────
+
+# Return preamble (before first ## heading) + the section containing the given task line.
+# Cuts completed phases to reduce prompt token count.
+trim_plan_for_task() {
+    local task_line_num="$1"
+
+    # Find all ## heading line numbers
+    local -a heading_lines
+    mapfile -t heading_lines < <(grep -n '^## ' "$PLAN_PATH" | cut -d: -f1)
+
+    # No headings? Return full plan (no structure to trim)
+    if [[ ${#heading_lines[@]} -eq 0 ]]; then
+        cat "$PLAN_PATH"
+        return
+    fi
+
+    # Preamble: everything before the first ## heading
+    local preamble_end=$((heading_lines[0] - 1))
+
+    # Task is before any heading — return full plan
+    if [[ $task_line_num -lt ${heading_lines[0]} ]]; then
+        cat "$PLAN_PATH"
+        return
+    fi
+
+    # Find the section containing the task line
+    local section_start=${heading_lines[0]}
+    local section_end=""
+    for i in "${!heading_lines[@]}"; do
+        if [[ ${heading_lines[$i]} -le $task_line_num ]]; then
+            section_start=${heading_lines[$i]}
+            local next=$((i + 1))
+            if [[ $next -lt ${#heading_lines[@]} ]]; then
+                section_end=$((heading_lines[$next] - 1))
+            else
+                section_end=""
+            fi
+        fi
+    done
+
+    # Print preamble
+    if [[ $preamble_end -gt 0 ]]; then
+        sed -n "1,${preamble_end}p" "$PLAN_PATH"
+    fi
+
+    # Separator if skipping phases
+    if [[ $section_start -gt $((preamble_end + 1)) ]]; then
+        echo ""
+        echo "[... completed phases omitted ...]"
+        echo ""
+    fi
+
+    # Current section
+    if [[ -n "$section_end" ]]; then
+        sed -n "${section_start},${section_end}p" "$PLAN_PATH"
+    else
+        sed -n "${section_start},\$p" "$PLAN_PATH"
     fi
 }
 
@@ -333,16 +389,10 @@ elapsed() {
 
 # Count total and completed tasks in plan
 count_tasks() {
-    local total=0 done=0
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^[[:space:]]*-\ \[[xX]\] ]]; then
-            done=$((done + 1))
-            total=$((total + 1))
-        elif [[ "$line" =~ ^[[:space:]]*-\ \[\ \] ]]; then
-            total=$((total + 1))
-        fi
-    done < "$PLAN_PATH"
-    echo "${done}/${total}"
+    local done_count total_count
+    done_count=$(grep -c '^[[:space:]]*- \[[xX]\]' "$PLAN_PATH" || true)
+    total_count=$(grep -c '^[[:space:]]*- \[[xX ]\]' "$PLAN_PATH" || true)
+    echo "${done_count}/${total_count}"
 }
 
 # Print a status line with time, cost, progress
@@ -475,7 +525,7 @@ You are executing a single task from a plan.
 
 ## Plan Context
 
-The full plan is provided below so you do not need to read the plan file. Use this for architecture, project structure, and dependency context:
+The current phase of the plan is below (other phases trimmed). Read the plan file if you need context from other phases:
 
 <plan>
 ${PLAN_CONTENT}
@@ -534,7 +584,7 @@ ${task_list}
 
 ## Plan Context
 
-The full plan is provided below so you do not need to read the plan file. Use this for architecture, project structure, and dependency context:
+The current phase of the plan is below (other phases trimmed). Read the plan file if you need context from other phases:
 
 <plan>
 ${PLAN_CONTENT}
@@ -654,66 +704,49 @@ format_tool_detail() {
 }
 
 # Parse stream-json output to show live progress
+# Uses bash pattern matching to skip frequent events (text deltas, message
+# lifecycle) without forking jq. Only forks jq for infrequent events
+# (tool use, result) — reduces process spawns from hundreds to ~10-30 per task.
 parse_stream() {
-    local final_text=""
     while IFS= read -r line; do
-        # Skip empty lines
         [[ -z "$line" ]] && continue
 
-        local type
-        type="$(printf '%s' "$line" | jq -r '.type // empty' 2>/dev/null)" || continue
+        # Fast-path: skip frequent events using bash matching (no jq fork)
+        [[ "$line" == *'"content_block_delta"'* ]] && continue
+        [[ "$line" == *'"content_block_stop"'* ]] && continue
+        [[ "$line" == *'"message_start"'* ]] && continue
+        [[ "$line" == *'"message_delta"'* ]] && continue
+        [[ "$line" == *'"message_stop"'* ]] && continue
 
-        case "$type" in
-            assistant)
-                # Tool use — show which tool is being called with detail
-                printf '%s' "$line" | jq -r '
-                    .message.content[]? |
-                    select(.type == "tool_use") |
-                    "\(.name)\t\(.input | @json)"
-                ' 2>/dev/null | while IFS=$'\t' read -r tool_name tool_input; do
-                    [[ -n "$tool_name" ]] && format_tool_detail "$tool_name" "$tool_input"
-                done
-                ;;
-            content_block_start)
-                local block_type tool
-                block_type="$(printf '%s' "$line" | jq -r '.content_block.type // empty' 2>/dev/null)"
-                if [[ "$block_type" == "tool_use" ]]; then
-                    tool="$(printf '%s' "$line" | jq -r '.content_block.name // empty' 2>/dev/null)"
-                    [[ -n "$tool" ]] && echo "  🔧 $tool"
-                fi
-                ;;
-            content_block_delta)
-                # Capture text deltas for final summary
-                local delta_type text_val
-                delta_type="$(printf '%s' "$line" | jq -r '.delta.type // empty' 2>/dev/null)"
-                if [[ "$delta_type" == "text_delta" ]]; then
-                    text_val="$(printf '%s' "$line" | jq -r '.delta.text // empty' 2>/dev/null)"
-                    final_text+="$text_val"
-                fi
-                ;;
-            result)
-                # Final result — extract and display the text
-                local result_text
-                result_text="$(printf '%s' "$line" | jq -r '.result // empty' 2>/dev/null)"
-                if [[ -n "$result_text" ]]; then
-                    echo ""
-                    echo "$result_text"
-                    echo "$result_text" > "$RESULT_TMPFILE"
-                elif [[ -n "$final_text" ]]; then
-                    echo ""
-                    echo "$final_text"
-                    echo "$final_text" > "$RESULT_TMPFILE"
-                fi
-                # Show cost if available
-                local cost_usd
-                cost_usd="$(printf '%s' "$line" | jq -r '.total_cost_usd // empty' 2>/dev/null)"
-                if [[ -n "$cost_usd" ]]; then
-                    echo "  💰 Cost: \$${cost_usd}"
-                    # Write cost to temp file so parent shell can read it
-                    echo "$cost_usd" > "$COST_TMPFILE"
-                fi
-                ;;
-        esac
+        # Infrequent events — fork jq only for these
+        if [[ "$line" == *'"type":"assistant"'* ]]; then
+            # Tool use — show which tool is being called with detail
+            printf '%s' "$line" | jq -r '
+                .message.content[]? |
+                select(.type == "tool_use") |
+                "\(.name)\t\(.input | @json)"
+            ' 2>/dev/null | while IFS=$'\t' read -r tool_name tool_input; do
+                [[ -n "$tool_name" ]] && format_tool_detail "$tool_name" "$tool_input"
+            done
+        elif [[ "$line" == *'"content_block_start"'* && "$line" == *'"tool_use"'* ]]; then
+            local tool
+            tool="$(printf '%s' "$line" | jq -r '.content_block.name // empty' 2>/dev/null)"
+            [[ -n "$tool" ]] && echo "  🔧 $tool"
+        elif [[ "$line" == *'"type":"result"'* ]]; then
+            local result_text
+            result_text="$(printf '%s' "$line" | jq -r '.result // empty' 2>/dev/null)"
+            if [[ -n "$result_text" ]]; then
+                echo ""
+                echo "$result_text"
+                echo "$result_text" > "$RESULT_TMPFILE"
+            fi
+            local cost_usd
+            cost_usd="$(printf '%s' "$line" | jq -r '.total_cost_usd // empty' 2>/dev/null)"
+            if [[ -n "$cost_usd" ]]; then
+                echo "  💰 Cost: \$${cost_usd}"
+                echo "$cost_usd" > "$COST_TMPFILE"
+            fi
+        fi
     done
 }
 
@@ -795,6 +828,7 @@ while true; do
 
         review_base="$(git rev-parse HEAD 2>/dev/null || echo "")"
         > "$RESULT_TMPFILE"
+        PLAN_CONTENT="$(trim_plan_for_task "$task_line")"
         prompt="$(build_batch_prompt "${batch_tasks[@]}")"
         echo ""
         if run_claude "$prompt"; then
@@ -851,6 +885,7 @@ while true; do
 
         review_base="$(git rev-parse HEAD 2>/dev/null || echo "")"
         > "$RESULT_TMPFILE"
+        PLAN_CONTENT="$(trim_plan_for_task "$task_line")"
         prompt="$(build_single_prompt "$task_text")"
         echo ""
         if run_claude "$prompt"; then
@@ -895,11 +930,6 @@ while true; do
         echo "🛑 Stopping: $MAX_CONSECUTIVE_FAILS consecutive failures on the same task."
         echo "   Fix the issue manually, then re-run ralph."
         exit 1
-    fi
-
-    # Refresh plan content every 3 tasks for the prompt context
-    if (( (completed + failed) % 3 == 0 )); then
-        PLAN_CONTENT="$(cat "$PLAN_PATH")"
     fi
 
     echo ""
