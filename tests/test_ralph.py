@@ -459,6 +459,113 @@ class TestRalphApp:
             assert "Test task name" in text
 
 
+class TestInputHandling:
+    """Input.on_submit dispatches /commands or queues guidance."""
+
+    @pytest.mark.asyncio
+    async def test_plain_text_queues_guidance(self, plan_file):
+        """Typing plain text and pressing Enter queues it and shows message."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "focus on edge cases"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.2)
+            # Check guidance queue
+            assert len(app.guidance_queue) == 1
+            assert app.guidance_queue[0] == "focus on edge cases"
+            # Check input is cleared
+            assert input_widget.value == ""
+
+    @pytest.mark.asyncio
+    async def test_plain_text_shows_queued_message(self, plan_file):
+        """Queued text shows '📬 Queued: {text}' in the log."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "be more careful"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.2)
+            log = app.query_one("#log", RichLog)
+            assert log is not None
+
+    @pytest.mark.asyncio
+    async def test_slash_command_dispatches_to_handler(self, plan_file):
+        """Input starting with / dispatches to the command handler dict."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        called_with = []
+        app.command_handlers["test"] = lambda arg: called_with.append(arg)
+        async with app.run_test(size=(80, 24)) as pilot:
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/test hello world"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.2)
+            assert called_with == ["hello world"]
+            # Input should be cleared
+            assert input_widget.value == ""
+
+    @pytest.mark.asyncio
+    async def test_unknown_command_shows_error(self, plan_file):
+        """Unknown /command shows error in the log."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/nonexistent"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.2)
+            # Should not be in guidance queue
+            assert len(app.guidance_queue) == 0
+
+    @pytest.mark.asyncio
+    async def test_empty_input_ignored(self, plan_file):
+        """Empty input (just pressing Enter) does nothing."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.2)
+            assert len(app.guidance_queue) == 0
+
+    @pytest.mark.asyncio
+    async def test_multiple_submissions_queue_in_order(self, plan_file):
+        """Multiple submissions are queued in FIFO order."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            for msg in ["first", "second", "third"]:
+                input_widget.value = msg
+                await input_widget.action_submit()
+                await pilot.pause(delay=0.1)
+            assert list(app.guidance_queue) == ["first", "second", "third"]
+
+    def test_guidance_queue_initialized(self, plan_file):
+        """RalphApp initializes with an empty guidance queue."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert hasattr(app, "guidance_queue")
+        assert len(app.guidance_queue) == 0
+
+    def test_command_handlers_initialized(self, plan_file):
+        """RalphApp initializes with an empty command handlers dict."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert hasattr(app, "command_handlers")
+        assert isinstance(app.command_handlers, dict)
+        assert len(app.command_handlers) == 0
+
+
 class TestRunClaudeOnOutput:
     """run_claude() accepts on_output callback and routes output through it."""
 

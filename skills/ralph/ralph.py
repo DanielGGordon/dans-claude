@@ -22,6 +22,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -658,6 +659,8 @@ class RalphApp(App):
         self.total_cost: float = 0.0
         self.current_task: str = ""
         self._completed: int = 0
+        self.guidance_queue: deque[str] = deque()
+        self.command_handlers: dict[str, Callable[[str], None]] = {}
 
     def output(self, text: str = "") -> None:
         """Write a line to the RichLog widget (thread-safe)."""
@@ -674,6 +677,25 @@ class RalphApp(App):
         if self.current_task:
             parts.append(self.current_task)
         self.query_one("#status", Static).update(" | ".join(parts))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle input submission: dispatch /commands or queue guidance."""
+        text = event.value.strip()
+        if not text:
+            return
+        event.input.clear()
+        if text.startswith("/"):
+            cmd_parts = text[1:].split(None, 1)
+            cmd_name = cmd_parts[0] if cmd_parts else ""
+            cmd_arg = cmd_parts[1] if len(cmd_parts) > 1 else ""
+            handler = self.command_handlers.get(cmd_name)
+            if handler:
+                handler(cmd_arg)
+            else:
+                self.output(f"Unknown command: /{cmd_name}")
+        else:
+            self.guidance_queue.append(text)
+            self.output(f"📬 Queued: {text}")
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="log", wrap=True)
