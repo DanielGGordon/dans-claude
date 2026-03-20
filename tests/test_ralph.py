@@ -1060,11 +1060,11 @@ class TestKillPauseCommand:
         assert app.command_handlers["kill"] == app.cmd_kill
 
     def test_pause_registered_in_handlers(self, plan_file):
-        """cmd_kill is registered as the /pause handler (alias)."""
+        """cmd_pause is registered as the /pause handler."""
         config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert "pause" in app.command_handlers
-        assert app.command_handlers["pause"] == app.cmd_kill
+        assert app.command_handlers["pause"] == app.cmd_pause
 
     def test_pause_event_initialized(self, plan_file):
         """RalphApp starts with pause_event unset."""

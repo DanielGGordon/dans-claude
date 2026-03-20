@@ -959,7 +959,13 @@ class RalphApp(App):
                             min_line = task.line_num
                             out("\n❌ Batch failed (task not checked off)")
                         else:
-                            self._completed += len(batch_tasks)
+                            plan_lines = Path(config.plan_path).read_text().splitlines()
+                            actually_completed = sum(
+                                1 for t in batch_tasks
+                                if t.line_num - 1 < len(plan_lines)
+                                and not _TASK_RE.match(plan_lines[t.line_num - 1])
+                            )
+                            self._completed += actually_completed
                             consecutive_fails = 0
                             min_line = task.line_num + 1
                             out("\n✅ Batch complete")
