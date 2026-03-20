@@ -175,7 +175,7 @@ fi
 # Returns: "LINE_NUM|TASK_TEXT" or empty if none
 find_next_task() {
     local match
-    match="$(grep -n '^[[:space:]]*- \[ \] ' "$PLAN_PATH" | head -1)" || return
+    match="$(grep -n '^[[:space:]]*- \[ \] ' "$PLAN_PATH" | head -1)" || return 0
     local line_num="${match%%:*}"
     local task_text="${match#*- \[ \] }"
     echo "${line_num}|${task_text}"
@@ -708,11 +708,17 @@ format_tool_detail() {
 # lifecycle) without forking jq. Only forks jq for infrequent events
 # (tool use, result) — reduces process spawns from hundreds to ~10-30 per task.
 parse_stream() {
+    local delta_tmpfile
+    delta_tmpfile="$(mktemp)"
+
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
 
-        # Fast-path: skip frequent events using bash matching (no jq fork)
-        [[ "$line" == *'"content_block_delta"'* ]] && continue
+        # Fast-path: accumulate text deltas to temp file for fallback (no jq fork)
+        if [[ "$line" == *'"content_block_delta"'* ]]; then
+            printf '%s\n' "$line" >> "$delta_tmpfile"
+            continue
+        fi
         [[ "$line" == *'"content_block_stop"'* ]] && continue
         [[ "$line" == *'"message_start"'* ]] && continue
         [[ "$line" == *'"message_delta"'* ]] && continue
@@ -735,6 +741,9 @@ parse_stream() {
         elif [[ "$line" == *'"type":"result"'* ]]; then
             local result_text
             result_text="$(printf '%s' "$line" | jq -r '.result // empty' 2>/dev/null)"
+            if [[ -z "$result_text" && -s "$delta_tmpfile" ]]; then
+                result_text="$(jq -r 'select(.delta.type == "text_delta") | .delta.text // empty' "$delta_tmpfile" 2>/dev/null)"
+            fi
             if [[ -n "$result_text" ]]; then
                 echo ""
                 echo "$result_text"
@@ -748,6 +757,8 @@ parse_stream() {
             fi
         fi
     done
+
+    rm -f "$delta_tmpfile"
 }
 
 completed=0
