@@ -10,6 +10,14 @@ arguments:
 
 You are the Ralph loop orchestrator. Your job is to launch `ralph.py` which executes a plan file **one task at a time**, dispatching each task to a fresh `claude -p` subprocess so context doesn't accumulate.
 
+## Prerequisites
+
+Ralph requires the `textual` TUI framework:
+
+```
+pip install textual
+```
+
 ## Launch
 
 Tell the user to run in their terminal:
@@ -47,13 +55,23 @@ All options are passed through to ralph.py:
 6. Respects `<!-- BATCH -->` markers — sends grouped tasks to a single invocation
 7. Interactive features: inbox file, follow-up detection, background stdin reader
 
-## Interactive features
+## TUI Interface
 
-- **Inbox:** `echo "guidance" > .ralph-inbox` from any terminal, any time
-- **Countdown:** type during the pause between tasks to add guidance
-- **Follow-up:** ralph detects when an agent asks a question and pauses for you
-- **Commands:** `skip` (skip task), `stop` (end loop), Enter (proceed), or any text (guidance)
+Ralph runs as a Textual TUI application with three regions: a scrolling output log, a status bar, and an input field.
+
+- **Output log:** Task headers, tool details, success/failure messages, and agent output stream into a scrollable RichLog widget
+- **Status bar:** Shows elapsed time, cost, task progress, current task name, and state (RUNNING / COUNTDOWN / PAUSED / DONE)
+- **Input field:** Type text and press Enter to queue guidance for the next task, or use a slash command
+
+## Slash commands
+
+- `/stop` — Kill the running agent, git stash if dirty, exit
+- `/skip` — Kill the running agent, move to the next task
+- `/kill` or `/pause` — Kill the running agent, git stash, enter PAUSED state
+- `/resume` — Pop the git stash and move to the next task
+- `/retry` — Pop the git stash and re-run the same task
+- `/plan` — Show current plan status with checkmarks
 
 ## Stopping and resuming
 
-Ctrl+C stashes uncommitted changes. Next run picks up from the first unchecked task.
+`/stop` or Ctrl+C exits cleanly. `/kill` pauses mid-run — use `/resume` or `/retry` to continue. Next run picks up from the first unchecked task.

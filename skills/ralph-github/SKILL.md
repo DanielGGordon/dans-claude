@@ -10,6 +10,14 @@ arguments:
 
 Ralph-GitHub runs the standard ralph loop with codex review enabled after each task. It's a thin wrapper around `ralph.py --review`.
 
+## Prerequisites
+
+Ralph requires the `textual` TUI framework:
+
+```
+pip install textual
+```
+
 ## Launch
 
 Tell the user to run in their terminal:
