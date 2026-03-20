@@ -175,7 +175,8 @@ fi
 # Returns: "LINE_NUM|TASK_TEXT" or empty if none
 find_next_task() {
     local match
-    match="$(grep -n '^[[:space:]]*- \[ \] ' "$PLAN_PATH" | head -1)" || return 0
+    match="$(grep -n '^[[:space:]]*- \[ \] ' "$PLAN_PATH" | head -1)" || true
+    [[ -z "$match" ]] && return 0
     local line_num="${match%%:*}"
     local task_text="${match#*- \[ \] }"
     echo "${line_num}|${task_text}"
@@ -725,7 +726,7 @@ parse_stream() {
         [[ "$line" == *'"message_stop"'* ]] && continue
 
         # Infrequent events — fork jq only for these
-        if [[ "$line" == *'"type":"assistant"'* ]]; then
+        if [[ "$line" == *'"type":"assistant"'* || "$line" == *'"type": "assistant"'* ]]; then
             # Tool use — show which tool is being called with detail
             printf '%s' "$line" | jq -r '
                 .message.content[]? |
@@ -738,7 +739,7 @@ parse_stream() {
             local tool
             tool="$(printf '%s' "$line" | jq -r '.content_block.name // empty' 2>/dev/null)"
             [[ -n "$tool" ]] && echo "  🔧 $tool"
-        elif [[ "$line" == *'"type":"result"'* ]]; then
+        elif [[ "$line" == *'"type":"result"'* || "$line" == *'"type": "result"'* ]]; then
             local result_text
             result_text="$(printf '%s' "$line" | jq -r '.result // empty' 2>/dev/null)"
             if [[ -z "$result_text" && -s "$delta_tmpfile" ]]; then
