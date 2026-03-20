@@ -5,10 +5,11 @@
 Each task gets a fresh claude invocation with zero context carryover.
 The plan file on disk is the only shared state.
 
-Interactive features:
+Interactive features (TUI mode):
+  Guidance:  type in the input field to queue guidance for the next task
+  Commands:  /stop, /skip, /kill, /pause, /resume, /retry, /plan
   Inbox:     echo "guidance" > .ralph-inbox  (from any terminal, any time)
-  Countdown: type during the between-task pause to add guidance
-  Follow-up: ralph detects when an agent asks a question and pauses for you
+  Follow-up: ralph detects when an agent asks a question and shows it in the log
 """
 
 import argparse
@@ -16,7 +17,6 @@ import enum
 import json
 import os
 import re
-import select
 import signal
 import subprocess
 import sys
@@ -534,129 +534,6 @@ def needs_followup(text: str) -> bool:
     if not text:
         return False
     return bool(_FOLLOWUP_RE.search(text))
-
-
-def interactive_countdown(task_desc: str, delay: int) -> tuple[int, str]:
-    """Returns (action, guidance).
-    action: 0=proceed, 1=skip, 2=stop.
-    guidance: user-typed text to pass to agent.
-    """
-    guidance = ""
-
-    # Check inbox first
-    inbox_msg = read_inbox()
-    if inbox_msg:
-        print(f"  📬 Inbox: {inbox_msg}")
-        guidance += inbox_msg + "\n"
-
-    if delay <= 0:
-        return 0, guidance
-
-    sys.stdout.write(f"  > ({delay}s) guidance, 'skip', 'stop', or Enter: ")
-    sys.stdout.flush()
-
-    # Use select for timeout on stdin
-    user_input = ""
-    try:
-        rlist, _, _ = select.select([sys.stdin], [], [], delay)
-        if rlist:
-            user_input = sys.stdin.readline().rstrip("\n")
-    except (OSError, ValueError):
-        # stdin not selectable (e.g., not a terminal)
-        time.sleep(delay)
-
-    # Clear the countdown line
-    sys.stdout.write(f"\r{' ' * 80}\r")
-    sys.stdout.flush()
-
-    if user_input == "skip":
-        return 1, ""
-    if user_input == "stop":
-        return 2, ""
-    if user_input:
-        guidance += user_input + "\n"
-
-    return 0, guidance
-
-
-def handle_followup(result_text: str) -> str:
-    """If agent asked a question, pause and get user reply. Returns guidance."""
-    if not needs_followup(result_text):
-        return ""
-
-    print()
-    print("━" * 60)
-    print("⚠️  Agent is asking for input:")
-    # Show last 5 lines
-    last_lines = result_text.strip().splitlines()[-5:]
-    for l in last_lines:
-        print(f"  {l}")
-    print("━" * 60)
-    sys.stdout.write("  > reply, 'skip', or 'stop': ")
-    sys.stdout.flush()
-
-    try:
-        reply = input()
-    except EOFError:
-        return ""
-
-    if reply == "skip":
-        return ""
-    if reply == "stop":
-        print("🛑 Stopped by user.")
-        sys.exit(0)
-    return reply
-
-
-# ─── Background stdin reader ────────────────────────────────────────────────
-
-_input_thread: threading.Thread | None = None
-_input_stop = threading.Event()
-
-
-def start_input_reader():
-    global _input_thread
-    if not sys.stdin.isatty():
-        return
-
-    def reader():
-        try:
-            tty = open("/dev/tty", "r")
-        except OSError:
-            return
-        try:
-            while not _input_stop.is_set():
-                try:
-                    rlist, _, _ = select.select([tty], [], [], 0.5)
-                except (OSError, ValueError):
-                    break
-                if rlist:
-                    line = tty.readline().strip()
-                    if not line:
-                        continue
-                    with open(INBOX_FILE, "a") as f:
-                        f.write(line + "\n")
-                    # Echo to tty
-                    try:
-                        tty_out = open("/dev/tty", "w")
-                        tty_out.write(f"  📬 Queued: {line}\n")
-                        tty_out.close()
-                    except OSError:
-                        pass
-        finally:
-            tty.close()
-
-    _input_thread = threading.Thread(target=reader, daemon=True)
-    _input_thread.start()
-
-
-def stop_input_reader():
-    global _input_thread
-    _input_stop.set()
-    if _input_thread is not None:
-        _input_thread.join(timeout=1)
-        _input_thread = None
-    _input_stop.clear()
 
 
 # ─── Time tracking ──────────────────────────────────────────────────────────
@@ -1263,10 +1140,11 @@ Model presets:
   haiku          Haiku 4.5, no effort set    (fastest, cheapest)
   Or pass any claude model ID directly (e.g. claude-opus-4-6)
 
-Interactive features:
+Interactive features (TUI mode):
+  Guidance:  type in the input field to queue guidance for the next task
+  Commands:  /stop, /skip, /kill, /pause, /resume, /retry, /plan
   Inbox:     echo 'guidance' > .ralph-inbox  (from any terminal, any time)
-  Countdown: type during the pause between tasks to add guidance
-  Follow-up: ralph pauses when an agent asks a question
+  Follow-up: ralph shows agent questions in the log — reply via input field
 
 Environment variables:
   RALPH_MAX_TURNS  Same as --max-turns
