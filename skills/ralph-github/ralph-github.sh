@@ -7,4 +7,4 @@
 # Usage: ralph-github.sh [plan_path] [options]
 #   All options are passed through to ralph.sh (plus --review).
 
-exec bash "$(dirname "$0")/../ralph/ralph.sh" "$@" --review
+exec bash "$(dirname "$0")/../ralph/ralph.sh" --review "$@"
