@@ -12,6 +12,7 @@ Interactive features:
 """
 
 import argparse
+import enum
 import json
 import os
 import re
@@ -28,8 +29,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from textual.app import App, ComposeResult
+from textual.reactive import reactive
 from textual.widgets import RichLog, Static, Input
 from textual import work
+
+
+class State(enum.Enum):
+    RUNNING = "RUNNING"
+    COUNTDOWN = "COUNTDOWN"
+    PAUSED = "PAUSED"
+    DONE = "DONE"
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -678,6 +687,18 @@ class RalphApp(App):
     }
     """
 
+    state: reactive[State] = reactive(State.RUNNING)
+
+    # Valid states for each command — commands not listed here are always valid
+    COMMAND_VALID_STATES: dict[str, set[State]] = {
+        "skip": {State.RUNNING, State.COUNTDOWN},
+        "stop": {State.RUNNING, State.COUNTDOWN, State.PAUSED},
+        "kill": {State.RUNNING, State.COUNTDOWN},
+        "pause": {State.RUNNING, State.COUNTDOWN},
+        "resume": {State.PAUSED},
+        "retry": {State.PAUSED},
+    }
+
     def __init__(self, config: Config, **kwargs):
         super().__init__(**kwargs)
         self.config = config
@@ -700,12 +721,13 @@ class RalphApp(App):
         self.query_one("#log", RichLog).write(text)
 
     def update_status(self) -> None:
-        """Refresh the status bar with elapsed time, cost, progress, task."""
+        """Refresh the status bar with elapsed time, cost, progress, state, task."""
         done, total = count_tasks(self.config.plan_path)
         parts = [
             f"⏱ {elapsed(self.start_time)}",
             f"💰 ${self.total_cost:.4f}",
             f"📋 {done}/{total}",
+            self.state.value,
         ]
         if self.current_task:
             parts.append(self.current_task)
@@ -779,7 +801,13 @@ class RalphApp(App):
             cmd_arg = cmd_parts[1] if len(cmd_parts) > 1 else ""
             handler = self.command_handlers.get(cmd_name)
             if handler:
-                handler(cmd_arg)
+                valid_states = self.COMMAND_VALID_STATES.get(cmd_name)
+                if valid_states is not None and self.state not in valid_states:
+                    self.output(
+                        f"⚠️  /{cmd_name} is not valid in {self.state.value} state"
+                    )
+                else:
+                    handler(cmd_arg)
             else:
                 self.output(f"Unknown command: /{cmd_name}")
         else:
@@ -807,14 +835,17 @@ class RalphApp(App):
         out(f"Working directory: {config.work_dir}")
         out("")
 
+        self.state = State.RUNNING
         min_line = 1
         while True:
             task = find_next_task(config.plan_path, min_line=min_line)
             if task is None:
                 self.current_task = ""
+                self.state = State.DONE
                 out(f"\n✅ All tasks complete! ({self._completed} completed)")
                 break
 
+            self.state = State.RUNNING
             self.current_task = task.text
             out("━" * 60)
             out(f"📋 Task: {task.text}")

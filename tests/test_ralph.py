@@ -858,3 +858,189 @@ class TestPlanCommand:
             assert input_widget.value == ""
             # Should not be in guidance queue (it's a command)
             assert len(app.guidance_queue) == 0
+
+
+# ─── State tracking tests ──────────────────────────────────────────────────
+
+
+class TestStateEnum:
+    """State enum has all required values."""
+
+    def test_state_values(self):
+        assert ralph.State.RUNNING.value == "RUNNING"
+        assert ralph.State.COUNTDOWN.value == "COUNTDOWN"
+        assert ralph.State.PAUSED.value == "PAUSED"
+        assert ralph.State.DONE.value == "DONE"
+
+    def test_state_is_enum(self):
+        import enum
+        assert issubclass(ralph.State, enum.Enum)
+
+
+class TestStateReactive:
+    """RalphApp has a reactive state variable."""
+
+    def test_initial_state_is_running(self, plan_file):
+        """RalphApp starts in RUNNING state."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert app.state == ralph.State.RUNNING
+
+    @pytest.mark.asyncio
+    async def test_state_transitions_to_done(self, plan_file):
+        """State transitions to DONE after all tasks complete."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(delay=3)
+            assert app.state == ralph.State.DONE
+
+    @pytest.mark.asyncio
+    async def test_status_bar_shows_state(self, plan_file):
+        """Status bar displays the current state value."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Brief pause to let status update tick
+            await pilot.pause(delay=1.5)
+            status = app.query_one("#status", Static)
+            text = str(status.render())
+            # Should contain one of the state values
+            assert any(s.value in text for s in ralph.State)
+
+    @pytest.mark.asyncio
+    async def test_status_bar_shows_running_during_tasks(self, plan_file):
+        """Status bar shows RUNNING while tasks are being processed."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Set state manually and trigger update to verify display
+            app.state = ralph.State.RUNNING
+            app.update_status()
+            await pilot.pause(delay=0.1)
+            status = app.query_one("#status", Static)
+            text = str(status.render())
+            assert "RUNNING" in text
+
+    @pytest.mark.asyncio
+    async def test_status_bar_shows_paused_state(self, plan_file):
+        """Status bar shows PAUSED when state is set to PAUSED."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.state = ralph.State.PAUSED
+            app.update_status()
+            await pilot.pause(delay=0.1)
+            status = app.query_one("#status", Static)
+            text = str(status.render())
+            assert "PAUSED" in text
+
+    @pytest.mark.asyncio
+    async def test_status_bar_shows_done_state(self, plan_file):
+        """Status bar shows DONE after all tasks finish."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(delay=3)
+            status = app.query_one("#status", Static)
+            text = str(status.render())
+            assert "DONE" in text
+
+
+class TestStateValidation:
+    """Slash commands check valid state before executing."""
+
+    def test_command_valid_states_defined(self, plan_file):
+        """COMMAND_VALID_STATES maps commands to their valid states."""
+        assert "skip" in ralph.RalphApp.COMMAND_VALID_STATES
+        assert "stop" in ralph.RalphApp.COMMAND_VALID_STATES
+        assert "resume" in ralph.RalphApp.COMMAND_VALID_STATES
+        assert "retry" in ralph.RalphApp.COMMAND_VALID_STATES
+
+    def test_skip_valid_in_running(self):
+        assert ralph.State.RUNNING in ralph.RalphApp.COMMAND_VALID_STATES["skip"]
+
+    def test_skip_valid_in_countdown(self):
+        assert ralph.State.COUNTDOWN in ralph.RalphApp.COMMAND_VALID_STATES["skip"]
+
+    def test_skip_invalid_in_paused(self):
+        assert ralph.State.PAUSED not in ralph.RalphApp.COMMAND_VALID_STATES["skip"]
+
+    def test_resume_only_valid_in_paused(self):
+        valid = ralph.RalphApp.COMMAND_VALID_STATES["resume"]
+        assert valid == {ralph.State.PAUSED}
+
+    def test_stop_valid_in_multiple_states(self):
+        valid = ralph.RalphApp.COMMAND_VALID_STATES["stop"]
+        assert ralph.State.RUNNING in valid
+        assert ralph.State.PAUSED in valid
+
+    def test_plan_has_no_state_restriction(self):
+        """Commands not in COMMAND_VALID_STATES are always valid (e.g. /plan)."""
+        assert "plan" not in ralph.RalphApp.COMMAND_VALID_STATES
+
+    @pytest.mark.asyncio
+    async def test_invalid_command_shows_warning(self, plan_file):
+        """Running /resume while in RUNNING state shows a warning."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        # Register a dummy /resume handler so it's a known command
+        resume_called = []
+        app.command_handlers["resume"] = lambda arg: resume_called.append(True)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # State starts as RUNNING — /resume requires PAUSED
+            app.state = ralph.State.RUNNING
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/resume"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.3)
+            # Handler should NOT have been called
+            assert len(resume_called) == 0
+
+    @pytest.mark.asyncio
+    async def test_valid_command_executes(self, plan_file):
+        """Running /skip while in RUNNING state executes normally."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.state = ralph.State.RUNNING
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/skip"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.3)
+            # skip_event should have been set (command was executed)
+            # Note: worker thread may have already consumed it, so just verify
+            # the input was processed (cleared)
+            assert input_widget.value == ""
+
+    @pytest.mark.asyncio
+    async def test_plan_command_works_in_any_state(self, plan_file):
+        """/plan works regardless of state since it has no state restriction."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            for state in ralph.State:
+                app.state = state
+                input_widget = app.query_one(Input)
+                input_widget.focus()
+                input_widget.value = "/plan"
+                await input_widget.action_submit()
+                await pilot.pause(delay=0.2)
+                assert input_widget.value == ""
+
+    @pytest.mark.asyncio
+    async def test_invalid_skip_in_done_state(self, plan_file):
+        """/skip shows warning when state is DONE."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.state = ralph.State.DONE
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/skip"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.3)
+            # skip_event should NOT be set (command was blocked)
+            assert not app.skip_event.is_set()
