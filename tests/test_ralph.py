@@ -411,6 +411,54 @@ class TestRalphApp:
         assert "Task 2" not in captured.out
 
 
+    def test_app_has_status_tracking_attrs(self, plan_file):
+        """RalphApp initializes status tracking attributes."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert isinstance(app.start_time, float)
+        assert app.total_cost == 0.0
+        assert app.current_task == ""
+        assert app._completed == 0
+
+    def test_update_status_method_exists(self, plan_file):
+        """RalphApp has an update_status method."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert hasattr(app, "update_status")
+        assert callable(app.update_status)
+
+    @pytest.mark.asyncio
+    async def test_status_bar_updates_during_dry_run(self, plan_file):
+        """Status bar updates every second via set_interval during dry-run."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Let the tasks run and timer tick
+            await pilot.pause(delay=2)
+            status = app.query_one("#status", Static)
+            text = str(status.render())
+            # Status should contain elapsed time and task progress
+            assert "⏱" in text
+            assert "📋" in text
+            assert "💰" in text
+
+    @pytest.mark.asyncio
+    async def test_status_bar_shows_current_task(self, plan_file):
+        """Status bar displays the current task name while running."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Briefly pause — tasks should be in-progress
+            await pilot.pause(delay=0.5)
+            # Set a current task manually and trigger update
+            app.current_task = "Test task name"
+            app.update_status()
+            await pilot.pause(delay=0.1)
+            status = app.query_one("#status", Static)
+            text = str(status.render())
+            assert "Test task name" in text
+
+
 class TestRunClaudeOnOutput:
     """run_claude() accepts on_output callback and routes output through it."""
 

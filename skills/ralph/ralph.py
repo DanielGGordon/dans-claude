@@ -654,10 +654,26 @@ class RalphApp(App):
     def __init__(self, config: Config, **kwargs):
         super().__init__(**kwargs)
         self.config = config
+        self.start_time: float = time.time()
+        self.total_cost: float = 0.0
+        self.current_task: str = ""
+        self._completed: int = 0
 
     def output(self, text: str = "") -> None:
         """Write a line to the RichLog widget (thread-safe)."""
         self.query_one("#log", RichLog).write(text)
+
+    def update_status(self) -> None:
+        """Refresh the status bar with elapsed time, cost, progress, task."""
+        done, total = count_tasks(self.config.plan_path)
+        parts = [
+            f"⏱ {elapsed(self.start_time)}",
+            f"💰 ${self.total_cost:.4f}",
+            f"📋 {done}/{total}",
+        ]
+        if self.current_task:
+            parts.append(self.current_task)
+        self.query_one("#status", Static).update(" | ".join(parts))
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="log", wrap=True)
@@ -665,13 +681,13 @@ class RalphApp(App):
         yield Input(placeholder="Type guidance or /command...")
 
     def on_mount(self) -> None:
+        self.set_interval(1, self.update_status)
         self._run_tasks()
 
     @work(thread=True)
     def _run_tasks(self) -> None:
         config = self.config
         out = self.output
-        status = self.query_one("#status", Static)
 
         # Banner
         if RALPH_ASCII.is_file():
@@ -680,19 +696,14 @@ class RalphApp(App):
         out(f"Working directory: {config.work_dir}")
         out("")
 
-        completed = 0
-        start_time = time.time()
-
         while True:
             task = find_next_task(config.plan_path)
             if task is None:
-                done, total = count_tasks(config.plan_path)
-                out(f"\n✅ All tasks complete! ({completed} completed)")
-                status.update(
-                    f"Ralph — done | {completed} tasks | ⏱ {elapsed(start_time)}"
-                )
+                self.current_task = ""
+                out(f"\n✅ All tasks complete! ({self._completed} completed)")
                 break
 
+            self.current_task = task.text
             out("━" * 60)
             out(f"📋 Task: {task.text}")
             out("━" * 60)
@@ -700,11 +711,7 @@ class RalphApp(App):
             if config.dry_run:
                 out("[dry-run] Would execute this task")
                 check_off_task(config.plan_path, task.line_num)
-                completed += 1
-                done, total = count_tasks(config.plan_path)
-                status.update(
-                    f"Ralph — {done}/{total} tasks | ⏱ {elapsed(start_time)}"
-                )
+                self._completed += 1
                 time.sleep(0.3)
                 continue
 
