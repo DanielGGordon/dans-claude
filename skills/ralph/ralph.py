@@ -25,6 +25,10 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from textual.app import App, ComposeResult
+from textual.widgets import RichLog, Static, Input
+from textual import work
+
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 MODEL_PRESETS = {
@@ -624,6 +628,87 @@ def status_line(start_time: float, total_cost: float, plan_path: str) -> None:
     print(f"  ⏱ {elapsed(start_time)} | 💰 ${total_cost:.8f} | 📋 {done}/{total} tasks")
 
 
+# ─── TUI App ─────────────────────────────────────────────────────────────────
+
+
+class RalphApp(App):
+    """Textual TUI for ralph — scrollable log, status bar, input field."""
+
+    CSS = """
+    #log {
+        height: 1fr;
+    }
+    #status {
+        height: 1;
+        background: $surface;
+        color: $text-muted;
+        padding: 0 1;
+    }
+    Input {
+        height: 1;
+    }
+    """
+
+    def __init__(self, config: Config, **kwargs):
+        super().__init__(**kwargs)
+        self.config = config
+
+    def compose(self) -> ComposeResult:
+        yield RichLog(id="log", wrap=True)
+        yield Static("Ralph — starting...", id="status")
+        yield Input(placeholder="Type guidance or /command...")
+
+    def on_mount(self) -> None:
+        self._run_tasks()
+
+    @work(thread=True)
+    def _run_tasks(self) -> None:
+        config = self.config
+        log = self.query_one("#log", RichLog)
+        status = self.query_one("#status", Static)
+
+        # Banner
+        if RALPH_ASCII.is_file():
+            log.write(RALPH_ASCII.read_text())
+        log.write(f"Plan: {config.plan_path}")
+        log.write(f"Working directory: {config.work_dir}")
+        log.write("")
+
+        completed = 0
+        start_time = time.time()
+
+        while True:
+            task = find_next_task(config.plan_path)
+            if task is None:
+                done, total = count_tasks(config.plan_path)
+                log.write(f"\n✅ All tasks complete! ({completed} completed)")
+                status.update(
+                    f"Ralph — done | {completed} tasks | ⏱ {elapsed(start_time)}"
+                )
+                break
+
+            log.write("━" * 60)
+            log.write(f"📋 Task: {task.text}")
+            log.write("━" * 60)
+
+            if config.dry_run:
+                log.write("[dry-run] Would execute this task")
+                check_off_task(config.plan_path, task.line_num)
+                completed += 1
+                done, total = count_tasks(config.plan_path)
+                status.update(
+                    f"Ralph — {done}/{total} tasks | ⏱ {elapsed(start_time)}"
+                )
+                time.sleep(0.3)
+                continue
+
+            # Real execution will be wired in later phases
+            break
+
+        time.sleep(1)
+        self.exit()
+
+
 # ─── Review (codex / claude fallback) ───────────────────────────────────────
 
 def auto_commit() -> None:
@@ -810,6 +895,12 @@ Environment variables:
 
 def main() -> None:
     config = parse_args()
+
+    # TUI mode for dry-run (will expand to all modes in later phases)
+    if config.dry_run:
+        app = RalphApp(config)
+        app.run()
+        return
 
     # Banner
     print()

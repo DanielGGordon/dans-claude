@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from textual.widgets import RichLog, Static, Input
 
 # Add skills/ralph to path so we can import ralph
 sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "ralph"))
@@ -345,3 +346,41 @@ class TestFindPlan:
         monkeypatch.chdir(tmp_path)
         with pytest.raises(SystemExit):
             ralph.find_plan("")
+
+
+# ─── TUI tests ────────────────────────────────────────────────────────────────
+
+
+class TestRalphApp:
+    def test_compose_yields_expected_widgets(self, plan_file):
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        widgets = list(app.compose())
+        assert len(widgets) == 3
+        assert isinstance(widgets[0], RichLog)
+        assert isinstance(widgets[1], Static)
+        assert isinstance(widgets[2], Input)
+
+    def test_widget_ids(self, plan_file):
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        widgets = list(app.compose())
+        assert widgets[0].id == "log"
+        assert widgets[1].id == "status"
+
+    def test_css_is_set(self, plan_file):
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert "#log" in app.CSS
+        assert "#status" in app.CSS
+
+    @pytest.mark.asyncio
+    async def test_dry_run_processes_tasks(self, plan_file):
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Wait for worker to complete (tasks are fast in dry-run)
+            await pilot.pause(delay=3)
+        # After app exits, all unchecked tasks should be checked off
+        done, total = ralph.count_tasks(plan_file)
+        assert done == total
