@@ -565,6 +565,7 @@ class TestInputHandling:
         assert hasattr(app, "command_handlers")
         assert isinstance(app.command_handlers, dict)
         assert "stop" in app.command_handlers
+        assert "plan" in app.command_handlers
 
 
 class TestStopCommand:
@@ -784,3 +785,76 @@ class TestRunClaudeOnOutput:
         assert "on_output" in sig.parameters
         # Default should be print
         assert sig.parameters["on_output"].default is print
+
+
+# ─── /plan command tests ──────────────────────────────────────────────────────
+
+
+class TestFormatPlanSummary:
+    """format_plan_summary reads the plan file and returns formatted task lines."""
+
+    def test_shows_progress_header(self, plan_file):
+        lines = ralph.format_plan_summary(plan_file)
+        assert any("1/4" in l for l in lines)
+        assert any("📋" in l for l in lines)
+
+    def test_shows_checked_tasks(self, plan_file):
+        lines = ralph.format_plan_summary(plan_file)
+        checked = [l for l in lines if "✅" in l]
+        assert len(checked) == 1
+        assert "Task 1" in checked[0]
+
+    def test_shows_unchecked_tasks(self, plan_file):
+        lines = ralph.format_plan_summary(plan_file)
+        unchecked = [l for l in lines if "⬜" in l]
+        assert len(unchecked) == 3
+        assert "Task 2" in unchecked[0]
+
+    def test_shows_headings(self, plan_file):
+        lines = ralph.format_plan_summary(plan_file)
+        headings = [l for l in lines if l.startswith("#")]
+        assert len(headings) >= 2
+        assert any("Phase 1" in h for h in headings)
+        assert any("Phase 2" in h for h in headings)
+
+    def test_all_done(self, tmp_path):
+        p = tmp_path / "done.md"
+        p.write_text("# Plan\n\n- [x] Task A\n- [x] Task B\n")
+        lines = ralph.format_plan_summary(str(p))
+        assert any("2/2" in l for l in lines)
+        unchecked = [l for l in lines if "⬜" in l]
+        assert len(unchecked) == 0
+
+
+class TestPlanCommand:
+    """/plan shows current plan status in the output log."""
+
+    def test_plan_registered_in_handlers(self, plan_file):
+        """cmd_plan is registered as the /plan handler."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert "plan" in app.command_handlers
+        assert app.command_handlers["plan"] == app.cmd_plan
+
+    def test_cmd_plan_method_exists(self, plan_file):
+        """RalphApp has a cmd_plan method."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert hasattr(app, "cmd_plan")
+        assert callable(app.cmd_plan)
+
+    @pytest.mark.asyncio
+    async def test_plan_via_input(self, plan_file):
+        """/plan typed in input writes plan summary to the log."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/plan"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            # Input should be cleared
+            assert input_widget.value == ""
+            # Should not be in guidance queue (it's a command)
+            assert len(app.guidance_queue) == 0

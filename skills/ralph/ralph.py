@@ -118,6 +118,8 @@ def find_plan(explicit_path: str) -> str:
 
 _TASK_RE = re.compile(r"^(\s*- \[ \] )(.+)$")
 _CHECKED_RE = re.compile(r"^\s*- \[[xX ]\] ")
+_DONE_RE = re.compile(r"^\s*- \[[xX]\] (.+)$")
+_TODO_RE = re.compile(r"^\s*- \[ \] (.+)$")
 
 
 def find_next_task(plan_path: str, min_line: int = 1) -> Task | None:
@@ -142,6 +144,28 @@ def count_tasks(plan_path: str) -> tuple[int, int]:
                 if re.match(r"^\s*- \[[xX]\] ", line):
                     done += 1
     return done, total
+
+
+def format_plan_summary(plan_path: str) -> list[str]:
+    """Read the plan file and return formatted lines showing task status."""
+    lines: list[str] = []
+    done, total = count_tasks(plan_path)
+    lines.append(f"📋 Plan: {done}/{total} tasks complete")
+    lines.append("")
+
+    with open(plan_path) as f:
+        for raw_line in f:
+            stripped = raw_line.rstrip()
+            m_done = _DONE_RE.match(stripped)
+            m_todo = _TODO_RE.match(stripped)
+            if m_done:
+                lines.append(f"  ✅ {m_done.group(1)}")
+            elif m_todo:
+                lines.append(f"  ⬜ {m_todo.group(1)}")
+            elif stripped.startswith("#"):
+                lines.append(stripped)
+
+    return lines
 
 
 def check_off_task(plan_path: str, line_num: int) -> None:
@@ -668,6 +692,7 @@ class RalphApp(App):
         self.command_handlers: dict[str, Callable[[str], None]] = {
             "stop": self.cmd_stop,
             "skip": self.cmd_skip,
+            "plan": self.cmd_plan,
         }
 
     def output(self, text: str = "") -> None:
@@ -736,6 +761,11 @@ class RalphApp(App):
             self.current_proc = None
         self.skip_event.set()
         self.output("⏭️  Skipping current task...")
+
+    def cmd_plan(self, _arg: str = "") -> None:
+        """Handle /plan: show current plan status in the output log."""
+        for line in format_plan_summary(self.config.plan_path):
+            self.output(line)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission: dispatch /commands or queue guidance."""
