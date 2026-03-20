@@ -40,12 +40,14 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │   └── plan-review-stop.sh  # Stop hook: auto-review plan before Claude proceeds
 ├── skills/
 │   ├── ralph/
-│   │   └── SKILL.md         # Ralph loop: execute plans task-by-task with context reset
+│   │   ├── SKILL.md         # Ralph loop: execute plans task-by-task with context reset
+│   │   ├── ralph.py         # Python implementation (replaces ralph.sh)
+│   │   └── ralph-legacy.sh  # Bash implementation (kept for rollback)
 │   ├── ralph-codex/
 │   │   └── SKILL.md         # Ralph-Codex: execute plans with OpenAI Codex CLI in one shot
 │   ├── ralph-github/
-│   │   ├── SKILL.md         # Ralph-GitHub: wrapper for ralph.sh --review
-│   │   └── ralph-github.sh  # Thin wrapper that runs ralph.sh --review
+│   │   ├── SKILL.md         # Ralph-GitHub: wrapper for ralph.py --review
+│   │   └── ralph-github.sh  # Thin wrapper that runs ralph.py --review
 │   ├── review-plan/
 │   │   └── SKILL.md         # On-demand plan review and auto-fix
 │   ├── write-a-prd/
@@ -64,6 +66,8 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │       ├── mocking.md       # Mocking guidelines
 │       ├── refactoring.md   # Refactoring checklist
 │       └── tests.md         # Test examples
+├── tests/
+│   └── test_ralph.py        # Tests for ralph.py
 ├── aliases.sh               # Shell aliases sourced from ~/.bash_aliases
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md
@@ -189,9 +193,9 @@ Use the plan-reviewer agent to check plan.md
 
   **Stopping and resuming:** Same as `/ralph` — the plan file on disk is the source of truth. Run `/ralph-codex` again to pick up from the first unchecked task.
 
-- **`skills/ralph-github`** — Ralph with codex review: thin wrapper that runs `ralph.sh --review`, enabling codex (or Claude Opus 4.6 fallback) code review after each task.
+- **`skills/ralph-github`** — Ralph with codex review: thin wrapper that runs `ralph.py --review`, enabling codex (or Claude Opus 4.6 fallback) code review after each task.
   ```
-  ralph.sh plan.md --review                                             # direct usage
+  python3 ~/dotfiles/claude/skills/ralph/ralph.py plan.md --review      # direct usage
   bash ~/dotfiles/claude/skills/ralph-github/ralph-github.sh plan.md   # via wrapper
   ```
   **Review pipeline (per task):**

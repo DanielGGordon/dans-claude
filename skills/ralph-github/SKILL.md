@@ -1,6 +1,6 @@
 ---
 name: ralph-github
-description: Run ralph with codex/claude code review after each task. Wrapper for ralph.sh --review.
+description: Run ralph with codex/claude code review after each task. Wrapper for ralph.py --review.
 user_invocable: true
 arguments:
   - name: plan_path
@@ -8,14 +8,14 @@ arguments:
     required: false
 ---
 
-Ralph-GitHub runs the standard ralph loop with codex review enabled after each task. It's a thin wrapper around `ralph.sh --review`.
+Ralph-GitHub runs the standard ralph loop with codex review enabled after each task. It's a thin wrapper around `ralph.py --review`.
 
 ## Launch
 
 Tell the user to run in their terminal:
 
 ```
-bash ~/dotfiles/claude/skills/ralph/ralph.sh [plan_path] --review
+python3 ~/dotfiles/claude/skills/ralph/ralph.py [plan_path] --review
 ```
 
 Or via the wrapper:
