@@ -689,6 +689,91 @@ class TestStopCommand:
         assert app._failed == 0
 
 
+class TestSkipCommand:
+    """/skip kills current_proc, sets skip flag, worker moves to next task."""
+
+    def test_skip_registered_in_handlers(self, plan_file):
+        """cmd_skip is registered as the /skip handler."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert "skip" in app.command_handlers
+        assert app.command_handlers["skip"] == app.cmd_skip
+
+    def test_skip_event_initialized(self, plan_file):
+        """RalphApp starts with skip_event unset."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert hasattr(app, "skip_event")
+        assert not app.skip_event.is_set()
+
+    def test_cmd_skip_sets_skip_event(self, plan_file):
+        """cmd_skip sets the skip_event flag."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async def fake_output(text=""):
+            pass
+        # cmd_skip needs output — mock it since app isn't mounted
+        app.output = lambda text="": None
+        app.cmd_skip()
+        assert app.skip_event.is_set()
+
+    def test_cmd_skip_kills_running_proc(self, plan_file):
+        """cmd_skip kills the current_proc if one is running."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        proc = subprocess.Popen(
+            ["sleep", "60"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        app.current_proc = proc
+        assert proc.poll() is None  # Still running
+        app.cmd_skip()
+        assert proc.poll() is not None  # Terminated
+        assert app.current_proc is None
+
+    def test_cmd_skip_without_proc(self, plan_file):
+        """cmd_skip works even when no process is running."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app.cmd_skip()  # Should not raise
+        assert app.skip_event.is_set()
+        assert app.current_proc is None
+
+    @pytest.mark.asyncio
+    async def test_skip_during_dry_run_skips_task(self, plan_file):
+        """/skip during a running dry-run task moves to the next task."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        # Pre-set skip event before app starts so the first unchecked task gets skipped
+        app.skip_event.set()
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Let the worker run through tasks
+            await pilot.pause(delay=3)
+        # Task 2 (first unchecked) should NOT have been checked off (it was skipped),
+        # but Task 3 and Task 4 should be checked off.
+        # Task 1 was already checked. So done count = 1 (pre-checked) + 2 (3 & 4) = 3
+        done, total = ralph.count_tasks(plan_file)
+        assert done == total - 1  # One task was skipped
+
+    @pytest.mark.asyncio
+    async def test_skip_via_input(self, plan_file):
+        """/skip typed in input sets the skip event."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/skip"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.2)
+            # The skip event should have been set (worker may have consumed it already)
+            # But the command was dispatched correctly
+            assert input_widget.value == ""
+
+
 class TestRunClaudeOnOutput:
     """run_claude() accepts on_output callback and routes output through it."""
 

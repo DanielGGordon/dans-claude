@@ -120,9 +120,11 @@ _TASK_RE = re.compile(r"^(\s*- \[ \] )(.+)$")
 _CHECKED_RE = re.compile(r"^\s*- \[[xX ]\] ")
 
 
-def find_next_task(plan_path: str) -> Task | None:
+def find_next_task(plan_path: str, min_line: int = 1) -> Task | None:
     with open(plan_path) as f:
         for i, line in enumerate(f, 1):
+            if i < min_line:
+                continue
             m = _TASK_RE.match(line)
             if m:
                 text = m.group(2)
@@ -662,8 +664,10 @@ class RalphApp(App):
         self._failed: int = 0
         self.guidance_queue: deque[str] = deque()
         self.current_proc: subprocess.Popen | None = None
+        self.skip_event = threading.Event()
         self.command_handlers: dict[str, Callable[[str], None]] = {
             "stop": self.cmd_stop,
+            "skip": self.cmd_skip,
         }
 
     def output(self, text: str = "") -> None:
@@ -721,6 +725,18 @@ class RalphApp(App):
 
         self.exit()
 
+    def cmd_skip(self, _arg: str = "") -> None:
+        """Handle /skip: kill running proc, set skip flag, move to next task."""
+        if self.current_proc is not None:
+            try:
+                self.current_proc.kill()
+                self.current_proc.wait(timeout=5)
+            except Exception:
+                pass
+            self.current_proc = None
+        self.skip_event.set()
+        self.output("⏭️  Skipping current task...")
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission: dispatch /commands or queue guidance."""
         text = event.value.strip()
@@ -761,8 +777,9 @@ class RalphApp(App):
         out(f"Working directory: {config.work_dir}")
         out("")
 
+        min_line = 1
         while True:
-            task = find_next_task(config.plan_path)
+            task = find_next_task(config.plan_path, min_line=min_line)
             if task is None:
                 self.current_task = ""
                 out(f"\n✅ All tasks complete! ({self._completed} completed)")
@@ -775,9 +792,15 @@ class RalphApp(App):
 
             if config.dry_run:
                 out("[dry-run] Would execute this task")
+                # Interruptible delay — /skip can break out early
+                if self.skip_event.wait(timeout=0.3):
+                    self.skip_event.clear()
+                    out("⏭️  Skipped")
+                    min_line = task.line_num + 1
+                    continue
                 check_off_task(config.plan_path, task.line_num)
                 self._completed += 1
-                time.sleep(0.3)
+                min_line = task.line_num + 1
                 continue
 
             # Real execution will be wired in later phases
