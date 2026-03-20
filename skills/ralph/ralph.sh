@@ -21,6 +21,10 @@ MAX_TURNS="${RALPH_MAX_TURNS:-50}"
 DELAY="${RALPH_DELAY:-5}"       # seconds between tasks (interactive countdown)
 DRY_RUN=false
 BATCH_MODE=false
+SKIP_REVIEW=true                # --review enables codex/claude review after each task
+REVIEWER="${RALPH_REVIEWER:-auto}" # auto|codex|claude — which reviewer to use
+MODEL="${RALPH_MODEL:-}"        # --model sets claude model + effort (empty = default)
+EFFORT=""                       # parsed from model preset
 PLAN_PATH=""
 INBOX_FILE=".ralph-inbox"       # user drops guidance here from any terminal
 LAST_RESULT=""                  # captured from agent's final output
@@ -36,6 +40,10 @@ while [[ $# -gt 0 ]]; do
         --max-turns) MAX_TURNS="$2"; shift 2 ;;
         --delay)    DELAY="$2"; shift 2 ;;
         --batch)    BATCH_MODE=true; shift ;;
+        --review)   SKIP_REVIEW=false; shift ;;
+        --no-review) SKIP_REVIEW=true; shift ;;
+        --model)    MODEL="$2"; shift 2 ;;
+        --reviewer) REVIEWER="$2"; shift 2 ;;
         --help|-h)
             echo "Usage: ralph.sh [plan_path] [--dry-run] [--max-turns N] [--delay N] [--batch]"
             echo ""
@@ -44,6 +52,19 @@ while [[ $# -gt 0 ]]; do
             echo "  --max-turns   Max agentic turns per task (default: 50, env: RALPH_MAX_TURNS)"
             echo "  --delay       Seconds for interactive countdown (default: 5, env: RALPH_DELAY)"
             echo "  --batch       Process <!-- BATCH --> groups as single invocations"
+            echo "  --review      Run codex/claude review after each task"
+            echo "  --reviewer X  Reviewer: auto (default), codex, or claude"
+            echo "  --model NAME  Model preset (default: your claude default)"
+            echo ""
+            echo "Model presets:"
+            echo "  opus-max       Opus 4.6, max thinking      (most capable, slowest)"
+            echo "  opus-high      Opus 4.6, high thinking     (default for hard tasks)"
+            echo "  opus-med       Opus 4.6, medium thinking"
+            echo "  opus           Opus 4.6, no effort set"
+            echo "  sonnet-high    Sonnet 4.6, high thinking"
+            echo "  sonnet         Sonnet 4.6, no effort set   (fast, good for simple tasks)"
+            echo "  haiku          Haiku 4.5, no effort set    (fastest, cheapest)"
+            echo "  Or pass any claude model ID directly (e.g. claude-opus-4-6)"
             echo ""
             echo "Interactive features:"
             echo "  Inbox:     echo 'guidance' > .ralph-inbox  (from any terminal, any time)"
@@ -53,6 +74,8 @@ while [[ $# -gt 0 ]]; do
             echo "Environment variables:"
             echo "  RALPH_MAX_TURNS  Same as --max-turns"
             echo "  RALPH_DELAY      Same as --delay"
+            echo "  RALPH_MODEL      Same as --model"
+            echo "  RALPH_REVIEWER   Same as --reviewer"
             exit 0
             ;;
         *)
@@ -66,6 +89,26 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ─── Resolve model preset ────────────────────────────────────────────────────
+
+if [[ -n "$MODEL" ]]; then
+    case "$MODEL" in
+        opus-max)   MODEL="claude-opus-4-6";   EFFORT="max" ;;
+        opus-high)  MODEL="claude-opus-4-6";   EFFORT="high" ;;
+        opus-med)   MODEL="claude-opus-4-6";   EFFORT="medium" ;;
+        opus)       MODEL="claude-opus-4-6" ;;
+        sonnet-high) MODEL="claude-sonnet-4-6"; EFFORT="high" ;;
+        sonnet)     MODEL="claude-sonnet-4-6" ;;
+        haiku)      MODEL="claude-haiku-4-5-20251001" ;;
+        *)          ;; # treat as raw model ID
+    esac
+fi
+
+# Build model flags for claude -p
+CLAUDE_MODEL_FLAGS=()
+[[ -n "$MODEL" ]]  && CLAUDE_MODEL_FLAGS+=(--model "$MODEL")
+[[ -n "$EFFORT" ]] && CLAUDE_MODEL_FLAGS+=(--effort "$EFFORT")
 
 # ─── Find plan file ──────────────────────────────────────────────────────────
 
@@ -115,6 +158,8 @@ echo ""
 echo "Plan: $PLAN_PATH"
 echo "Working directory: $WORK_DIR"
 echo "Inbox: $WORK_DIR/$INBOX_FILE"
+if [[ -n "$MODEL" ]]; then echo "Model: ${MODEL}${EFFORT:+ (effort: $EFFORT)}"; fi
+if ! $SKIP_REVIEW; then echo "Review: enabled (reviewer: $REVIEWER)"; fi
 echo ""
 
 # ─── Pre-load context ────────────────────────────────────────────────────────
@@ -124,21 +169,17 @@ if [[ -f "$CODING_AGENTS_FILE" ]]; then
     CODING_RULES="$(cat "$CODING_AGENTS_FILE")"
 fi
 
-PLAN_CONTENT="$(cat "$PLAN_PATH")"
-
 # ─── Task parsing ────────────────────────────────────────────────────────────
 
 # Find the next unchecked task line number and text
 # Returns: "LINE_NUM|TASK_TEXT" or empty if none
 find_next_task() {
-    local line_num=0
-    while IFS= read -r line; do
-        line_num=$((line_num + 1))
-        if [[ "$line" =~ ^[[:space:]]*-\ \[\ \]\ (.+)$ ]]; then
-            echo "${line_num}|${BASH_REMATCH[1]}"
-            return
-        fi
-    done < "$PLAN_PATH"
+    local match
+    match="$(grep -n '^[[:space:]]*- \[ \] ' "$PLAN_PATH" | head -1)" || true
+    [[ -z "$match" ]] && return 0
+    local line_num="${match%%:*}"
+    local task_text="${match#*- \[ \] }"
+    echo "${line_num}|${task_text}"
 }
 
 # Check if the line before a task has <!-- BATCH -->
@@ -184,6 +225,67 @@ extract_criterion() {
         echo "${BASH_REMATCH[1]}"
     else
         echo "Task is complete and working correctly"
+    fi
+}
+
+# ─── Plan trimming ──────────────────────────────────────────────────────────
+
+# Return preamble (before first ## heading) + the section containing the given task line.
+# Cuts completed phases to reduce prompt token count.
+trim_plan_for_task() {
+    local task_line_num="$1"
+
+    # Find all ## heading line numbers
+    local -a heading_lines
+    mapfile -t heading_lines < <(grep -n '^## ' "$PLAN_PATH" | cut -d: -f1)
+
+    # No headings? Return full plan (no structure to trim)
+    if [[ ${#heading_lines[@]} -eq 0 ]]; then
+        cat "$PLAN_PATH"
+        return
+    fi
+
+    # Preamble: everything before the first ## heading
+    local preamble_end=$((heading_lines[0] - 1))
+
+    # Task is before any heading — return full plan
+    if [[ $task_line_num -lt ${heading_lines[0]} ]]; then
+        cat "$PLAN_PATH"
+        return
+    fi
+
+    # Find the section containing the task line
+    local section_start=${heading_lines[0]}
+    local section_end=""
+    for i in "${!heading_lines[@]}"; do
+        if [[ ${heading_lines[$i]} -le $task_line_num ]]; then
+            section_start=${heading_lines[$i]}
+            local next=$((i + 1))
+            if [[ $next -lt ${#heading_lines[@]} ]]; then
+                section_end=$((heading_lines[$next] - 1))
+            else
+                section_end=""
+            fi
+        fi
+    done
+
+    # Print preamble
+    if [[ $preamble_end -gt 0 ]]; then
+        sed -n "1,${preamble_end}p" "$PLAN_PATH"
+    fi
+
+    # Separator if skipping phases
+    if [[ $section_start -gt $((preamble_end + 1)) ]]; then
+        echo ""
+        echo "[... completed phases omitted ...]"
+        echo ""
+    fi
+
+    # Current section
+    if [[ -n "$section_end" ]]; then
+        sed -n "${section_start},${section_end}p" "$PLAN_PATH"
+    else
+        sed -n "${section_start},\$p" "$PLAN_PATH"
     fi
 }
 
@@ -288,16 +390,10 @@ elapsed() {
 
 # Count total and completed tasks in plan
 count_tasks() {
-    local total=0 done=0
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^[[:space:]]*-\ \[[xX]\] ]]; then
-            done=$((done + 1))
-            total=$((total + 1))
-        elif [[ "$line" =~ ^[[:space:]]*-\ \[\ \] ]]; then
-            total=$((total + 1))
-        fi
-    done < "$PLAN_PATH"
-    echo "${done}/${total}"
+    local done_count total_count
+    done_count=$(grep -c '^[[:space:]]*- \[[xX]\]' "$PLAN_PATH" || true)
+    total_count=$(grep -c '^[[:space:]]*- \[[xX ]\]' "$PLAN_PATH" || true)
+    echo "${done_count}/${total_count}"
 }
 
 # Print a status line with time, cost, progress
@@ -305,6 +401,83 @@ status_line() {
     local progress
     progress="$(count_tasks)"
     echo "  ⏱ $(elapsed) | 💰 \$${total_cost} | 📋 ${progress} tasks"
+}
+
+# ─── Review (codex / claude fallback) ───────────────────────────────────────
+
+log_phase() {
+    echo "  $1 $2"
+}
+
+auto_commit() {
+    if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+        git add -A
+        git commit -m "ralph: auto-commit before review" 2>/dev/null || true
+    fi
+}
+
+run_review() {
+    local base="$1" task_text="$2"
+    if $SKIP_REVIEW; then echo "LGTM (review skipped)"; return; fi
+
+    local diff; diff="$(git diff "$base"..HEAD 2>/dev/null)"
+    if [[ -z "$diff" ]]; then echo "LGTM — no changes to review"; return; fi
+
+    local use_codex=false
+    case "$REVIEWER" in
+        codex) use_codex=true ;;
+        claude) use_codex=false ;;
+        auto)  command -v codex &>/dev/null && use_codex=true ;;
+    esac
+
+    if $use_codex; then
+        log_phase "🔍" "Codex reviewing changes..." >&2
+        codex review --base "$base" \
+            2>&1 || echo "LGTM (codex error)"
+    else
+        log_phase "🔍" "Claude reviewing changes..." >&2
+        claude -p \
+            --model claude-opus-4-6 \
+            --max-turns 5 \
+            --dangerously-skip-permissions \
+            <<< "Review this diff for bugs, edge cases, and issues the implementing agent may not have considered. Be specific about file and line. If the code looks good, just say LGTM.
+
+## Task Context
+${task_text}
+
+## Diff
+${diff}" 2>&1 || echo "LGTM (claude error)"
+    fi
+}
+
+has_review_issues() {
+    local output="$1"
+    [[ -z "$output" ]] && return 1
+    # Check only the last few lines where the verdict appears — matching the
+    # full output causes false negatives when words like "clean" appear in
+    # reviews that actually describe problems.
+    echo "$output" | tail -5 | grep -qiE '(LGTM|no issues|looks good|no bugs|no discrete|did not find|did not identify)' && return 1
+    return 0
+}
+
+fix_review_issues() {
+    local review_output="$1"
+    if ! has_review_issues "$review_output"; then
+        log_phase "✅" "Review passed — LGTM"
+        return
+    fi
+    log_phase "🔧" "Fixing review findings..."
+    echo "$review_output" | head -20 | sed 's/^/    /'
+    claude -p \
+        --max-turns 15 \
+        --dangerously-skip-permissions \
+        <<< "A code reviewer found the following issues. Fix each one. Commit when done.
+
+## Review Findings
+${review_output}
+
+## Working Directory
+$(pwd)" 2>/dev/null || true
 }
 
 # ─── Same-terminal chat ─────────────────────────────────────────────────────
@@ -353,7 +526,7 @@ You are executing a single task from a plan.
 
 ## Plan Context
 
-The full plan is provided below so you do not need to read the plan file. Use this for architecture, project structure, and dependency context:
+The current phase of the plan is below (other phases trimmed). Read the plan file if you need context from other phases:
 
 <plan>
 ${PLAN_CONTENT}
@@ -412,7 +585,7 @@ ${task_list}
 
 ## Plan Context
 
-The full plan is provided below so you do not need to read the plan file. Use this for architecture, project structure, and dependency context:
+The current phase of the plan is below (other phases trimmed). Read the plan file if you need context from other phases:
 
 <plan>
 ${PLAN_CONTENT}
@@ -469,6 +642,7 @@ run_claude() {
     # Run claude in a background job so we can track its PID for cleanup
     coproc CLAUDE_PROC {
         claude -p \
+            "${CLAUDE_MODEL_FLAGS[@]}" \
             --max-turns "$MAX_TURNS" \
             --dangerously-skip-permissions \
             --verbose \
@@ -531,67 +705,61 @@ format_tool_detail() {
 }
 
 # Parse stream-json output to show live progress
+# Uses bash pattern matching to skip frequent events (text deltas, message
+# lifecycle) without forking jq. Only forks jq for infrequent events
+# (tool use, result) — reduces process spawns from hundreds to ~10-30 per task.
 parse_stream() {
-    local final_text=""
+    local delta_tmpfile
+    delta_tmpfile="$(mktemp)"
+
     while IFS= read -r line; do
-        # Skip empty lines
         [[ -z "$line" ]] && continue
 
-        local type
-        type="$(printf '%s' "$line" | jq -r '.type // empty' 2>/dev/null)" || continue
+        # Fast-path: accumulate text deltas to temp file for fallback (no jq fork)
+        if [[ "$line" == *'"content_block_delta"'* ]]; then
+            printf '%s\n' "$line" >> "$delta_tmpfile"
+            continue
+        fi
+        [[ "$line" == *'"content_block_stop"'* ]] && continue
+        [[ "$line" == *'"message_start"'* ]] && continue
+        [[ "$line" == *'"message_delta"'* ]] && continue
+        [[ "$line" == *'"message_stop"'* ]] && continue
 
-        case "$type" in
-            assistant)
-                # Tool use — show which tool is being called with detail
-                printf '%s' "$line" | jq -r '
-                    .message.content[]? |
-                    select(.type == "tool_use") |
-                    "\(.name)\t\(.input | @json)"
-                ' 2>/dev/null | while IFS=$'\t' read -r tool_name tool_input; do
-                    [[ -n "$tool_name" ]] && format_tool_detail "$tool_name" "$tool_input"
-                done
-                ;;
-            content_block_start)
-                local block_type tool
-                block_type="$(printf '%s' "$line" | jq -r '.content_block.type // empty' 2>/dev/null)"
-                if [[ "$block_type" == "tool_use" ]]; then
-                    tool="$(printf '%s' "$line" | jq -r '.content_block.name // empty' 2>/dev/null)"
-                    [[ -n "$tool" ]] && echo "  🔧 $tool"
-                fi
-                ;;
-            content_block_delta)
-                # Capture text deltas for final summary
-                local delta_type text_val
-                delta_type="$(printf '%s' "$line" | jq -r '.delta.type // empty' 2>/dev/null)"
-                if [[ "$delta_type" == "text_delta" ]]; then
-                    text_val="$(printf '%s' "$line" | jq -r '.delta.text // empty' 2>/dev/null)"
-                    final_text+="$text_val"
-                fi
-                ;;
-            result)
-                # Final result — extract and display the text
-                local result_text
-                result_text="$(printf '%s' "$line" | jq -r '.result // empty' 2>/dev/null)"
-                if [[ -n "$result_text" ]]; then
-                    echo ""
-                    echo "$result_text"
-                    echo "$result_text" > "$RESULT_TMPFILE"
-                elif [[ -n "$final_text" ]]; then
-                    echo ""
-                    echo "$final_text"
-                    echo "$final_text" > "$RESULT_TMPFILE"
-                fi
-                # Show cost if available
-                local cost_usd
-                cost_usd="$(printf '%s' "$line" | jq -r '.total_cost_usd // empty' 2>/dev/null)"
-                if [[ -n "$cost_usd" ]]; then
-                    echo "  💰 Cost: \$${cost_usd}"
-                    # Write cost to temp file so parent shell can read it
-                    echo "$cost_usd" > "$COST_TMPFILE"
-                fi
-                ;;
-        esac
+        # Infrequent events — fork jq only for these
+        if [[ "$line" == *'"type":"assistant"'* || "$line" == *'"type": "assistant"'* ]]; then
+            # Tool use — show which tool is being called with detail
+            printf '%s' "$line" | jq -r '
+                .message.content[]? |
+                select(.type == "tool_use") |
+                "\(.name)\t\(.input | @json)"
+            ' 2>/dev/null | while IFS=$'\t' read -r tool_name tool_input; do
+                [[ -n "$tool_name" ]] && format_tool_detail "$tool_name" "$tool_input"
+            done
+        elif [[ "$line" == *'"content_block_start"'* && "$line" == *'"tool_use"'* ]]; then
+            local tool
+            tool="$(printf '%s' "$line" | jq -r '.content_block.name // empty' 2>/dev/null)"
+            [[ -n "$tool" ]] && echo "  🔧 $tool"
+        elif [[ "$line" == *'"type":"result"'* || "$line" == *'"type": "result"'* ]]; then
+            local result_text
+            result_text="$(printf '%s' "$line" | jq -r '.result // empty' 2>/dev/null)"
+            if [[ -z "$result_text" && -s "$delta_tmpfile" ]]; then
+                result_text="$(jq -j 'select(.delta.type == "text_delta") | .delta.text // empty' "$delta_tmpfile" 2>/dev/null)"
+            fi
+            if [[ -n "$result_text" ]]; then
+                echo ""
+                echo "$result_text"
+                echo "$result_text" > "$RESULT_TMPFILE"
+            fi
+            local cost_usd
+            cost_usd="$(printf '%s' "$line" | jq -r '.total_cost_usd // empty' 2>/dev/null)"
+            if [[ -n "$cost_usd" ]]; then
+                echo "  💰 Cost: \$${cost_usd}"
+                echo "$cost_usd" > "$COST_TMPFILE"
+            fi
+        fi
     done
+
+    rm -f "$delta_tmpfile"
 }
 
 completed=0
@@ -670,7 +838,9 @@ while true; do
         if [[ $rc -eq 1 ]]; then echo "  ⏭️  Skipped"; continue; fi
         if [[ $rc -eq 2 ]]; then echo "🛑 Stopped by user."; break; fi
 
+        review_base="$(git rev-parse HEAD 2>/dev/null || echo "")"
         > "$RESULT_TMPFILE"
+        PLAN_CONTENT="$(trim_plan_for_task "$task_line")"
         prompt="$(build_batch_prompt "${batch_tasks[@]}")"
         echo ""
         if run_claude "$prompt"; then
@@ -687,6 +857,12 @@ while true; do
                 consecutive_fails=0
                 echo ""
                 echo "✅ Batch complete"
+                # Codex/Claude review
+                if ! $SKIP_REVIEW && [[ -n "$review_base" ]]; then
+                    auto_commit
+                    review_out="$(run_review "$review_base" "${batch_tasks[0]#*|}")"
+                    fix_review_issues "$review_out"
+                fi
             fi
         else
             accumulate_cost
@@ -719,7 +895,9 @@ while true; do
         if [[ $rc -eq 1 ]]; then echo "  ⏭️  Skipped"; continue; fi
         if [[ $rc -eq 2 ]]; then echo "🛑 Stopped by user."; break; fi
 
+        review_base="$(git rev-parse HEAD 2>/dev/null || echo "")"
         > "$RESULT_TMPFILE"
+        PLAN_CONTENT="$(trim_plan_for_task "$task_line")"
         prompt="$(build_single_prompt "$task_text")"
         echo ""
         if run_claude "$prompt"; then
@@ -736,6 +914,12 @@ while true; do
                 consecutive_fails=0
                 echo ""
                 echo "✅ Task complete"
+                # Codex/Claude review
+                if ! $SKIP_REVIEW && [[ -n "$review_base" ]]; then
+                    auto_commit
+                    review_out="$(run_review "$review_base" "$task_text")"
+                    fix_review_issues "$review_out"
+                fi
             fi
         else
             accumulate_cost
@@ -758,11 +942,6 @@ while true; do
         echo "🛑 Stopping: $MAX_CONSECUTIVE_FAILS consecutive failures on the same task."
         echo "   Fix the issue manually, then re-run ralph."
         exit 1
-    fi
-
-    # Refresh plan content every 3 tasks for the prompt context
-    if (( (completed + failed) % 3 == 0 )); then
-        PLAN_CONTENT="$(cat "$PLAN_PATH")"
     fi
 
     echo ""
