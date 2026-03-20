@@ -40,6 +40,11 @@ class State(enum.Enum):
     PAUSED = "PAUSED"
     DONE = "DONE"
 
+
+class AgentKilled(Exception):
+    """Raised when a running claude subprocess is killed (e.g., by /kill or /skip)."""
+    pass
+
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 MODEL_PRESETS = {
@@ -429,7 +434,8 @@ def format_tool_detail(name: str, input_data: dict) -> str:
 
 
 def run_claude(prompt: str, config: Config,
-               on_output: Callable[[str], None] = print) -> ClaudeResult:
+               on_output: Callable[[str], None] = print,
+               proc_register: Callable[[subprocess.Popen], None] | None = None) -> ClaudeResult:
     cmd = [
         "claude", "-p",
         *config.claude_model_flags(),
@@ -448,6 +454,9 @@ def run_claude(prompt: str, config: Config,
     )
     proc.stdin.write(prompt)
     proc.stdin.close()
+
+    if proc_register is not None:
+        proc_register(proc)
 
     result = ClaudeResult()
 
@@ -497,6 +506,8 @@ def run_claude(prompt: str, config: Config,
                 on_output(f"  💰 Cost: ${result.cost}")
 
     proc.wait()
+    if proc.returncode is not None and proc.returncode < 0:
+        raise AgentKilled()
     return result
 
 
@@ -865,6 +876,20 @@ class RalphApp(App):
             out("⚠️  git stash pop failed")
         self._stash_created = False
 
+    def _register_proc(self, proc: subprocess.Popen) -> None:
+        """Register the running subprocess so /kill and /skip can find it."""
+        self.current_proc = proc
+
+    def _get_review_base(self) -> str:
+        """Get the current git HEAD for review diffing."""
+        try:
+            return subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True, text=True,
+            ).stdout.strip()
+        except Exception:
+            return ""
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission: dispatch /commands or queue guidance."""
         text = event.value.strip()
@@ -909,14 +934,27 @@ class RalphApp(App):
             out(RALPH_ASCII.read_text())
         out(f"Plan: {config.plan_path}")
         out(f"Working directory: {config.work_dir}")
+        if config.model:
+            model_info = config.model
+            if config.effort:
+                model_info += f" (effort: {config.effort})"
+            out(f"Model: {model_info}")
+        if not config.skip_review:
+            out(f"Review: enabled (reviewer: {config.reviewer})")
         out("")
 
-        self.state = State.RUNNING
+        # Pre-load context
+        coding_rules = load_coding_rules()
+        recent_commits = get_recent_commits()
+        consecutive_fails = 0
+        user_guidance = ""
+
         min_line = 1
         last_task: Task | None = None
         while True:
             # Check if paused — wait for resume before continuing
             if self.pause_event.is_set():
+                self.state = State.PAUSED
                 # Block until resume_event is signalled (poll to allow app shutdown)
                 while not self.resume_event.wait(timeout=0.5):
                     if not self.is_running:
@@ -945,6 +983,13 @@ class RalphApp(App):
                 break
 
             last_task = task
+
+            # Check if paused between finding task and starting it
+            # (avoids overwriting PAUSED state set by cmd_kill)
+            if self.pause_event.is_set():
+                min_line = task.line_num
+                continue
+
             self.state = State.RUNNING
             self.current_task = task.text
             out("━" * 60)
@@ -965,11 +1010,133 @@ class RalphApp(App):
                     continue
                 check_off_task(config.plan_path, task.line_num)
                 self._completed += 1
-                min_line = task.line_num + 1
-                continue
+            else:
+                # ── Real execution ──────────────────────────────────
+                # Collect queued guidance
+                guidance_parts = []
+                if user_guidance:
+                    guidance_parts.append(user_guidance)
+                    user_guidance = ""
+                while self.guidance_queue:
+                    guidance_parts.append(self.guidance_queue.popleft())
+                inbox_msg = read_inbox()
+                if inbox_msg:
+                    guidance_parts.append(inbox_msg)
+                    out(f"  📬 Inbox: {inbox_msg}")
+                guidance = "\n".join(guidance_parts)
 
-            # Real execution will be wired in later phases
-            break
+                try:
+                    if config.batch_mode and is_batch_start(config.plan_path, task.line_num):
+                        batch_tasks = collect_batch(config.plan_path, task.line_num)
+                        out(f"📦 BATCH ({len(batch_tasks)} tasks):")
+                        for t in batch_tasks:
+                            out(f"   - {t.text}")
+
+                        review_base = self._get_review_base()
+                        plan_content = trim_plan_for_task(config.plan_path, task.line_num)
+                        prompt = build_batch_prompt(
+                            batch_tasks, plan_content, config,
+                            coding_rules, recent_commits, guidance)
+
+                        result = run_claude(prompt, config, on_output=out,
+                                            proc_register=self._register_proc)
+                        self.current_proc = None
+                        self.total_cost += result.cost
+
+                        new_task = find_next_task(config.plan_path)
+                        if new_task and new_task.text == batch_tasks[0].text:
+                            self._failed += len(batch_tasks)
+                            consecutive_fails += 1
+                            out("\n❌ Batch failed (task not checked off)")
+                        else:
+                            self._completed += len(batch_tasks)
+                            consecutive_fails = 0
+                            out("\n✅ Batch complete")
+                            if not config.skip_review and review_base:
+                                auto_commit()
+                                out("🔍 Reviewing changes...")
+                                review_out = run_review(
+                                    review_base, batch_tasks[0].text, config)
+                                fix_review_issues(review_out, config)
+
+                        if needs_followup(result.text):
+                            out("⚠️  Agent may need input — check output above")
+
+                    else:
+                        # Single task
+                        review_base = self._get_review_base()
+                        plan_content = trim_plan_for_task(config.plan_path, task.line_num)
+                        prompt = build_single_prompt(
+                            task, plan_content, config,
+                            coding_rules, recent_commits, guidance)
+
+                        result = run_claude(prompt, config, on_output=out,
+                                            proc_register=self._register_proc)
+                        self.current_proc = None
+                        self.total_cost += result.cost
+
+                        new_task = find_next_task(config.plan_path)
+                        if new_task and new_task.text == task.text:
+                            self._failed += 1
+                            consecutive_fails += 1
+                            out("\n❌ Task failed (task not checked off)")
+                        else:
+                            self._completed += 1
+                            consecutive_fails = 0
+                            out("\n✅ Task complete")
+                            if not config.skip_review and review_base:
+                                auto_commit()
+                                out("🔍 Reviewing changes...")
+                                review_out = run_review(
+                                    review_base, task.text, config)
+                                fix_review_issues(review_out, config)
+
+                        if needs_followup(result.text):
+                            out("⚠️  Agent may need input — check output above")
+
+                except AgentKilled:
+                    self.current_proc = None
+                    if self.skip_event.is_set():
+                        self.skip_event.clear()
+                        out("⏭️  Skipped")
+                        min_line = task.line_num + 1
+                    else:
+                        out("🔪 Agent killed")
+                        min_line = task.line_num
+                    continue
+
+            # Consecutive failure check
+            if consecutive_fails >= MAX_CONSECUTIVE_FAILS:
+                out(f"\n🛑 Stopping: {MAX_CONSECUTIVE_FAILS} consecutive failures.")
+                out("   Fix the issue manually, then re-run ralph.")
+                break
+
+            # Refresh git history periodically
+            if self._completed > 0 and self._completed % 3 == 0:
+                recent_commits = get_recent_commits()
+
+            # COUNTDOWN between tasks
+            if config.delay > 0:
+                self.state = State.COUNTDOWN
+                countdown_end = time.time() + config.delay
+                while time.time() < countdown_end:
+                    if self.skip_event.is_set():
+                        self.skip_event.clear()
+                        break
+                    if self.pause_event.is_set():
+                        break
+                    if not self.is_running:
+                        return
+                    time.sleep(0.1)
+                # Collect guidance queued during countdown
+                while self.guidance_queue:
+                    user_guidance += self.guidance_queue.popleft() + "\n"
+                # If paused during countdown, loop back to let
+                # the pause handler at the top decide min_line
+                if self.pause_event.is_set():
+                    continue
+
+            min_line = task.line_num + 1
 
         time.sleep(1)
         self.exit()
@@ -1161,223 +1328,8 @@ Environment variables:
 
 def main() -> None:
     config = parse_args()
-
-    # TUI mode for dry-run (will expand to all modes in later phases)
-    if config.dry_run:
-        app = RalphApp(config)
-        app.run()
-        return
-
-    # Banner
-    print()
-    if RALPH_ASCII.is_file():
-        print(RALPH_ASCII.read_text(), end="")
-    print(f"Plan: {config.plan_path}")
-    print(f"Working directory: {config.work_dir}")
-    print(f"Inbox: {config.work_dir}/{INBOX_FILE}")
-    if config.model:
-        model_info = config.model
-        if config.effort:
-            model_info += f" (effort: {config.effort})"
-        print(f"Model: {model_info}")
-    if not config.skip_review:
-        print(f"Review: enabled (reviewer: {config.reviewer})")
-    print()
-
-    # Pre-load context
-    coding_rules = load_coding_rules()
-    recent_commits = get_recent_commits()
-
-    # Stats
-    completed = 0
-    failed = 0
-    consecutive_fails = 0
-    total_cost = 0.0
-    start_time = time.time()
-    claude_proc: subprocess.Popen | None = None
-
-    # Signal handler
-    def sigint_handler(signum, frame):
-        nonlocal total_cost
-        print()
-        stop_input_reader()
-        print(f"🛑 Stopped after {completed} tasks, {failed} failed. "
-              f"⏱ {elapsed(start_time)} | 💰 ${total_cost:.8f}")
-        # Stash uncommitted changes
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True, text=True,
-        )
-        if result.stdout.strip():
-            stash_result = subprocess.run(
-                ["git", "stash", "push", "-u", "-m",
-                 f"ralph: interrupted after {completed} tasks completed"],
-                capture_output=True, text=True,
-            )
-            if stash_result.returncode == 0:
-                print("📦 Changes stashed (git stash pop to restore)")
-            else:
-                print("⚠️  git stash failed — changes left in working tree")
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, sigint_handler)
-
-    print("📬 Type a message any time — it will be sent to the next agent.")
-    print()
-
-    user_guidance = ""
-
-    while True:
-        task = find_next_task(config.plan_path)
-        if task is None:
-            print(f"✅ All tasks complete! ({completed} completed, {failed} failed)")
-            status_line(start_time, total_cost, config.plan_path)
-            break
-
-        # Check for batch
-        if config.batch_mode and is_batch_start(config.plan_path, task.line_num):
-            batch_tasks = collect_batch(config.plan_path, task.line_num)
-            print("━" * 60)
-            print(f"📦 BATCH ({len(batch_tasks)} tasks):")
-            for t in batch_tasks:
-                print(f"   - {t.text}")
-            print("━" * 60)
-
-            if config.dry_run:
-                print(f"[dry-run] Would execute batch of {len(batch_tasks)} tasks")
-                for t in batch_tasks:
-                    check_off_task(config.plan_path, t.line_num)
-                completed += len(batch_tasks)
-                continue
-
-            action, guidance = interactive_countdown(
-                f"batch of {len(batch_tasks)} tasks", config.delay)
-            user_guidance = guidance
-            if action == 1:
-                print("  ⏭️  Skipped")
-                continue
-            if action == 2:
-                print("🛑 Stopped by user.")
-                break
-
-            review_base = ""
-            try:
-                review_base = subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
-                    capture_output=True, text=True,
-                ).stdout.strip()
-            except Exception:
-                pass
-
-            plan_content = trim_plan_for_task(config.plan_path, task.line_num)
-            prompt = build_batch_prompt(
-                batch_tasks, plan_content, config,
-                coding_rules, recent_commits, user_guidance)
-
-            print()
-            start_input_reader()
-            result = run_claude(prompt, config)
-            stop_input_reader()
-            total_cost += result.cost
-
-            # Check success: did first task get checked off?
-            new_task = find_next_task(config.plan_path)
-            first_batch_text = batch_tasks[0].text
-            if new_task and new_task.text == first_batch_text:
-                failed += len(batch_tasks)
-                consecutive_fails += 1
-                print()
-                print("❌ Batch failed (task not checked off)")
-            else:
-                completed += len(batch_tasks)
-                consecutive_fails = 0
-                print()
-                print("✅ Batch complete")
-                if not config.skip_review and review_base:
-                    auto_commit()
-                    review_out = run_review(review_base, first_batch_text, config)
-                    fix_review_issues(review_out, config)
-
-            status_line(start_time, total_cost, config.plan_path)
-
-            # Follow-up detection
-            user_guidance = handle_followup(result.text)
-
-        else:
-            # Single task
-            print("━" * 60)
-            print(f"📋 Task: {task.text}")
-            print("━" * 60)
-
-            if config.dry_run:
-                print("[dry-run] Would execute this task")
-                check_off_task(config.plan_path, task.line_num)
-                completed += 1
-                continue
-
-            action, guidance = interactive_countdown(task.text, config.delay)
-            user_guidance = guidance
-            if action == 1:
-                print("  ⏭️  Skipped")
-                continue
-            if action == 2:
-                print("🛑 Stopped by user.")
-                break
-
-            review_base = ""
-            try:
-                review_base = subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
-                    capture_output=True, text=True,
-                ).stdout.strip()
-            except Exception:
-                pass
-
-            plan_content = trim_plan_for_task(config.plan_path, task.line_num)
-            prompt = build_single_prompt(
-                task, plan_content, config,
-                coding_rules, recent_commits, user_guidance)
-
-            print()
-            start_input_reader()
-            result = run_claude(prompt, config)
-            stop_input_reader()
-            total_cost += result.cost
-
-            # Check success
-            new_task = find_next_task(config.plan_path)
-            if new_task and new_task.text == task.text:
-                failed += 1
-                consecutive_fails += 1
-                print()
-                print("❌ Task failed (task not checked off)")
-            else:
-                completed += 1
-                consecutive_fails = 0
-                print()
-                print("✅ Task complete")
-                if not config.skip_review and review_base:
-                    auto_commit()
-                    review_out = run_review(review_base, task.text, config)
-                    fix_review_issues(review_out, config)
-
-            status_line(start_time, total_cost, config.plan_path)
-
-            # Follow-up detection
-            user_guidance = handle_followup(result.text)
-
-        # Bail on consecutive failures
-        if consecutive_fails >= MAX_CONSECUTIVE_FAILS:
-            print()
-            print(f"🛑 Stopping: {MAX_CONSECUTIVE_FAILS} consecutive failures on the same task.")
-            print("   Fix the issue manually, then re-run ralph.")
-            sys.exit(1)
-
-        # Refresh git history every 3 tasks
-        if completed > 0 and completed % 3 == 0:
-            recent_commits = get_recent_commits()
-
-        print()
+    app = RalphApp(config)
+    app.run()
 
 
 if __name__ == "__main__":

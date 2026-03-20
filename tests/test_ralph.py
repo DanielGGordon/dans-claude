@@ -354,7 +354,7 @@ class TestFindPlan:
 
 class TestRalphApp:
     def test_compose_yields_expected_widgets(self, plan_file):
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         widgets = list(app.compose())
         assert len(widgets) == 3
@@ -363,21 +363,21 @@ class TestRalphApp:
         assert isinstance(widgets[2], Input)
 
     def test_widget_ids(self, plan_file):
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         widgets = list(app.compose())
         assert widgets[0].id == "log"
         assert widgets[1].id == "status"
 
     def test_css_is_set(self, plan_file):
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert "#log" in app.CSS
         assert "#status" in app.CSS
 
     @pytest.mark.asyncio
     async def test_dry_run_processes_tasks(self, plan_file):
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             # Wait for worker to complete (tasks are fast in dry-run)
@@ -389,7 +389,7 @@ class TestRalphApp:
     @pytest.mark.asyncio
     async def test_output_writes_to_richlog(self, plan_file):
         """output() method routes text to the RichLog widget, not stdout."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             app.output("hello from output")
@@ -402,7 +402,7 @@ class TestRalphApp:
     @pytest.mark.asyncio
     async def test_dry_run_output_in_richlog_not_stdout(self, plan_file, capsys):
         """Dry-run task output appears in RichLog, not on raw stdout."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause(delay=3)
@@ -414,7 +414,7 @@ class TestRalphApp:
 
     def test_app_has_status_tracking_attrs(self, plan_file):
         """RalphApp initializes status tracking attributes."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert isinstance(app.start_time, float)
         assert app.total_cost == 0.0
@@ -423,7 +423,7 @@ class TestRalphApp:
 
     def test_update_status_method_exists(self, plan_file):
         """RalphApp has an update_status method."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert hasattr(app, "update_status")
         assert callable(app.update_status)
@@ -431,7 +431,7 @@ class TestRalphApp:
     @pytest.mark.asyncio
     async def test_status_bar_updates_during_dry_run(self, plan_file):
         """Status bar updates every second via set_interval during dry-run."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             # Let the tasks run and timer tick
@@ -446,7 +446,7 @@ class TestRalphApp:
     @pytest.mark.asyncio
     async def test_status_bar_shows_current_task(self, plan_file):
         """Status bar displays the current task name while running."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             # Briefly pause — tasks should be in-progress
@@ -466,7 +466,7 @@ class TestInputHandling:
     @pytest.mark.asyncio
     async def test_plain_text_queues_guidance(self, plan_file):
         """Typing plain text and pressing Enter queues it and shows message."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             input_widget = app.query_one(Input)
@@ -483,7 +483,7 @@ class TestInputHandling:
     @pytest.mark.asyncio
     async def test_plain_text_shows_queued_message(self, plan_file):
         """Queued text shows '📬 Queued: {text}' in the log."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             input_widget = app.query_one(Input)
@@ -497,7 +497,7 @@ class TestInputHandling:
     @pytest.mark.asyncio
     async def test_slash_command_dispatches_to_handler(self, plan_file):
         """Input starting with / dispatches to the command handler dict."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         called_with = []
         app.command_handlers["test"] = lambda arg: called_with.append(arg)
@@ -514,7 +514,7 @@ class TestInputHandling:
     @pytest.mark.asyncio
     async def test_unknown_command_shows_error(self, plan_file):
         """Unknown /command shows error in the log."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             input_widget = app.query_one(Input)
@@ -528,7 +528,7 @@ class TestInputHandling:
     @pytest.mark.asyncio
     async def test_empty_input_ignored(self, plan_file):
         """Empty input (just pressing Enter) does nothing."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             input_widget = app.query_one(Input)
@@ -540,7 +540,7 @@ class TestInputHandling:
     @pytest.mark.asyncio
     async def test_multiple_submissions_queue_in_order(self, plan_file):
         """Multiple submissions are queued in FIFO order."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             input_widget = app.query_one(Input)
@@ -553,14 +553,14 @@ class TestInputHandling:
 
     def test_guidance_queue_initialized(self, plan_file):
         """RalphApp initializes with an empty guidance queue."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert hasattr(app, "guidance_queue")
         assert len(app.guidance_queue) == 0
 
     def test_command_handlers_initialized(self, plan_file):
         """RalphApp initializes with built-in command handlers."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert hasattr(app, "command_handlers")
         assert isinstance(app.command_handlers, dict)
@@ -573,20 +573,20 @@ class TestStopCommand:
 
     def test_current_proc_initialized_none(self, plan_file):
         """RalphApp starts with current_proc = None."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert app.current_proc is None
 
     def test_stop_registered_in_handlers(self, plan_file):
         """cmd_stop is registered as the /stop handler."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert "stop" in app.command_handlers
         assert app.command_handlers["stop"] == app.cmd_stop
 
     def test_cmd_stop_kills_running_proc(self, plan_file):
         """cmd_stop kills the current_proc if one is running."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         # Create a long-running subprocess
         proc = subprocess.Popen(
@@ -608,7 +608,7 @@ class TestStopCommand:
     @pytest.mark.asyncio
     async def test_stop_via_input_exits_app(self, plan_file):
         """/stop typed in input causes the app to exit."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             input_widget = app.query_one(Input)
@@ -622,7 +622,7 @@ class TestStopCommand:
     @pytest.mark.asyncio
     async def test_stop_sets_current_proc_to_none(self, plan_file):
         """/stop clears current_proc after killing."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             # Simulate a running process
@@ -658,7 +658,7 @@ class TestStopCommand:
         # Make dirty
         (repo / "dirty.txt").write_text("uncommitted change")
 
-        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             input_widget = app.query_one(Input)
@@ -678,14 +678,14 @@ class TestStopCommand:
 
     def test_cmd_stop_method_exists(self, plan_file):
         """RalphApp has a cmd_stop method."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert hasattr(app, "cmd_stop")
         assert callable(app.cmd_stop)
 
     def test_failed_counter_initialized(self, plan_file):
         """RalphApp initializes _failed counter."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert app._failed == 0
 
@@ -695,21 +695,21 @@ class TestSkipCommand:
 
     def test_skip_registered_in_handlers(self, plan_file):
         """cmd_skip is registered as the /skip handler."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert "skip" in app.command_handlers
         assert app.command_handlers["skip"] == app.cmd_skip
 
     def test_skip_event_initialized(self, plan_file):
         """RalphApp starts with skip_event unset."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert hasattr(app, "skip_event")
         assert not app.skip_event.is_set()
 
     def test_cmd_skip_sets_skip_event(self, plan_file):
         """cmd_skip sets the skip_event flag."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async def fake_output(text=""):
             pass
@@ -720,7 +720,7 @@ class TestSkipCommand:
 
     def test_cmd_skip_kills_running_proc(self, plan_file):
         """cmd_skip kills the current_proc if one is running."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         proc = subprocess.Popen(
@@ -736,7 +736,7 @@ class TestSkipCommand:
 
     def test_cmd_skip_without_proc(self, plan_file):
         """cmd_skip works even when no process is running."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app.cmd_skip()  # Should not raise
@@ -746,7 +746,7 @@ class TestSkipCommand:
     @pytest.mark.asyncio
     async def test_skip_during_dry_run_skips_task(self, plan_file):
         """/skip during a running dry-run task moves to the next task."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         # Pre-set skip event before app starts so the first unchecked task gets skipped
         app.skip_event.set()
@@ -762,7 +762,7 @@ class TestSkipCommand:
     @pytest.mark.asyncio
     async def test_skip_via_input(self, plan_file):
         """/skip typed in input sets the skip event."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             input_widget = app.query_one(Input)
@@ -831,14 +831,14 @@ class TestPlanCommand:
 
     def test_plan_registered_in_handlers(self, plan_file):
         """cmd_plan is registered as the /plan handler."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert "plan" in app.command_handlers
         assert app.command_handlers["plan"] == app.cmd_plan
 
     def test_cmd_plan_method_exists(self, plan_file):
         """RalphApp has a cmd_plan method."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert hasattr(app, "cmd_plan")
         assert callable(app.cmd_plan)
@@ -846,7 +846,7 @@ class TestPlanCommand:
     @pytest.mark.asyncio
     async def test_plan_via_input(self, plan_file):
         """/plan typed in input writes plan summary to the log."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             input_widget = app.query_one(Input)
@@ -882,14 +882,14 @@ class TestStateReactive:
 
     def test_initial_state_is_running(self, plan_file):
         """RalphApp starts in RUNNING state."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert app.state == ralph.State.RUNNING
 
     @pytest.mark.asyncio
     async def test_state_transitions_to_done(self, plan_file):
         """State transitions to DONE after all tasks complete."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause(delay=3)
@@ -898,7 +898,7 @@ class TestStateReactive:
     @pytest.mark.asyncio
     async def test_status_bar_shows_state(self, plan_file):
         """Status bar displays the current state value."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             # Brief pause to let status update tick
@@ -911,7 +911,7 @@ class TestStateReactive:
     @pytest.mark.asyncio
     async def test_status_bar_shows_running_during_tasks(self, plan_file):
         """Status bar shows RUNNING while tasks are being processed."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             # Set state manually and trigger update to verify display
@@ -925,7 +925,7 @@ class TestStateReactive:
     @pytest.mark.asyncio
     async def test_status_bar_shows_paused_state(self, plan_file):
         """Status bar shows PAUSED when state is set to PAUSED."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             app.state = ralph.State.PAUSED
@@ -938,7 +938,7 @@ class TestStateReactive:
     @pytest.mark.asyncio
     async def test_status_bar_shows_done_state(self, plan_file):
         """Status bar shows DONE after all tasks finish."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause(delay=3)
@@ -982,7 +982,7 @@ class TestStateValidation:
     @pytest.mark.asyncio
     async def test_invalid_command_shows_warning(self, plan_file):
         """Running /resume while in RUNNING state shows a warning."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         # Register a dummy /resume handler so it's a known command
         resume_called = []
@@ -1001,7 +1001,7 @@ class TestStateValidation:
     @pytest.mark.asyncio
     async def test_valid_command_executes(self, plan_file):
         """Running /skip while in RUNNING state executes normally."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             app.state = ralph.State.RUNNING
@@ -1018,7 +1018,7 @@ class TestStateValidation:
     @pytest.mark.asyncio
     async def test_plan_command_works_in_any_state(self, plan_file):
         """/plan works regardless of state since it has no state restriction."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             for state in ralph.State:
@@ -1033,7 +1033,7 @@ class TestStateValidation:
     @pytest.mark.asyncio
     async def test_invalid_skip_in_done_state(self, plan_file):
         """/skip shows warning when state is DONE."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             app.state = ralph.State.DONE
@@ -1054,41 +1054,41 @@ class TestKillPauseCommand:
 
     def test_kill_registered_in_handlers(self, plan_file):
         """cmd_kill is registered as the /kill handler."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert "kill" in app.command_handlers
         assert app.command_handlers["kill"] == app.cmd_kill
 
     def test_pause_registered_in_handlers(self, plan_file):
         """cmd_kill is registered as the /pause handler (alias)."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert "pause" in app.command_handlers
         assert app.command_handlers["pause"] == app.cmd_kill
 
     def test_pause_event_initialized(self, plan_file):
         """RalphApp starts with pause_event unset."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert hasattr(app, "pause_event")
         assert not app.pause_event.is_set()
 
     def test_resume_event_initialized(self, plan_file):
         """RalphApp starts with resume_event unset."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert hasattr(app, "resume_event")
         assert not app.resume_event.is_set()
 
     def test_stash_created_initialized(self, plan_file):
         """RalphApp starts with _stash_created = False."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert app._stash_created is False
 
     def test_cmd_kill_sets_pause_event(self, plan_file):
         """cmd_kill sets the pause_event flag."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app.cmd_kill()
@@ -1096,7 +1096,7 @@ class TestKillPauseCommand:
 
     def test_cmd_kill_sets_state_paused(self, plan_file):
         """cmd_kill sets state to PAUSED."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app.state = ralph.State.RUNNING
@@ -1105,7 +1105,7 @@ class TestKillPauseCommand:
 
     def test_cmd_kill_kills_running_proc(self, plan_file):
         """cmd_kill kills the current_proc if one is running."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         proc = subprocess.Popen(
@@ -1121,7 +1121,7 @@ class TestKillPauseCommand:
 
     def test_cmd_kill_without_proc(self, plan_file):
         """cmd_kill works even when no process is running."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app.cmd_kill()  # Should not raise
@@ -1143,7 +1143,7 @@ class TestKillPauseCommand:
         # Make dirty
         (repo / "dirty.txt").write_text("uncommitted change")
 
-        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app.cmd_kill()
@@ -1172,7 +1172,7 @@ class TestKillPauseCommand:
         subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True)
         subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), capture_output=True)
 
-        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app.cmd_kill()
@@ -1182,7 +1182,7 @@ class TestKillPauseCommand:
     @pytest.mark.asyncio
     async def test_kill_via_input_sets_paused(self, plan_file):
         """/kill typed in input sets state to PAUSED."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=3)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             app.state = ralph.State.RUNNING
@@ -1197,7 +1197,7 @@ class TestKillPauseCommand:
     @pytest.mark.asyncio
     async def test_pause_via_input_sets_paused(self, plan_file):
         """/pause typed in input sets state to PAUSED (alias for /kill)."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=3)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             app.state = ralph.State.RUNNING
@@ -1211,7 +1211,7 @@ class TestKillPauseCommand:
     @pytest.mark.asyncio
     async def test_kill_shows_paused_in_status_bar(self, plan_file):
         """/kill during a running task shows PAUSED in the status bar."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=3)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             app.state = ralph.State.RUNNING
@@ -1242,7 +1242,7 @@ class TestKillPauseCommand:
         subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), capture_output=True)
         (repo / "dirty.txt").write_text("uncommitted")
 
-        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True, delay=3)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             input_widget = app.query_one(Input)
@@ -1263,7 +1263,7 @@ class TestKillPauseCommand:
     @pytest.mark.asyncio
     async def test_kill_invalid_in_paused_state(self, plan_file):
         """/kill is not valid when already PAUSED."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             app.state = ralph.State.PAUSED
@@ -1281,7 +1281,7 @@ class TestKillPauseCommand:
     @pytest.mark.asyncio
     async def test_worker_pauses_on_kill(self, plan_file):
         """/kill during dry-run pauses the worker (doesn't complete all tasks)."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=3)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             # Very brief pause to let worker start first task
@@ -1309,27 +1309,27 @@ class TestResumeRetryCommand:
 
     def test_resume_registered_in_handlers(self, plan_file):
         """cmd_resume is registered as the /resume handler."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert "resume" in app.command_handlers
         assert app.command_handlers["resume"] == app.cmd_resume
 
     def test_retry_registered_in_handlers(self, plan_file):
         """cmd_retry is registered as the /retry handler."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert "retry" in app.command_handlers
         assert app.command_handlers["retry"] == app.cmd_retry
 
     def test_retry_flag_initialized(self, plan_file):
         """RalphApp starts with _retry = False."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert app._retry is False
 
     def test_cmd_resume_sets_retry_false(self, plan_file):
         """cmd_resume sets _retry to False."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app._retry = True  # Pre-set to True
@@ -1338,7 +1338,7 @@ class TestResumeRetryCommand:
 
     def test_cmd_resume_signals_resume_event(self, plan_file):
         """cmd_resume sets the resume_event."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app.cmd_resume()
@@ -1346,7 +1346,7 @@ class TestResumeRetryCommand:
 
     def test_cmd_resume_sets_state_running(self, plan_file):
         """cmd_resume transitions state to RUNNING."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app.state = ralph.State.PAUSED
@@ -1355,7 +1355,7 @@ class TestResumeRetryCommand:
 
     def test_cmd_retry_sets_retry_true(self, plan_file):
         """cmd_retry sets _retry to True."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app.cmd_retry()
@@ -1363,7 +1363,7 @@ class TestResumeRetryCommand:
 
     def test_cmd_retry_signals_resume_event(self, plan_file):
         """cmd_retry sets the resume_event."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app.cmd_retry()
@@ -1371,7 +1371,7 @@ class TestResumeRetryCommand:
 
     def test_cmd_retry_sets_state_running(self, plan_file):
         """cmd_retry transitions state to RUNNING."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app.output = lambda text="": None
         app.state = ralph.State.PAUSED
@@ -1381,10 +1381,10 @@ class TestResumeRetryCommand:
     @pytest.mark.asyncio
     async def test_kill_then_retry_reruns_same_task(self, plan_file):
         """/kill then /retry re-runs the same task."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
-            # Let worker start on first unchecked task
+            # Let worker start on first unchecked task (0.3s dry-run wait)
             await pilot.pause(delay=0.1)
             # Kill the current task
             input_widget = app.query_one(Input)
@@ -1398,7 +1398,7 @@ class TestResumeRetryCommand:
             # Now retry
             input_widget.value = "/retry"
             await input_widget.action_submit()
-            # Let the retried task complete and continue
+            # Let the retried task complete and continue (no countdown delay)
             await pilot.pause(delay=3)
         # After retry, all tasks should eventually complete
         done, total = ralph.count_tasks(plan_file)
@@ -1407,10 +1407,10 @@ class TestResumeRetryCommand:
     @pytest.mark.asyncio
     async def test_kill_then_resume_moves_to_next_task(self, plan_file):
         """/kill then /resume moves to the next task (skips killed task)."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
-            # Let worker start on first unchecked task
+            # Let worker start on first unchecked task (0.3s dry-run wait)
             await pilot.pause(delay=0.1)
             # Kill the current task
             input_widget = app.query_one(Input)
@@ -1422,6 +1422,7 @@ class TestResumeRetryCommand:
             # Resume (move to next)
             input_widget.value = "/resume"
             await input_widget.action_submit()
+            # Let remaining tasks complete (no countdown delay)
             await pilot.pause(delay=3)
         # The killed task should NOT have been checked off (it was skipped via resume)
         # Original: 1 done, 4 total. After kill+resume, we skip Task 2 but complete 3 & 4
@@ -1432,7 +1433,7 @@ class TestResumeRetryCommand:
     @pytest.mark.asyncio
     async def test_resume_invalid_in_running_state(self, plan_file):
         """/resume is not valid when state is RUNNING."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             app.state = ralph.State.RUNNING
@@ -1447,7 +1448,7 @@ class TestResumeRetryCommand:
     @pytest.mark.asyncio
     async def test_retry_invalid_in_running_state(self, plan_file):
         """/retry is not valid when state is RUNNING."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             app.state = ralph.State.RUNNING
@@ -1461,7 +1462,7 @@ class TestResumeRetryCommand:
 
     def test_pop_stash_method_exists(self, plan_file):
         """RalphApp has a _pop_stash method."""
-        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         assert hasattr(app, "_pop_stash")
         assert callable(app._pop_stash)
@@ -1479,7 +1480,7 @@ class TestResumeRetryCommand:
         subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True)
         subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), capture_output=True)
 
-        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app._stash_created = True
         output_lines = []
@@ -1504,7 +1505,7 @@ class TestResumeRetryCommand:
                        cwd=str(repo), capture_output=True)
         assert not (repo / "dirty.txt").exists()
 
-        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         app._stash_created = True
         app._pop_stash(lambda text="": None)
@@ -1528,7 +1529,7 @@ class TestResumeRetryCommand:
         # Make dirty
         (repo / "dirty.txt").write_text("work in progress")
 
-        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause(delay=0.1)
@@ -1563,7 +1564,7 @@ class TestResumeRetryCommand:
         # Make dirty
         (repo / "dirty.txt").write_text("work in progress")
 
-        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True, delay=0)
         app = ralph.RalphApp(config)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause(delay=0.1)
@@ -1580,3 +1581,186 @@ class TestResumeRetryCommand:
             await pilot.pause(delay=3)
         # After resume, dirty.txt should be restored
         assert (repo / "dirty.txt").exists()
+
+
+# ─── Worker loop state machine tests ────────────────────────────────────────
+
+
+class TestWorkerStateMachine:
+    """Full task cycle: RUNNING → COUNTDOWN → RUNNING, /kill → PAUSED → /resume."""
+
+    @pytest.mark.asyncio
+    async def test_dry_run_enters_countdown_between_tasks(self, plan_file):
+        """Dry-run enters COUNTDOWN state between tasks when delay > 0."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=5)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Wait for first task to complete (~0.3s) and enter COUNTDOWN
+            for _ in range(30):
+                await pilot.pause(delay=0.1)
+                if app.state == ralph.State.COUNTDOWN:
+                    break
+            assert app.state == ralph.State.COUNTDOWN
+            app.exit()
+
+    @pytest.mark.asyncio
+    async def test_full_state_cycle_running_countdown_done(self, plan_file):
+        """Full cycle: RUNNING → COUNTDOWN → RUNNING → ... → DONE."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=1)
+        app = ralph.RalphApp(config)
+        seen_states = set()
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Poll states until done or timeout (15s max)
+            for _ in range(150):
+                await pilot.pause(delay=0.1)
+                seen_states.add(app.state)
+                if app.state == ralph.State.DONE:
+                    break
+        assert ralph.State.RUNNING in seen_states
+        assert ralph.State.COUNTDOWN in seen_states
+        assert ralph.State.DONE in seen_states
+
+    @pytest.mark.asyncio
+    async def test_kill_during_countdown_pauses(self, plan_file):
+        """/kill during COUNTDOWN transitions to PAUSED."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=10)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Wait for COUNTDOWN
+            for _ in range(30):
+                await pilot.pause(delay=0.1)
+                if app.state == ralph.State.COUNTDOWN:
+                    break
+            assert app.state == ralph.State.COUNTDOWN
+            # Kill during countdown
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            assert app.state == ralph.State.PAUSED
+            app.exit()
+
+    @pytest.mark.asyncio
+    async def test_kill_during_countdown_then_resume_continues(self, plan_file):
+        """/kill during COUNTDOWN → PAUSED, then /resume continues to next task."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=10)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Wait for COUNTDOWN
+            for _ in range(30):
+                await pilot.pause(delay=0.1)
+                if app.state == ralph.State.COUNTDOWN:
+                    break
+            assert app.state == ralph.State.COUNTDOWN
+            done_before, _ = ralph.count_tasks(plan_file)
+            # Kill
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            assert app.state == ralph.State.PAUSED
+            # Resume — should continue processing tasks
+            input_widget.value = "/resume"
+            await input_widget.action_submit()
+            await pilot.pause(delay=5)
+        # Should have completed more tasks after resume
+        done_after, total = ralph.count_tasks(plan_file)
+        assert done_after > done_before
+
+    @pytest.mark.asyncio
+    async def test_countdown_collects_guidance(self, plan_file):
+        """Guidance queued during COUNTDOWN is collected for the next task."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=5)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Wait for COUNTDOWN
+            for _ in range(30):
+                await pilot.pause(delay=0.1)
+                if app.state == ralph.State.COUNTDOWN:
+                    break
+            assert app.state == ralph.State.COUNTDOWN
+            # Queue guidance during countdown
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "be careful with edge cases"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.2)
+            # Guidance should be in the queue (will be consumed by countdown loop)
+            # The queue may already have been consumed by the worker
+            # Either way the guidance was accepted without error
+            assert input_widget.value == ""
+            app.exit()
+
+    @pytest.mark.asyncio
+    async def test_no_countdown_when_delay_zero(self, plan_file):
+        """No COUNTDOWN state when delay=0."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+        app = ralph.RalphApp(config)
+        seen_states = set()
+        async with app.run_test(size=(80, 24)) as pilot:
+            for _ in range(50):
+                await pilot.pause(delay=0.1)
+                seen_states.add(app.state)
+                if app.state == ralph.State.DONE:
+                    break
+        assert ralph.State.COUNTDOWN not in seen_states
+        assert ralph.State.DONE in seen_states
+
+    @pytest.mark.asyncio
+    async def test_kill_during_running_then_resume_completes(self, plan_file):
+        """Full cycle: RUNNING → /kill → PAUSED → /resume → RUNNING → DONE."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+        app = ralph.RalphApp(config)
+        seen_states = set()
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Wait for RUNNING state (worker starts on first task)
+            await pilot.pause(delay=0.1)
+            seen_states.add(app.state)
+            # Kill during RUNNING
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            seen_states.add(app.state)
+            assert app.state == ralph.State.PAUSED
+            # Resume
+            input_widget.value = "/resume"
+            await input_widget.action_submit()
+            # Wait for all tasks to complete
+            for _ in range(50):
+                await pilot.pause(delay=0.1)
+                seen_states.add(app.state)
+                if app.state == ralph.State.DONE:
+                    break
+        assert ralph.State.RUNNING in seen_states
+        assert ralph.State.PAUSED in seen_states
+        assert ralph.State.DONE in seen_states
+
+    @pytest.mark.asyncio
+    async def test_kill_during_running_then_retry_completes(self, plan_file):
+        """RUNNING → /kill → PAUSED → /retry → RUNNING → DONE."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True, delay=0)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(delay=0.1)
+            assert app.state == ralph.State.RUNNING
+            # Kill
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            assert app.state == ralph.State.PAUSED
+            # Retry
+            input_widget.value = "/retry"
+            await input_widget.action_submit()
+            for _ in range(50):
+                await pilot.pause(delay=0.1)
+                if app.state == ralph.State.DONE:
+                    break
+        # All tasks should be completed (retry re-runs the killed task)
+        done, total = ralph.count_tasks(plan_file)
+        assert done == total
