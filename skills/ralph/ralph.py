@@ -22,6 +22,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -391,7 +392,8 @@ def format_tool_detail(name: str, input_data: dict) -> str:
     return f"  🔧 {name}"
 
 
-def run_claude(prompt: str, config: Config) -> ClaudeResult:
+def run_claude(prompt: str, config: Config,
+               on_output: Callable[[str], None] = print) -> ClaudeResult:
     cmd = [
         "claude", "-p",
         *config.claude_model_flags(),
@@ -441,22 +443,22 @@ def run_claude(prompt: str, config: Config) -> ClaudeResult:
                 if block.get("type") == "tool_use":
                     name = block.get("name", "")
                     input_data = block.get("input", {})
-                    print(format_tool_detail(name, input_data))
+                    on_output(format_tool_detail(name, input_data))
 
         elif '"content_block_start"' in line and '"tool_use"' in line:
             tool = event.get("content_block", {}).get("name", "")
             if tool:
-                print(f"  🔧 {tool}")
+                on_output(f"  🔧 {tool}")
 
         elif event.get("type") == "result":
             result.text = event.get("result", "")
             if result.text:
-                print()
-                print(result.text)
+                on_output("")
+                on_output(result.text)
             cost = event.get("total_cost_usd")
             if cost is not None:
                 result.cost = float(cost)
-                print(f"  💰 Cost: ${result.cost}")
+                on_output(f"  💰 Cost: ${result.cost}")
 
     proc.wait()
     return result
@@ -653,6 +655,10 @@ class RalphApp(App):
         super().__init__(**kwargs)
         self.config = config
 
+    def output(self, text: str = "") -> None:
+        """Write a line to the RichLog widget (thread-safe)."""
+        self.query_one("#log", RichLog).write(text)
+
     def compose(self) -> ComposeResult:
         yield RichLog(id="log", wrap=True)
         yield Static("Ralph — starting...", id="status")
@@ -664,15 +670,15 @@ class RalphApp(App):
     @work(thread=True)
     def _run_tasks(self) -> None:
         config = self.config
-        log = self.query_one("#log", RichLog)
+        out = self.output
         status = self.query_one("#status", Static)
 
         # Banner
         if RALPH_ASCII.is_file():
-            log.write(RALPH_ASCII.read_text())
-        log.write(f"Plan: {config.plan_path}")
-        log.write(f"Working directory: {config.work_dir}")
-        log.write("")
+            out(RALPH_ASCII.read_text())
+        out(f"Plan: {config.plan_path}")
+        out(f"Working directory: {config.work_dir}")
+        out("")
 
         completed = 0
         start_time = time.time()
@@ -681,18 +687,18 @@ class RalphApp(App):
             task = find_next_task(config.plan_path)
             if task is None:
                 done, total = count_tasks(config.plan_path)
-                log.write(f"\n✅ All tasks complete! ({completed} completed)")
+                out(f"\n✅ All tasks complete! ({completed} completed)")
                 status.update(
                     f"Ralph — done | {completed} tasks | ⏱ {elapsed(start_time)}"
                 )
                 break
 
-            log.write("━" * 60)
-            log.write(f"📋 Task: {task.text}")
-            log.write("━" * 60)
+            out("━" * 60)
+            out(f"📋 Task: {task.text}")
+            out("━" * 60)
 
             if config.dry_run:
-                log.write("[dry-run] Would execute this task")
+                out("[dry-run] Would execute this task")
                 check_off_task(config.plan_path, task.line_num)
                 completed += 1
                 done, total = count_tasks(config.plan_path)

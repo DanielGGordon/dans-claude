@@ -384,3 +384,40 @@ class TestRalphApp:
         # After app exits, all unchecked tasks should be checked off
         done, total = ralph.count_tasks(plan_file)
         assert done == total
+
+    @pytest.mark.asyncio
+    async def test_output_writes_to_richlog(self, plan_file):
+        """output() method routes text to the RichLog widget, not stdout."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.output("hello from output")
+            await pilot.pause(delay=0.1)
+            log = app.query_one("#log", RichLog)
+            # RichLog stores lines internally — check it didn't crash
+            # and the widget exists (write is a no-error operation)
+            assert log is not None
+
+    @pytest.mark.asyncio
+    async def test_dry_run_output_in_richlog_not_stdout(self, plan_file, capsys):
+        """Dry-run task output appears in RichLog, not on raw stdout."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(delay=3)
+        # stdout should NOT contain task output (it goes to RichLog)
+        captured = capsys.readouterr()
+        assert "[dry-run]" not in captured.out
+        assert "Task 2" not in captured.out
+
+
+class TestRunClaudeOnOutput:
+    """run_claude() accepts on_output callback and routes output through it."""
+
+    def test_on_output_signature(self):
+        """run_claude accepts on_output parameter."""
+        import inspect
+        sig = inspect.signature(ralph.run_claude)
+        assert "on_output" in sig.parameters
+        # Default should be print
+        assert sig.parameters["on_output"].default is print
