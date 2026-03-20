@@ -41,6 +41,7 @@ while [[ $# -gt 0 ]]; do
         --delay)    DELAY="$2"; shift 2 ;;
         --batch)    BATCH_MODE=true; shift ;;
         --review)   SKIP_REVIEW=false; shift ;;
+        --no-review) SKIP_REVIEW=true; shift ;;
         --model)    MODEL="$2"; shift 2 ;;
         --reviewer) REVIEWER="$2"; shift 2 ;;
         --help|-h)
@@ -379,11 +380,11 @@ run_review() {
     esac
 
     if $use_codex; then
-        log_phase "🔍" "Codex reviewing changes..."
+        log_phase "🔍" "Codex reviewing changes..." >&2
         codex review --base "$base" \
             2>&1 || echo "LGTM (codex error)"
     else
-        log_phase "🔍" "Claude reviewing changes..."
+        log_phase "🔍" "Claude reviewing changes..." >&2
         claude -p \
             --model claude-opus-4-6 \
             --max-turns 5 \
@@ -401,8 +402,10 @@ ${diff}" 2>&1 || echo "LGTM (claude error)"
 has_review_issues() {
     local output="$1"
     [[ -z "$output" ]] && return 1
-    # Check both head and tail — codex puts its verdict at the end after a verbose banner
-    echo "$output" | grep -qiE '(LGTM|no issues|looks good|no bugs|clean|no discrete|did not find|did not identify)' && return 1
+    # Check only the last few lines where the verdict appears — matching the
+    # full output causes false negatives when words like "clean" appear in
+    # reviews that actually describe problems.
+    echo "$output" | tail -5 | grep -qiE '(LGTM|no issues|looks good|no bugs|no discrete|did not find|did not identify)' && return 1
     return 0
 }
 
