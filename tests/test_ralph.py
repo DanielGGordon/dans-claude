@@ -1299,3 +1299,284 @@ class TestKillPauseCommand:
             assert app.state == ralph.State.PAUSED
             # Exit the app (worker will detect is_running=False and return)
             app.exit()
+
+
+# ─── Resume/Retry command tests ──────────────────────────────────────────
+
+
+class TestResumeRetryCommand:
+    """/resume and /retry: set retry flag, signal resume_event, worker acts accordingly."""
+
+    def test_resume_registered_in_handlers(self, plan_file):
+        """cmd_resume is registered as the /resume handler."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert "resume" in app.command_handlers
+        assert app.command_handlers["resume"] == app.cmd_resume
+
+    def test_retry_registered_in_handlers(self, plan_file):
+        """cmd_retry is registered as the /retry handler."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert "retry" in app.command_handlers
+        assert app.command_handlers["retry"] == app.cmd_retry
+
+    def test_retry_flag_initialized(self, plan_file):
+        """RalphApp starts with _retry = False."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert app._retry is False
+
+    def test_cmd_resume_sets_retry_false(self, plan_file):
+        """cmd_resume sets _retry to False."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app._retry = True  # Pre-set to True
+        app.cmd_resume()
+        assert app._retry is False
+
+    def test_cmd_resume_signals_resume_event(self, plan_file):
+        """cmd_resume sets the resume_event."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app.cmd_resume()
+        assert app.resume_event.is_set()
+
+    def test_cmd_resume_sets_state_running(self, plan_file):
+        """cmd_resume transitions state to RUNNING."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app.state = ralph.State.PAUSED
+        app.cmd_resume()
+        assert app.state == ralph.State.RUNNING
+
+    def test_cmd_retry_sets_retry_true(self, plan_file):
+        """cmd_retry sets _retry to True."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app.cmd_retry()
+        assert app._retry is True
+
+    def test_cmd_retry_signals_resume_event(self, plan_file):
+        """cmd_retry sets the resume_event."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app.cmd_retry()
+        assert app.resume_event.is_set()
+
+    def test_cmd_retry_sets_state_running(self, plan_file):
+        """cmd_retry transitions state to RUNNING."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app.state = ralph.State.PAUSED
+        app.cmd_retry()
+        assert app.state == ralph.State.RUNNING
+
+    @pytest.mark.asyncio
+    async def test_kill_then_retry_reruns_same_task(self, plan_file):
+        """/kill then /retry re-runs the same task."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Let worker start on first unchecked task
+            await pilot.pause(delay=0.1)
+            # Kill the current task
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            assert app.state == ralph.State.PAUSED
+            # Record done count before retry
+            done_before, _ = ralph.count_tasks(plan_file)
+            # Now retry
+            input_widget.value = "/retry"
+            await input_widget.action_submit()
+            # Let the retried task complete and continue
+            await pilot.pause(delay=3)
+        # After retry, all tasks should eventually complete
+        done, total = ralph.count_tasks(plan_file)
+        assert done == total
+
+    @pytest.mark.asyncio
+    async def test_kill_then_resume_moves_to_next_task(self, plan_file):
+        """/kill then /resume moves to the next task (skips killed task)."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Let worker start on first unchecked task
+            await pilot.pause(delay=0.1)
+            # Kill the current task
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            assert app.state == ralph.State.PAUSED
+            # Resume (move to next)
+            input_widget.value = "/resume"
+            await input_widget.action_submit()
+            await pilot.pause(delay=3)
+        # The killed task should NOT have been checked off (it was skipped via resume)
+        # Original: 1 done, 4 total. After kill+resume, we skip Task 2 but complete 3 & 4
+        # So done = 1 (original) + 2 (Task 3 & 4) = 3 out of 4
+        done, total = ralph.count_tasks(plan_file)
+        assert done == total - 1  # One task was skipped (the killed one)
+
+    @pytest.mark.asyncio
+    async def test_resume_invalid_in_running_state(self, plan_file):
+        """/resume is not valid when state is RUNNING."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.state = ralph.State.RUNNING
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/resume"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.3)
+            # resume_event should NOT have been set (state validation blocked it)
+            assert not app.resume_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_retry_invalid_in_running_state(self, plan_file):
+        """/retry is not valid when state is RUNNING."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.state = ralph.State.RUNNING
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/retry"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.3)
+            # resume_event should NOT have been set
+            assert not app.resume_event.is_set()
+
+    def test_pop_stash_method_exists(self, plan_file):
+        """RalphApp has a _pop_stash method."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert hasattr(app, "_pop_stash")
+        assert callable(app._pop_stash)
+
+    def test_pop_stash_clears_flag(self, plan_file, tmp_path):
+        """_pop_stash sets _stash_created back to False."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"],
+                       cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"],
+                       cwd=str(repo), capture_output=True)
+        (repo / "file.txt").write_text("initial")
+        subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), capture_output=True)
+
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        app = ralph.RalphApp(config)
+        app._stash_created = True
+        output_lines = []
+        app._pop_stash(lambda text="": output_lines.append(text))
+        assert app._stash_created is False
+
+    def test_pop_stash_restores_changes(self, plan_file, tmp_path):
+        """_pop_stash restores stashed changes."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"],
+                       cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"],
+                       cwd=str(repo), capture_output=True)
+        (repo / "file.txt").write_text("initial")
+        subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), capture_output=True)
+        # Create and stash changes
+        (repo / "dirty.txt").write_text("stashed content")
+        subprocess.run(["git", "stash", "push", "-u", "-m", "ralph: paused by user"],
+                       cwd=str(repo), capture_output=True)
+        assert not (repo / "dirty.txt").exists()
+
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        app = ralph.RalphApp(config)
+        app._stash_created = True
+        app._pop_stash(lambda text="": None)
+        # File should be restored
+        assert (repo / "dirty.txt").exists()
+        assert (repo / "dirty.txt").read_text() == "stashed content"
+
+    @pytest.mark.asyncio
+    async def test_kill_then_retry_restores_stash(self, plan_file, tmp_path):
+        """/kill stashes, /retry restores stash before re-running task."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"],
+                       cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"],
+                       cwd=str(repo), capture_output=True)
+        (repo / "file.txt").write_text("initial")
+        subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), capture_output=True)
+        # Make dirty
+        (repo / "dirty.txt").write_text("work in progress")
+
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(delay=0.1)
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            # Kill — should stash the dirty file
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            assert app._stash_created is True
+            assert not (repo / "dirty.txt").exists()
+            # Retry — should restore the stash
+            input_widget.value = "/retry"
+            await input_widget.action_submit()
+            await pilot.pause(delay=3)
+        # After retry, dirty.txt should be restored
+        assert (repo / "dirty.txt").exists()
+
+    @pytest.mark.asyncio
+    async def test_kill_then_resume_pops_stash(self, plan_file, tmp_path):
+        """/kill stashes, /resume pops stash before moving to next task."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"],
+                       cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"],
+                       cwd=str(repo), capture_output=True)
+        (repo / "file.txt").write_text("initial")
+        subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), capture_output=True)
+        # Make dirty
+        (repo / "dirty.txt").write_text("work in progress")
+
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(delay=0.1)
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            assert app._stash_created is True
+            assert not (repo / "dirty.txt").exists()
+            # Resume
+            input_widget.value = "/resume"
+            await input_widget.action_submit()
+            await pilot.pause(delay=3)
+        # After resume, dirty.txt should be restored
+        assert (repo / "dirty.txt").exists()

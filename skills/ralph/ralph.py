@@ -713,12 +713,15 @@ class RalphApp(App):
         self.pause_event = threading.Event()
         self.resume_event = threading.Event()
         self._stash_created: bool = False
+        self._retry: bool = False
         self.command_handlers: dict[str, Callable[[str], None]] = {
             "stop": self.cmd_stop,
             "skip": self.cmd_skip,
             "plan": self.cmd_plan,
             "kill": self.cmd_kill,
             "pause": self.cmd_kill,
+            "resume": self.cmd_resume,
+            "retry": self.cmd_retry,
         }
 
     def output(self, text: str = "") -> None:
@@ -832,6 +835,36 @@ class RalphApp(App):
         self.pause_event.set()
         self.output("⏸️  Paused. Use /resume or /retry to continue.")
 
+    def cmd_resume(self, _arg: str = "") -> None:
+        """Handle /resume: set retry=False, signal resume_event. Worker moves to next task."""
+        self._retry = False
+        self.state = State.RUNNING
+        self.resume_event.set()
+        self.output("▶️  Resuming — moving to next task...")
+
+    def cmd_retry(self, _arg: str = "") -> None:
+        """Handle /retry: set retry=True, signal resume_event. Worker re-runs same task."""
+        self._retry = True
+        self.state = State.RUNNING
+        self.resume_event.set()
+        self.output("🔄 Retrying current task...")
+
+    def _pop_stash(self, out: Callable[[str], None]) -> None:
+        """Pop the git stash created by /kill or /pause."""
+        try:
+            result = subprocess.run(
+                ["git", "stash", "pop"],
+                capture_output=True, text=True, timeout=10,
+                cwd=self.config.work_dir,
+            )
+            if result.returncode == 0:
+                out("📦 Stash restored (git stash pop)")
+            else:
+                out(f"⚠️  git stash pop failed: {result.stderr.strip()}")
+        except Exception:
+            out("⚠️  git stash pop failed")
+        self._stash_created = False
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission: dispatch /commands or queue guidance."""
         text = event.value.strip()
@@ -880,6 +913,7 @@ class RalphApp(App):
 
         self.state = State.RUNNING
         min_line = 1
+        last_task: Task | None = None
         while True:
             # Check if paused — wait for resume before continuing
             if self.pause_event.is_set():
@@ -889,6 +923,18 @@ class RalphApp(App):
                         return
                 self.resume_event.clear()
                 self.pause_event.clear()
+
+                if self._retry and last_task is not None:
+                    # Retry: pop stash to restore changes, re-run same task
+                    if self._stash_created:
+                        self._pop_stash(out)
+                    min_line = last_task.line_num
+                else:
+                    # Resume: move to next task, pop stash if one was created
+                    if self._stash_created:
+                        self._pop_stash(out)
+                    if last_task is not None:
+                        min_line = last_task.line_num + 1
                 continue
 
             task = find_next_task(config.plan_path, min_line=min_line)
@@ -898,6 +944,7 @@ class RalphApp(App):
                 out(f"\n✅ All tasks complete! ({self._completed} completed)")
                 break
 
+            last_task = task
             self.state = State.RUNNING
             self.current_task = task.text
             out("━" * 60)
