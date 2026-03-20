@@ -549,11 +549,6 @@ def elapsed(start_time: float) -> str:
     return f"{s}s"
 
 
-def status_line(start_time: float, total_cost: float, plan_path: str) -> None:
-    done, total = count_tasks(plan_path)
-    print(f"  ⏱ {elapsed(start_time)} | 💰 ${total_cost:.8f} | 📋 {done}/{total} tasks")
-
-
 # ─── TUI App ─────────────────────────────────────────────────────────────────
 
 
@@ -923,6 +918,7 @@ class RalphApp(App):
                     continue
                 check_off_task(config.plan_path, task.line_num)
                 self._completed += 1
+                min_line = task.line_num + 1
             else:
                 # ── Real execution ──────────────────────────────────
                 # Collect queued guidance
@@ -960,10 +956,12 @@ class RalphApp(App):
                         if new_task and new_task.text == batch_tasks[0].text:
                             self._failed += len(batch_tasks)
                             consecutive_fails += 1
+                            min_line = task.line_num
                             out("\n❌ Batch failed (task not checked off)")
                         else:
                             self._completed += len(batch_tasks)
                             consecutive_fails = 0
+                            min_line = task.line_num + 1
                             out("\n✅ Batch complete")
                             if not config.skip_review and review_base:
                                 auto_commit()
@@ -992,10 +990,12 @@ class RalphApp(App):
                         if new_task and new_task.text == task.text:
                             self._failed += 1
                             consecutive_fails += 1
+                            min_line = task.line_num
                             out("\n❌ Task failed (task not checked off)")
                         else:
                             self._completed += 1
                             consecutive_fails = 0
+                            min_line = task.line_num + 1
                             out("\n✅ Task complete")
                             if not config.skip_review and review_base:
                                 auto_commit()
@@ -1049,7 +1049,6 @@ class RalphApp(App):
                 if self.pause_event.is_set():
                     continue
 
-            min_line = task.line_num + 1
 
         time.sleep(1)
         self.exit()
