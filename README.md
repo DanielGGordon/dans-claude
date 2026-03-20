@@ -43,6 +43,9 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │   │   └── SKILL.md         # Ralph loop: execute plans task-by-task with context reset
 │   ├── ralph-codex/
 │   │   └── SKILL.md         # Ralph-Codex: execute plans with OpenAI Codex CLI in one shot
+│   ├── ralph-github/
+│   │   ├── SKILL.md         # Ralph-GitHub: plan execution with PR pipeline + bugbot
+│   │   └── ralph-github.sh  # Standalone bash script with full GitHub integration
 │   ├── review-plan/
 │   │   └── SKILL.md         # On-demand plan review and auto-fix
 │   ├── write-a-prd/
@@ -183,6 +186,26 @@ Use the plan-reviewer agent to check plan.md
   **When to use it:** For linear, independent tasks where you want pure automation without user interaction or approval windows. Codex operates in a single execution context, so all plan context is visible at once — useful for interdependent tasks but less transparent than ralph's step-by-step progress.
 
   **Stopping and resuming:** Same as `/ralph` — the plan file on disk is the source of truth. Run `/ralph-codex` again to pick up from the first unchecked task.
+
+- **`skills/ralph-github`** — Ralph-GitHub: executes a plan file task-by-task with full GitHub integration — per-task branches, codex review, PR creation, bugbot checking, and auto-merge.
+  ```
+  bash ~/dotfiles/claude/skills/ralph-github/ralph-github.sh           # auto-finds plan.md
+  bash ~/dotfiles/claude/skills/ralph-github/ralph-github.sh plan.md   # explicit plan path
+  ```
+  **What it does (per task):**
+  1. Creates a git branch off the previous task's branch (or master)
+  2. Executes the task with `claude -p` (fresh context, includes previous PR link)
+  3. Runs `codex review` on the changes (falls back to Claude Opus 4.6 if no codex)
+  4. Fixes any review issues found
+  5. Creates a GitHub PR (triggers bugbot)
+  6. Checks the **previous** PR for bugbot (`cursor[bot]`) comments — polls every 30s
+  7. Examines bugbot findings with Claude, fixes if needed, pushes to the previous PR
+  8. Merges the previous PR, rebases the current branch on updated master
+  9. After the last task: waits for bugbot on the final PR, fixes, merges
+
+  **Options:** `--no-review` (skip codex/claude review), `--no-bugbot` (skip bugbot waiting), `--base-branch main` (default: master), `--bugbot-user NAME` (default: cursor[bot]), `--delay N`, `--max-turns N`, `--dry-run`
+
+  **Stopping and resuming:** Same as `/ralph`. Ctrl+C returns to the original branch. Re-run to pick up from the first unchecked task.
 
 - **`skills/review-plan`** — Plan Review & Auto-Fix: on-demand plan review that finds the active plan, runs the `plan-reviewer` agent against `plan-requirements.md`, and automatically edits the plan to fix any issues.
   ```
