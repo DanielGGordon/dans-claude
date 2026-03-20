@@ -710,10 +710,15 @@ class RalphApp(App):
         self.guidance_queue: deque[str] = deque()
         self.current_proc: subprocess.Popen | None = None
         self.skip_event = threading.Event()
+        self.pause_event = threading.Event()
+        self.resume_event = threading.Event()
+        self._stash_created: bool = False
         self.command_handlers: dict[str, Callable[[str], None]] = {
             "stop": self.cmd_stop,
             "skip": self.cmd_skip,
             "plan": self.cmd_plan,
+            "kill": self.cmd_kill,
+            "pause": self.cmd_kill,
         }
 
     def output(self, text: str = "") -> None:
@@ -789,6 +794,44 @@ class RalphApp(App):
         for line in format_plan_summary(self.config.plan_path):
             self.output(line)
 
+    def cmd_kill(self, _arg: str = "") -> None:
+        """Handle /kill and /pause: kill proc, git stash, set PAUSED, signal worker."""
+        # Kill the running subprocess if any
+        if self.current_proc is not None:
+            try:
+                self.current_proc.kill()
+                self.current_proc.wait(timeout=5)
+            except Exception:
+                pass
+            self.current_proc = None
+
+        # Git stash if working tree is dirty
+        self._stash_created = False
+        try:
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True, text=True, timeout=5,
+                cwd=self.config.work_dir,
+            )
+            if result.stdout.strip():
+                stash_result = subprocess.run(
+                    ["git", "stash", "push", "-u", "-m",
+                     "ralph: paused by user"],
+                    capture_output=True, text=True, timeout=10,
+                    cwd=self.config.work_dir,
+                )
+                if stash_result.returncode == 0:
+                    self._stash_created = True
+                    self.output("📦 Changes stashed (ralph: paused by user)")
+                else:
+                    self.output("⚠️  git stash failed — changes left in working tree")
+        except Exception:
+            pass
+
+        self.state = State.PAUSED
+        self.pause_event.set()
+        self.output("⏸️  Paused. Use /resume or /retry to continue.")
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission: dispatch /commands or queue guidance."""
         text = event.value.strip()
@@ -838,6 +881,16 @@ class RalphApp(App):
         self.state = State.RUNNING
         min_line = 1
         while True:
+            # Check if paused — wait for resume before continuing
+            if self.pause_event.is_set():
+                # Block until resume_event is signalled (poll to allow app shutdown)
+                while not self.resume_event.wait(timeout=0.5):
+                    if not self.is_running:
+                        return
+                self.resume_event.clear()
+                self.pause_event.clear()
+                continue
+
             task = find_next_task(config.plan_path, min_line=min_line)
             if task is None:
                 self.current_task = ""
@@ -853,11 +906,15 @@ class RalphApp(App):
 
             if config.dry_run:
                 out("[dry-run] Would execute this task")
-                # Interruptible delay — /skip can break out early
+                # Interruptible delay — /skip or /kill can break out early
                 if self.skip_event.wait(timeout=0.3):
                     self.skip_event.clear()
                     out("⏭️  Skipped")
                     min_line = task.line_num + 1
+                    continue
+                if self.pause_event.is_set():
+                    # Paused during the task — loop back to wait
+                    min_line = task.line_num
                     continue
                 check_off_task(config.plan_path, task.line_num)
                 self._completed += 1

@@ -1044,3 +1044,258 @@ class TestStateValidation:
             await pilot.pause(delay=0.3)
             # skip_event should NOT be set (command was blocked)
             assert not app.skip_event.is_set()
+
+
+# ─── Kill/Pause command tests ─────────────────────────────────────────────
+
+
+class TestKillPauseCommand:
+    """/kill and /pause kill proc, git stash, set PAUSED, signal worker."""
+
+    def test_kill_registered_in_handlers(self, plan_file):
+        """cmd_kill is registered as the /kill handler."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert "kill" in app.command_handlers
+        assert app.command_handlers["kill"] == app.cmd_kill
+
+    def test_pause_registered_in_handlers(self, plan_file):
+        """cmd_kill is registered as the /pause handler (alias)."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert "pause" in app.command_handlers
+        assert app.command_handlers["pause"] == app.cmd_kill
+
+    def test_pause_event_initialized(self, plan_file):
+        """RalphApp starts with pause_event unset."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert hasattr(app, "pause_event")
+        assert not app.pause_event.is_set()
+
+    def test_resume_event_initialized(self, plan_file):
+        """RalphApp starts with resume_event unset."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert hasattr(app, "resume_event")
+        assert not app.resume_event.is_set()
+
+    def test_stash_created_initialized(self, plan_file):
+        """RalphApp starts with _stash_created = False."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        assert app._stash_created is False
+
+    def test_cmd_kill_sets_pause_event(self, plan_file):
+        """cmd_kill sets the pause_event flag."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app.cmd_kill()
+        assert app.pause_event.is_set()
+
+    def test_cmd_kill_sets_state_paused(self, plan_file):
+        """cmd_kill sets state to PAUSED."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app.state = ralph.State.RUNNING
+        app.cmd_kill()
+        assert app.state == ralph.State.PAUSED
+
+    def test_cmd_kill_kills_running_proc(self, plan_file):
+        """cmd_kill kills the current_proc if one is running."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        proc = subprocess.Popen(
+            ["sleep", "60"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        app.current_proc = proc
+        assert proc.poll() is None  # Still running
+        app.cmd_kill()
+        assert proc.poll() is not None  # Terminated
+        assert app.current_proc is None
+
+    def test_cmd_kill_without_proc(self, plan_file):
+        """cmd_kill works even when no process is running."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app.cmd_kill()  # Should not raise
+        assert app.pause_event.is_set()
+        assert app.state == ralph.State.PAUSED
+
+    def test_cmd_kill_stashes_dirty_tree(self, plan_file, tmp_path):
+        """cmd_kill runs git stash when working tree is dirty."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"],
+                       cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"],
+                       cwd=str(repo), capture_output=True)
+        (repo / "file.txt").write_text("initial")
+        subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), capture_output=True)
+        # Make dirty
+        (repo / "dirty.txt").write_text("uncommitted change")
+
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app.cmd_kill()
+
+        # dirty.txt should have been stashed
+        assert not (repo / "dirty.txt").exists()
+        assert app._stash_created is True
+
+        # Verify stash exists with correct message
+        stash_list = subprocess.run(
+            ["git", "stash", "list"], cwd=str(repo),
+            capture_output=True, text=True,
+        )
+        assert "ralph: paused by user" in stash_list.stdout
+
+    def test_cmd_kill_no_stash_on_clean_tree(self, plan_file, tmp_path):
+        """cmd_kill does not create a stash when working tree is clean."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"],
+                       cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"],
+                       cwd=str(repo), capture_output=True)
+        (repo / "file.txt").write_text("initial")
+        subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), capture_output=True)
+
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        app = ralph.RalphApp(config)
+        app.output = lambda text="": None
+        app.cmd_kill()
+
+        assert app._stash_created is False
+
+    @pytest.mark.asyncio
+    async def test_kill_via_input_sets_paused(self, plan_file):
+        """/kill typed in input sets state to PAUSED."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.state = ralph.State.RUNNING
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            assert app.state == ralph.State.PAUSED
+            assert app.pause_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_pause_via_input_sets_paused(self, plan_file):
+        """/pause typed in input sets state to PAUSED (alias for /kill)."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.state = ralph.State.RUNNING
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/pause"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            assert app.state == ralph.State.PAUSED
+
+    @pytest.mark.asyncio
+    async def test_kill_shows_paused_in_status_bar(self, plan_file):
+        """/kill during a running task shows PAUSED in the status bar."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.state = ralph.State.RUNNING
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.5)
+            # Trigger a status update
+            app.update_status()
+            await pilot.pause(delay=0.1)
+            status = app.query_one("#status", Static)
+            text = str(status.render())
+            assert "PAUSED" in text
+
+    @pytest.mark.asyncio
+    async def test_kill_stashes_in_tui(self, plan_file, tmp_path):
+        """/kill in TUI runs git stash on dirty working tree."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"],
+                       cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"],
+                       cwd=str(repo), capture_output=True)
+        (repo / "file.txt").write_text("initial")
+        subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), capture_output=True)
+        (repo / "dirty.txt").write_text("uncommitted")
+
+        config = ralph.Config(plan_path=plan_file, work_dir=str(repo), dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=1)
+            assert app._stash_created is True
+
+        # dirty.txt should have been stashed
+        assert not (repo / "dirty.txt").exists()
+        stash_list = subprocess.run(
+            ["git", "stash", "list"], cwd=str(repo),
+            capture_output=True, text=True,
+        )
+        assert "ralph: paused by user" in stash_list.stdout
+
+    @pytest.mark.asyncio
+    async def test_kill_invalid_in_paused_state(self, plan_file):
+        """/kill is not valid when already PAUSED."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.state = ralph.State.PAUSED
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            await pilot.pause(delay=0.3)
+            # pause_event should NOT have been set by this command
+            # (state validation blocks it)
+            # Note: it may have been set from a prior /kill, so we check
+            # the command_valid_states
+            assert ralph.State.PAUSED not in ralph.RalphApp.COMMAND_VALID_STATES["kill"]
+
+    @pytest.mark.asyncio
+    async def test_worker_pauses_on_kill(self, plan_file):
+        """/kill during dry-run pauses the worker (doesn't complete all tasks)."""
+        config = ralph.Config(plan_path=plan_file, work_dir="/tmp", dry_run=True)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            # Very brief pause to let worker start first task
+            await pilot.pause(delay=0.1)
+            input_widget = app.query_one(Input)
+            input_widget.focus()
+            input_widget.value = "/kill"
+            await input_widget.action_submit()
+            # Wait a bit — worker should be blocked on resume_event
+            await pilot.pause(delay=2)
+            # Not all tasks should be done (worker is paused)
+            done, total = ralph.count_tasks(plan_file)
+            assert done < total
+            # State should be PAUSED
+            assert app.state == ralph.State.PAUSED
+            # Exit the app (worker will detect is_running=False and return)
+            app.exit()
