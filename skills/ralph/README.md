@@ -54,14 +54,13 @@ python3 ~/.claude/skills/ralph/ralph.py [plan_path] [options]
 | Flag           | Default | Description                              |
 |----------------|---------|------------------------------------------|
 | `--dry-run`    | off     | Preview tasks without running claude      |
-| `--max-turns`  | 50      | Max agentic turns per task               |
 | `--delay`      | 5       | Seconds between tasks                    |
 | `--batch`      | off     | Execute `<!-- BATCH -->` groups together |
 | `--review`     | off     | Code review after each task              |
 | `--model`      | —       | Model preset or raw model ID             |
 | `--reviewer`   | auto    | Reviewer: `auto`, `codex`, or `claude`   |
 
-Environment variables: `RALPH_MODEL`, `RALPH_MAX_TURNS`, `RALPH_DELAY`, `RALPH_REVIEWER`.
+Environment variables: `RALPH_MODEL`, `RALPH_DELAY`, `RALPH_REVIEWER`.
 
 ### Model Presets
 

@@ -67,7 +67,6 @@ MAX_CONSECUTIVE_FAILS = 3
 class Config:
     plan_path: str = ""
     work_dir: str = ""
-    max_turns: int = 50
     delay: int = 5
     dry_run: bool = False
     batch_mode: bool = False
@@ -294,9 +293,22 @@ def load_coding_rules() -> str:
     return ""
 
 
+def load_project_context(work_dir: str) -> str:
+    """Load README.md and PROJECT_STRUCTURE.md from the working directory if they exist."""
+    parts: list[str] = []
+    for filename in ("README.md", "PROJECT_STRUCTURE.md"):
+        filepath = Path(work_dir) / filename
+        if filepath.is_file():
+            contents = filepath.read_text().strip()
+            if contents:
+                parts.append(f"This is the {filename}:\n\n{contents}")
+    return "\n\n".join(parts)
+
+
 def build_single_prompt(task: Task, plan_content: str, config: Config,
                         coding_rules: str, recent_commits: str,
-                        user_guidance: str) -> str:
+                        user_guidance: str,
+                        project_context: str = "") -> str:
     prompt = f"""You are executing a single task from a plan.
 
 ## Your Task
@@ -331,6 +343,13 @@ These are the last 3 commits in the repo — read them to understand what work h
 - If you need clarification from the user, say so clearly at the end of your response. The orchestrator will detect this and pause for user input.
 - When done, respond with a brief summary of what you did."""
 
+    if project_context:
+        prompt += f"""
+
+## Project Context
+
+{project_context}"""
+
     if user_guidance:
         prompt += f"""
 
@@ -345,7 +364,8 @@ The user has provided the following context for this task. Read carefully and fo
 
 def build_batch_prompt(tasks: list[Task], plan_content: str, config: Config,
                        coding_rules: str, recent_commits: str,
-                       user_guidance: str) -> str:
+                       user_guidance: str,
+                       project_context: str = "") -> str:
     task_list = "\n".join(f"- {t.text}" for t in tasks)
 
     prompt = f"""You are executing a batch of related tasks from a plan.
@@ -382,6 +402,13 @@ These are the last 3 commits in the repo — read them to understand what work h
 - When each task is complete, edit the plan file to check it off: change `- [ ]` to `- [x]` for that task's line.
 - If you need clarification from the user, say so clearly at the end of your response. The orchestrator will detect this and pause for user input.
 - When done, respond with a brief summary of what you did for each task."""
+
+    if project_context:
+        prompt += f"""
+
+## Project Context
+
+{project_context}"""
 
     if user_guidance:
         prompt += f"""
@@ -439,7 +466,6 @@ def run_claude(prompt: str, config: Config,
     cmd = [
         "claude", "-p",
         *config.claude_model_flags(),
-        "--max-turns", str(config.max_turns),
         "--dangerously-skip-permissions",
         "--verbose",
         "--output-format", "stream-json",
@@ -609,9 +635,14 @@ class RalphApp(App):
             "help": self.cmd_help,
         }
 
-    def output(self, text: str = "") -> None:
+    def output(self, text: str = "", style: str = "") -> None:
         """Write a line to the RichLog widget (thread-safe)."""
-        self.query_one("#log", RichLog).write(text)
+        from rich.text import Text
+        log = self.query_one("#log", RichLog)
+        if style:
+            log.write(Text(text, style=style))
+        else:
+            log.write(text)
 
     def update_status(self) -> None:
         """Refresh the status bar with elapsed time, cost, progress, state, task."""
@@ -854,6 +885,7 @@ class RalphApp(App):
         # Pre-load context
         coding_rules = load_coding_rules()
         recent_commits = get_recent_commits()
+        project_context = load_project_context(config.work_dir)
         consecutive_fails = 0
         user_guidance = ""
 
@@ -945,7 +977,8 @@ class RalphApp(App):
                         plan_content = trim_plan_for_task(config.plan_path, task.line_num)
                         prompt = build_batch_prompt(
                             batch_tasks, plan_content, config,
-                            coding_rules, recent_commits, guidance)
+                            coding_rules, recent_commits, guidance,
+                            project_context=project_context)
 
                         result = run_claude(prompt, config, on_output=out,
                                             proc_register=self._register_proc)
@@ -970,11 +1003,13 @@ class RalphApp(App):
                             min_line = task.line_num + 1
                             out("\n✅ Batch complete")
                             if not config.skip_review and review_base:
-                                auto_commit(out=out)
-                                out("🔍 Reviewing changes...")
-                                review_out = run_review(
-                                    review_base, batch_tasks[0].text, config, out=out)
-                                fix_review_issues(review_out, config, out=out)
+                                r_out = lambda t: out(t, style="steel_blue1")
+                                auto_commit(out=r_out)
+                                r_out("🔍 Reviewing changes...")
+                                review_result = run_review(
+                                    review_base, batch_tasks[0].text, config, out=r_out)
+                                fix_review_issues(review_result, config, out=r_out)
+                                r_out("🔍 Review complete")
 
                         if needs_followup(result.text):
                             out("⚠️  Agent may need input — check output above")
@@ -985,7 +1020,8 @@ class RalphApp(App):
                         plan_content = trim_plan_for_task(config.plan_path, task.line_num)
                         prompt = build_single_prompt(
                             task, plan_content, config,
-                            coding_rules, recent_commits, guidance)
+                            coding_rules, recent_commits, guidance,
+                            project_context=project_context)
 
                         result = run_claude(prompt, config, on_output=out,
                                             proc_register=self._register_proc)
@@ -1004,11 +1040,13 @@ class RalphApp(App):
                             min_line = task.line_num + 1
                             out("\n✅ Task complete")
                             if not config.skip_review and review_base:
-                                auto_commit(out=out)
-                                out("🔍 Reviewing changes...")
-                                review_out = run_review(
-                                    review_base, task.text, config, out=out)
-                                fix_review_issues(review_out, config, out=out)
+                                r_out = lambda t: out(t, style="steel_blue1")
+                                auto_commit(out=r_out)
+                                r_out("🔍 Reviewing changes...")
+                                review_result = run_review(
+                                    review_base, task.text, config, out=r_out)
+                                fix_review_issues(review_result, config, out=r_out)
+                                r_out("🔍 Review complete")
 
                         if needs_followup(result.text):
                             out("⚠️  Agent may need input — check output above")
@@ -1094,6 +1132,7 @@ def run_review(base_sha: str, task_text: str, config: Config,
     )
     diff = result.stdout.strip()
     if not diff:
+        out("  no diff — working tree matches review base")
         return "LGTM — no changes to review"
 
     # Log diff stats
@@ -1232,7 +1271,6 @@ Interactive features (TUI mode):
   Follow-up: ralph shows agent questions in the log — reply via input field
 
 Environment variables:
-  RALPH_MAX_TURNS  Same as --max-turns
   RALPH_DELAY      Same as --delay
   RALPH_MODEL      Same as --model
   RALPH_REVIEWER   Same as --reviewer""",
@@ -1241,9 +1279,6 @@ Environment variables:
                         help="Path to the plan file")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be executed without running claude")
-    parser.add_argument("--max-turns", type=int,
-                        default=int(os.environ.get("RALPH_MAX_TURNS", "50")),
-                        help="Max agentic turns per task (default: 50)")
     parser.add_argument("--delay", type=int,
                         default=int(os.environ.get("RALPH_DELAY", "5")),
                         help="Seconds for interactive countdown (default: 5)")
@@ -1261,7 +1296,6 @@ Environment variables:
     args = parser.parse_args()
 
     config = Config(
-        max_turns=args.max_turns,
         delay=args.delay,
         dry_run=args.dry_run,
         batch_mode=args.batch,
