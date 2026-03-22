@@ -970,7 +970,7 @@ class RalphApp(App):
                             min_line = task.line_num + 1
                             out("\n✅ Batch complete")
                             if not config.skip_review and review_base:
-                                auto_commit()
+                                auto_commit(out=out)
                                 out("🔍 Reviewing changes...")
                                 review_out = run_review(
                                     review_base, batch_tasks[0].text, config, out=out)
@@ -1004,7 +1004,7 @@ class RalphApp(App):
                             min_line = task.line_num + 1
                             out("\n✅ Task complete")
                             if not config.skip_review and review_base:
-                                auto_commit()
+                                auto_commit(out=out)
                                 out("🔍 Reviewing changes...")
                                 review_out = run_review(
                                     review_base, task.text, config, out=out)
@@ -1062,17 +1062,25 @@ class RalphApp(App):
 
 # ─── Review (codex / claude fallback) ───────────────────────────────────────
 
-def auto_commit() -> None:
+def auto_commit(out: Callable[[str], None] = print) -> None:
     result = subprocess.run(
         ["git", "status", "--porcelain"],
         capture_output=True, text=True,
     )
     if result.stdout.strip():
+        changed_files = [l.strip() for l in result.stdout.strip().splitlines()]
+        out(f"  auto-commit: staging {len(changed_files)} changed file(s)")
         subprocess.run(["git", "add", "-A"], capture_output=True)
-        subprocess.run(
+        commit_result = subprocess.run(
             ["git", "commit", "-m", "ralph: auto-commit before review"],
-            capture_output=True,
+            capture_output=True, text=True,
         )
+        if commit_result.returncode == 0:
+            out("  auto-commit: committed successfully")
+        else:
+            out(f"  auto-commit: commit exited with code {commit_result.returncode}")
+    else:
+        out("  auto-commit: nothing to commit (working tree clean)")
 
 
 def run_review(base_sha: str, task_text: str, config: Config,
@@ -1088,26 +1096,49 @@ def run_review(base_sha: str, task_text: str, config: Config,
     if not diff:
         return "LGTM — no changes to review"
 
+    # Log diff stats
+    diff_stat = subprocess.run(
+        ["git", "diff", "--stat", f"{base_sha}..HEAD"],
+        capture_output=True, text=True,
+    )
+    stat_summary = diff_stat.stdout.strip().splitlines()
+    if stat_summary:
+        out(f"  diff: {stat_summary[-1].strip()}")  # summary line e.g. "3 files changed, 40 insertions(+), 5 deletions(-)"
+
+    # Reviewer selection logic
     use_codex = False
     if config.reviewer == "codex":
         use_codex = True
+        out("  reviewer: codex (explicit config)")
     elif config.reviewer == "claude":
         use_codex = False
+        out("  reviewer: claude (explicit config)")
     elif config.reviewer == "auto":
         use_codex = subprocess.run(
             ["which", "codex"], capture_output=True
         ).returncode == 0
+        if use_codex:
+            out("  reviewer: codex (auto-detected on PATH)")
+        else:
+            out("  reviewer: claude (codex not found on PATH)")
 
     if use_codex:
-        out("  🔍 Codex reviewing changes...")
+        cmd = ["codex", "review", "--base", base_sha]
+        out(f"  running: {' '.join(cmd)}")
+        t0 = time.time()
         try:
             result = subprocess.run(
-                ["codex", "review", "--base", base_sha],
+                cmd,
                 capture_output=True, text=True, timeout=300,
             )
-            return result.stdout + result.stderr
-        except Exception:
-            return "LGTM (codex error)"
+            elapsed = time.time() - t0
+            output = result.stdout + result.stderr
+            out(f"  codex finished in {elapsed:.1f}s — exit code {result.returncode}, output {len(output)} chars")
+            return output
+        except Exception as exc:
+            elapsed = time.time() - t0
+            out(f"  codex FAILED after {elapsed:.1f}s — {type(exc).__name__}: {exc}")
+            return f"LGTM (codex error: {exc})"
     else:
         out("  🔍 Claude reviewing changes...")
         review_prompt = f"""Review this diff for bugs, edge cases, and issues the implementing agent may not have considered. Be specific about file and line. If the code looks good, just say LGTM.
@@ -1117,15 +1148,21 @@ def run_review(base_sha: str, task_text: str, config: Config,
 
 ## Diff
 {diff}"""
+        t0 = time.time()
         try:
             result = subprocess.run(
                 ["claude", "-p", "--model", "claude-opus-4-6", "--max-turns", "5",
                  "--dangerously-skip-permissions"],
                 input=review_prompt, capture_output=True, text=True, timeout=300,
             )
-            return result.stdout + result.stderr
-        except Exception:
-            return "LGTM (claude error)"
+            elapsed = time.time() - t0
+            output = result.stdout + result.stderr
+            out(f"  claude finished in {elapsed:.1f}s — exit code {result.returncode}, output {len(output)} chars")
+            return output
+        except Exception as exc:
+            elapsed = time.time() - t0
+            out(f"  claude FAILED after {elapsed:.1f}s — {type(exc).__name__}: {exc}")
+            return f"LGTM (claude error: {exc})"
 
 
 def has_review_issues(output: str) -> bool:
@@ -1142,6 +1179,12 @@ def fix_review_issues(review_output: str, config: Config,
                       out: Callable[[str], None] = print) -> None:
     if not has_review_issues(review_output):
         out("  ✅ Review passed — LGTM")
+        # Show first few lines of what the reviewer actually said
+        lines = [l for l in review_output.strip().splitlines() if l.strip()]
+        for line in lines[:3]:
+            out(f"    | {line}")
+        if len(lines) > 3:
+            out(f"    | ... ({len(lines) - 3} more lines)")
         return
 
     out("  🔧 Fixing review findings...")

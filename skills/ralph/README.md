@@ -6,81 +6,13 @@ Named after Ralph Wiggum — he's doing his best.
 
 ## How It Works
 
-```
-                          +------------------+
-                          |    plan.md       |
-                          |  - [x] Task 1   |
-                          |  - [ ] Task 2  <-------- find next unchecked
-                          |  - [ ] Task 3   |
-                          +--------+---------+
-                                   |
-                                   v
-                    +-----------------------------+
-                    |  Build prompt               |
-                    |  - task text + criterion    |
-                    |  - trimmed plan context     |
-                    |  - recent git commits       |
-                    |  - coding agent rules       |
-                    |  - user guidance (if any)   |
-                    +-------------+---------------+
-                                  |
-                                  v
-                    +-----------------------------+
-                    |  claude -p (subprocess)     |
-                    |  - isolated context         |
-                    |  - stream-json output       |
-                    |  - tool use displayed live  |
-                    +-------------+---------------+
-                                  |
-                        +---------+---------+
-                        |                   |
-                        v                   v
-                   Task checked?       Task still
-                   - [x] on disk       unchecked
-                        |                   |
-                        v                   v
-                   +----------+      +------------+
-                   | Success  |      |  Failure   |
-                   | count++  |      |  fails++   |
-                   +----+-----+      +------+-----+
-                        |                   |
-                        |      3 in a row?  |
-                        |         +---------+
-                        |         v         |
-                        |      STOP         |
-                        v                   v
-                  +------------+     next unchecked
-                  | COUNTDOWN  |         task
-                  | (delay s)  |
-                  +-----+------+
-                        |
-                        v
-                   next unchecked
-                       task
-                        |
-                    all done?
-                        |
-                        v
-                      DONE
-```
+![Ralph Execution Flow](diagrams/execution-flow.png)
 
 ## TUI Interface
 
 Ralph runs as a Textual terminal app with three regions:
 
-```
-+--------------------------------------------------+
-|                                                  |
-|  Scrollable output log                           |
-|  - task headers, tool calls, results             |
-|  - success/failure messages                      |
-|                                                  |
-+--------------------------------------------------+
-| status bar: time | cost | 2/5 | RUNNING | task  |
-+--------------------------------------------------+
-| input: type guidance or /command...              |
-+--------------------------------------------------+
-```
+![Ralph TUI Layout](diagrams/tui-layout.png)
 
 ### Commands
 
@@ -99,14 +31,7 @@ Type anything else to queue guidance for the next task.
 
 ### State Machine
 
-```
-START --> RUNNING ---> COUNTDOWN ---> RUNNING --> ... --> DONE
-              |             |
-              +-- /kill ----+---> PAUSED
-                                    |
-                          /resume --+--> RUNNING (next task)
-                          /retry  --+--> RUNNING (same task)
-```
+![Ralph State Machine](diagrams/state-machine.png)
 
 ## Usage
 
