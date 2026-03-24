@@ -78,6 +78,52 @@ class TestFindNextTask:
         p.write_text("- [x] Done task\n- [X] Also done\n")
         assert ralph.find_next_task(str(p)) is None
 
+    def test_phase_filter_only_returns_target_phase(self, tmp_path):
+        """With --phase 2, find_next_task only yields phase 2 tasks."""
+        content = """\
+# Multi-phase Plan
+
+## Phase 1: Foundation
+
+- [ ] Phase 1 Task A — build foundation
+- [ ] Phase 1 Task B — add walls
+
+## Phase 2: Features
+
+- [ ] Phase 2 Task C — add windows
+- [ ] Phase 2 Task D — add doors
+
+## Phase 3: Polish
+
+- [ ] Phase 3 Task E — paint walls
+"""
+        p = tmp_path / "multi.md"
+        p.write_text(content)
+        plan = str(p)
+
+        # Phase 2 should return only phase 2 tasks
+        task = ralph.find_next_task(plan, phase=2)
+        assert task is not None
+        assert "Phase 2 Task C" in task.text
+
+        # Phase 1 tasks should NOT appear when filtering for phase 2
+        assert "Phase 1" not in task.text
+
+        # After skipping Task C (via min_line), should get Task D
+        task2 = ralph.find_next_task(plan, min_line=task.line_num + 1, phase=2)
+        assert task2 is not None
+        assert "Phase 2 Task D" in task2.text
+
+        # After Task D, no more phase 2 tasks
+        task3 = ralph.find_next_task(plan, min_line=task2.line_num + 1, phase=2)
+        assert task3 is None
+
+    def test_phase_filter_ignores_other_phases(self, plan_file):
+        """Phase 2 filter on the standard fixture skips phase 1 tasks."""
+        task = ralph.find_next_task(plan_file, phase=2)
+        assert task is not None
+        assert "Task 4" in task.text
+
 
 class TestCountTasks:
     def test_counts_correctly(self, plan_file):
