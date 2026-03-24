@@ -25,6 +25,7 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -1902,9 +1903,141 @@ def fix_review_issues(review_output: str, config: Config,
         pass
 
 
+# ─── Interactive launcher ────────────────────────────────────────────────────
+
+
+def _has_fzf() -> bool:
+    """Check whether fzf is installed."""
+    return shutil.which("fzf") is not None
+
+
+def _fzf_select(choices: list[str], prompt: str, preview: str = "") -> str:
+    """Run fzf and return the selected item, or "" if cancelled."""
+    cmd = ["fzf", "--prompt", prompt, "--height", "~20", "--reverse"]
+    if preview:
+        cmd += ["--preview", preview]
+    try:
+        proc = subprocess.run(
+            cmd, input="\n".join(choices),
+            capture_output=True, text=True, timeout=120,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def _menu_select(choices: list[str], prompt: str) -> str:
+    """Numbered-menu fallback when fzf is unavailable."""
+    print(f"\n  {prompt}")
+    for i, c in enumerate(choices, 1):
+        marker = " (default)" if i == 1 else ""
+        print(f"    {i}. {c}{marker}")
+    while True:
+        try:
+            raw = input(f"  Choice [1-{len(choices)}, default=1]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return choices[0]
+        if not raw:
+            return choices[0]
+        try:
+            idx = int(raw)
+            if 1 <= idx <= len(choices):
+                return choices[idx - 1]
+        except ValueError:
+            pass
+        print(f"    Enter 1\u2013{len(choices)}")
+
+
+def _pick(choices: list[str], prompt: str, preview: str = "",
+          default: str = "") -> str:
+    """Present choices via fzf (preferred) or numbered menu (fallback).
+
+    *default* is moved to the top of the list so it is pre-highlighted.
+    """
+    if not choices:
+        return ""
+    if default and default in choices:
+        choices = [default] + [c for c in choices if c != default]
+    if _has_fzf():
+        result = _fzf_select(choices, prompt, preview)
+        if result:
+            return result
+        # Esc / Ctrl-C in fzf — abort
+        print("Selection cancelled.", file=sys.stderr)
+        sys.exit(1)
+    return _menu_select(choices, prompt)
+
+
+def _collect_plan_files() -> list[str]:
+    """Gather .md plan files from cwd, ./plans/, and ~/.claude/plans/."""
+    seen: set[str] = set()
+    plans: list[str] = []
+
+    def _add(p: Path) -> None:
+        resolved = str(p.resolve())
+        if resolved not in seen:
+            seen.add(resolved)
+            plans.append(str(p))
+
+    for name in ("plan.md", "PLAN.md"):
+        p = Path(name)
+        if p.is_file():
+            _add(p)
+    for d in (Path("plans"), Path.home() / ".claude" / "plans"):
+        if d.is_dir():
+            for p in sorted(d.glob("*.md")):
+                _add(p)
+    return plans
+
+
+def interactive_config(config: Config, explicit: dict[str, bool]) -> Config:
+    """Prompt for any config values not already set via CLI flags or env vars.
+
+    Uses fzf when available; falls back to a simple numbered menu.
+    """
+    # ── Plan selector ──
+    if not explicit["plan_path"]:
+        plans = _collect_plan_files()
+        if not plans:
+            print("Error: no plan files found (./plans/, ~/.claude/plans/, "
+                  "or ./plan.md)", file=sys.stderr)
+            sys.exit(1)
+        if len(plans) == 1:
+            config.plan_path = str(Path(plans[0]).resolve())
+            print(f"  Auto-selected plan: {plans[0]}")
+        else:
+            selected = _pick(plans, "Plan: ", preview="head -20 {}")
+            config.plan_path = str(Path(selected).resolve())
+
+    # ── Model selector ──
+    if not explicit["model"]:
+        presets = list(MODEL_PRESETS.keys())
+        selected = _pick(presets, "Model: ", default="opus-high")
+        if selected in MODEL_PRESETS:
+            config.model, config.effort = MODEL_PRESETS[selected]
+        else:
+            config.model = selected
+
+    # ── Review toggle ──
+    if not explicit["review"]:
+        selected = _pick(["no", "yes"], "Review after each task? ", default="no")
+        config.skip_review = (selected != "yes")
+
+    # ── Reviewer selector (only when review is enabled) ──
+    if not config.skip_review and not explicit["reviewer"]:
+        selected = _pick(["auto", "claude", "codex"], "Reviewer: ", default="auto")
+        config.reviewer = selected
+
+    return config
+
+
 # ─── Main loop ──────────────────────────────────────────────────────────────
 
-def parse_args() -> Config:
+def parse_args() -> tuple[Config, dict[str, bool]]:
+    """Parse CLI arguments and return (config, explicit) where *explicit*
+    tracks which settings the user provided explicitly (CLI flag or env var)
+    so that interactive_config knows what to skip.
+    """
     parser = argparse.ArgumentParser(
         description="Execute a plan file task-by-task using claude -p",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1966,6 +2099,7 @@ Environment variables:
         batch_mode=args.batch,
         reviewer=args.reviewer,
         phase=args.phase,
+        learnings_path=args.learnings_path,
     )
 
     # --review / --no-review logic (--no-review wins if both given)
@@ -1982,18 +2116,37 @@ Environment variables:
         else:
             config.model = model_str
 
-    # Find plan and derive auxiliary file paths
-    config.plan_path = find_plan(args.plan_path)
-    config.learnings_path = (args.learnings_path
+    # Track what was explicitly provided so interactive_config can skip those
+    explicit = {
+        "plan_path": bool(args.plan_path),
+        "model":     bool(args.model),
+        "review":    args.review or args.no_review,
+        "reviewer":  bool(os.environ.get("RALPH_REVIEWER"))
+                     or any(a.startswith("--reviewer") for a in sys.argv[1:]),
+    }
+
+    # If plan_path was given explicitly, resolve it now
+    if explicit["plan_path"]:
+        config.plan_path = find_plan(args.plan_path)
+
+    return config, explicit
+
+
+def main() -> None:
+    config, explicit = parse_args()
+
+    # Fill in gaps interactively (skips anything already set via CLI/env)
+    interactive_config(config, explicit)
+
+    # Resolve plan (if interactive_config selected it) and derive aux paths
+    if not config.plan_path:
+        # Should not happen — interactive_config always sets it — but guard
+        config.plan_path = find_plan("")
+    config.learnings_path = (config.learnings_path
                              or derive_learnings_path(config.plan_path))
     config.log_path = derive_log_path(config.plan_path)
     config.work_dir = os.getcwd()
 
-    return config
-
-
-def main() -> None:
-    config = parse_args()
     app = RalphApp(config)
     try:
         app.run()
