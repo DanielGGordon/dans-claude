@@ -663,6 +663,38 @@ def load_project_context(work_dir: str) -> str:
     return "\n\n".join(parts)
 
 
+def _append_prompt_context(prompt: str, learnings_content: str = "",
+                           project_context: str = "",
+                           user_guidance: str = "") -> str:
+    """Append learnings, project context, and user guidance sections to a prompt."""
+    if learnings_content:
+        prompt += f"""
+
+## Progress & Learnings
+
+Previous tasks recorded these notes. Read them to avoid repeating mistakes or rediscovering gotchas:
+
+{learnings_content}"""
+
+    if project_context:
+        prompt += f"""
+
+## Project Context
+
+{project_context}"""
+
+    if user_guidance:
+        prompt += f"""
+
+## User Guidance
+
+The user has provided the following context for this task. Read carefully and follow:
+
+{user_guidance}"""
+
+    return prompt
+
+
 def build_single_prompt(task: Task, plan_content: str, config: Config,
                         coding_rules: str, recent_commits: str,
                         user_guidance: str,
@@ -705,32 +737,8 @@ These are the last 3 commits in the repo — read them to understand what work h
   `[done YYYY-MM-DD HH:MM] Task description. ⚠️ Learning: <only if there's a genuine gotcha, else omit>`
   Only record a learning if you discovered something surprising — a workaround, an environment quirk, a non-obvious dependency, or a dead end worth avoiding. Do not record routine work."""
 
-    if learnings_content:
-        prompt += f"""
-
-## Progress & Learnings
-
-Previous tasks recorded these notes. Read them to avoid repeating mistakes or rediscovering gotchas:
-
-{learnings_content}"""
-
-    if project_context:
-        prompt += f"""
-
-## Project Context
-
-{project_context}"""
-
-    if user_guidance:
-        prompt += f"""
-
-## User Guidance
-
-The user has provided the following context for this task. Read carefully and follow:
-
-{user_guidance}"""
-
-    return prompt
+    return _append_prompt_context(prompt, learnings_content, project_context,
+                                  user_guidance)
 
 
 def build_batch_prompt(tasks: list[Task], plan_content: str, config: Config,
@@ -778,32 +786,8 @@ These are the last 3 commits in the repo — read them to understand what work h
   `[done YYYY-MM-DD HH:MM] Task description. ⚠️ Learning: <only if there's a genuine gotcha, else omit>`
   Only record a learning if you discovered something surprising. Do not record routine work."""
 
-    if learnings_content:
-        prompt += f"""
-
-## Progress & Learnings
-
-Previous tasks recorded these notes. Read them to avoid repeating mistakes or rediscovering gotchas:
-
-{learnings_content}"""
-
-    if project_context:
-        prompt += f"""
-
-## Project Context
-
-{project_context}"""
-
-    if user_guidance:
-        prompt += f"""
-
-## User Guidance
-
-The user has provided the following context for this task. Read carefully and follow:
-
-{user_guidance}"""
-
-    return prompt
+    return _append_prompt_context(prompt, learnings_content, project_context,
+                                  user_guidance)
 
 
 def build_rescue_prompt(task: Task, plan_content: str, config: Config,
@@ -850,21 +834,7 @@ The previous agent ran for {elapsed_mins} minutes without completing this task. 
 
 {coding_rules or "No coding agent rules file found — use your best judgment."}"""
 
-    if learnings_content:
-        prompt += f"""
-
-## Progress & Learnings
-
-{learnings_content}"""
-
-    if project_context:
-        prompt += f"""
-
-## Project Context
-
-{project_context}"""
-
-    return prompt
+    return _append_prompt_context(prompt, learnings_content, project_context)
 
 
 # ─── Stream parser and Claude runner ────────────────────────────────────────
@@ -1159,18 +1129,8 @@ class RalphApp(App):
             parts.append(task_display)
         self.query_one("#status", Static).update(" | ".join(parts))
 
-    def cmd_stop(self, _arg: str = "") -> None:
-        """Handle /stop: kill running proc, git stash if dirty, log summary, exit."""
-        # Kill the running subprocess if any
-        if self.current_proc is not None:
-            try:
-                self.current_proc.kill()
-                self.current_proc.wait(timeout=5)
-            except Exception:
-                pass
-            self.current_proc = None
-
-        # Git stash if working tree is dirty
+    def _git_stash(self, message: str) -> bool:
+        """Stash working tree if dirty. Returns True if a stash was created."""
         try:
             result = subprocess.run(
                 ["git", "status", "--porcelain"],
@@ -1179,17 +1139,23 @@ class RalphApp(App):
             )
             if result.stdout.strip():
                 stash_result = subprocess.run(
-                    ["git", "stash", "push", "-u", "-m",
-                     f"ralph: stopped after {self._completed} tasks completed"],
+                    ["git", "stash", "push", "-u", "-m", message],
                     capture_output=True, text=True, timeout=10,
                     cwd=self.config.work_dir,
                 )
                 if stash_result.returncode == 0:
-                    self.output("📦 Changes stashed (git stash pop to restore)")
+                    self.output(f"📦 Changes stashed ({message})")
+                    return True
                 else:
                     self.output("⚠️  git stash failed — changes left in working tree")
         except Exception:
             pass
+        return False
+
+    def cmd_stop(self, _arg: str = "") -> None:
+        """Handle /stop: kill running proc, git stash if dirty, log summary, exit."""
+        self._cleanup_proc()
+        self._git_stash(f"ralph: stopped after {self._completed} tasks completed")
 
         # Write summary to log
         self.output("")
@@ -1200,13 +1166,7 @@ class RalphApp(App):
 
     def cmd_skip(self, _arg: str = "") -> None:
         """Handle /skip: kill running proc, set skip flag, move to next task."""
-        if self.current_proc is not None:
-            try:
-                self.current_proc.kill()
-                self.current_proc.wait(timeout=5)
-            except Exception:
-                pass
-            self.current_proc = None
+        self._cleanup_proc()
         self.skip_event.set()
         self.output("⏭️  Skipping current task...")
 
@@ -1235,38 +1195,9 @@ class RalphApp(App):
             self.output(line)
 
     def cmd_kill(self, _arg: str = "") -> None:
-        """Handle /kill and /pause: kill proc, git stash, set PAUSED, signal worker."""
-        # Kill the running subprocess if any
-        if self.current_proc is not None:
-            try:
-                self.current_proc.kill()
-                self.current_proc.wait(timeout=5)
-            except Exception:
-                pass
-            self.current_proc = None
-
-        # Git stash if working tree is dirty
-        self._stash_created = False
-        try:
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                capture_output=True, text=True, timeout=5,
-                cwd=self.config.work_dir,
-            )
-            if result.stdout.strip():
-                stash_result = subprocess.run(
-                    ["git", "stash", "push", "-u", "-m",
-                     "ralph: paused by user"],
-                    capture_output=True, text=True, timeout=10,
-                    cwd=self.config.work_dir,
-                )
-                if stash_result.returncode == 0:
-                    self._stash_created = True
-                    self.output("📦 Changes stashed (ralph: paused by user)")
-                else:
-                    self.output("⚠️  git stash failed — changes left in working tree")
-        except Exception:
-            pass
+        """Handle /kill: kill proc, git stash, set PAUSED, signal worker."""
+        self._cleanup_proc()
+        self._stash_created = self._git_stash("ralph: paused by user")
 
         self.state = State.PAUSED
         self.pause_event.set()
@@ -1320,6 +1251,47 @@ class RalphApp(App):
             ).stdout.strip()
         except Exception:
             return ""
+
+    def _handle_task_result(
+        self, result: ClaudeResult, task: Task, config: Config,
+        *, check_text: str, result_label: str,
+        fail_count: int, fail_task_texts: list[str],
+        success_count: int, label: str,
+        review_base: str, review_text: str,
+        consecutive_fails: int,
+        out: Callable[[str], None],
+    ) -> tuple[int, int]:
+        """Process execution result. Returns (consecutive_fails, min_line)."""
+        self.current_proc = None
+        self.total_cost += result.cost
+        self._task_results.append((result_label, result))
+
+        new_task = find_next_task(
+            config.plan_path, min_line=task.line_num, phase=config.phase)
+        if new_task and new_task.text == check_text:
+            self._failed += fail_count
+            consecutive_fails += 1
+            min_line = task.line_num
+            out(f"\n❌ {label} failed (task not checked off)")
+            for text in fail_task_texts:
+                append_learning(config.learnings_path, text, passed=False)
+        else:
+            self._completed += success_count
+            consecutive_fails = 0
+            min_line = task.line_num + 1
+            out(f"\n✅ {label} complete")
+            if not config.skip_review and review_base:
+                r_out = lambda t: out(t, style="steel_blue1")
+                r_out("🔍 Reviewing changes...")
+                review_result = run_review(
+                    review_base, review_text, config, out=r_out)
+                fix_review_issues(review_result, config, out=r_out)
+                r_out("🔍 Review complete")
+
+        if needs_followup(result.text):
+            out("⚠️  Agent may need input — check output above")
+
+        return consecutive_fails, min_line
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission: dispatch /commands or queue guidance."""
@@ -1512,14 +1484,15 @@ class RalphApp(App):
                     # Load learnings fresh before each task (other iterations may have appended)
                     learnings_content = load_learnings(config.learnings_path)
 
+                    review_base = self._get_review_base()
+                    plan_content = trim_plan_for_task(config.plan_path, task.line_num)
+
                     if config.batch_mode and is_batch_start(config.plan_path, task.line_num):
                         batch_tasks = collect_batch(config.plan_path, task.line_num)
                         out(f"📦 BATCH ({len(batch_tasks)} tasks):")
                         for t in batch_tasks:
                             out(f"   - {t.text}")
 
-                        review_base = self._get_review_base()
-                        plan_content = trim_plan_for_task(config.plan_path, task.line_num)
                         prompt = build_batch_prompt(
                             batch_tasks, plan_content, config,
                             coding_rules, recent_commits, guidance,
@@ -1529,44 +1502,29 @@ class RalphApp(App):
                         result = run_claude(prompt, config, on_output=out,
                                             proc_register=self._register_proc,
                                             timeout=config.task_timeout)
-                        self.current_proc = None
-                        self.total_cost += result.cost
-                        self._task_results.append((f"BATCH: {batch_tasks[0].text}", result))
 
-                        new_task = find_next_task(config.plan_path, min_line=task.line_num, phase=config.phase)
-                        if new_task and new_task.text == batch_tasks[0].text:
-                            self._failed += len(batch_tasks)
-                            consecutive_fails += 1
-                            min_line = task.line_num
-                            out("\n❌ Batch failed (task not checked off)")
-                            for t in batch_tasks:
-                                append_learning(config.learnings_path, t.text, passed=False)
-                        else:
-                            plan_lines = Path(config.plan_path).read_text().splitlines()
-                            actually_completed = sum(
-                                1 for t in batch_tasks
-                                if t.line_num - 1 < len(plan_lines)
-                                and not _TASK_RE.match(plan_lines[t.line_num - 1])
-                            )
-                            self._completed += actually_completed
-                            consecutive_fails = 0
-                            min_line = task.line_num + 1
-                            out("\n✅ Batch complete")
-                            if not config.skip_review and review_base:
-                                r_out = lambda t: out(t, style="steel_blue1")
-                                r_out("🔍 Reviewing changes...")
-                                review_result = run_review(
-                                    review_base, batch_tasks[0].text, config, out=r_out)
-                                fix_review_issues(review_result, config, out=r_out)
-                                r_out("🔍 Review complete")
-
-                        if needs_followup(result.text):
-                            out("⚠️  Agent may need input — check output above")
+                        plan_lines = Path(config.plan_path).read_text().splitlines()
+                        batch_completed = sum(
+                            1 for t in batch_tasks
+                            if t.line_num - 1 < len(plan_lines)
+                            and not _TASK_RE.match(plan_lines[t.line_num - 1])
+                        )
+                        consecutive_fails, min_line = self._handle_task_result(
+                            result, task, config,
+                            check_text=batch_tasks[0].text,
+                            result_label=f"BATCH: {batch_tasks[0].text}",
+                            fail_count=len(batch_tasks),
+                            fail_task_texts=[t.text for t in batch_tasks],
+                            success_count=batch_completed,
+                            label="Batch",
+                            review_base=review_base,
+                            review_text=batch_tasks[0].text,
+                            consecutive_fails=consecutive_fails,
+                            out=out,
+                        )
 
                     else:
                         # Single task
-                        review_base = self._get_review_base()
-                        plan_content = trim_plan_for_task(config.plan_path, task.line_num)
                         prompt = build_single_prompt(
                             task, plan_content, config,
                             coding_rules, recent_commits, guidance,
@@ -1576,32 +1534,20 @@ class RalphApp(App):
                         result = run_claude(prompt, config, on_output=out,
                                             proc_register=self._register_proc,
                                             timeout=config.task_timeout)
-                        self.current_proc = None
-                        self.total_cost += result.cost
-                        self._task_results.append((task.text, result))
 
-                        new_task = find_next_task(config.plan_path, min_line=task.line_num, phase=config.phase)
-                        if new_task and new_task.text == task.text:
-                            self._failed += 1
-                            consecutive_fails += 1
-                            min_line = task.line_num
-                            out("\n❌ Task failed (task not checked off)")
-                            append_learning(config.learnings_path, task.text, passed=False)
-                        else:
-                            self._completed += 1
-                            consecutive_fails = 0
-                            min_line = task.line_num + 1
-                            out("\n✅ Task complete")
-                            if not config.skip_review and review_base:
-                                r_out = lambda t: out(t, style="steel_blue1")
-                                r_out("🔍 Reviewing changes...")
-                                review_result = run_review(
-                                    review_base, task.text, config, out=r_out)
-                                fix_review_issues(review_result, config, out=r_out)
-                                r_out("🔍 Review complete")
-
-                        if needs_followup(result.text):
-                            out("⚠️  Agent may need input — check output above")
+                        consecutive_fails, min_line = self._handle_task_result(
+                            result, task, config,
+                            check_text=task.text,
+                            result_label=task.text,
+                            fail_count=1,
+                            fail_task_texts=[task.text],
+                            success_count=1,
+                            label="Task",
+                            review_base=review_base,
+                            review_text=task.text,
+                            consecutive_fails=consecutive_fails,
+                            out=out,
+                        )
 
                 except UsageLimitExceeded as e:
                     self.current_proc = None
