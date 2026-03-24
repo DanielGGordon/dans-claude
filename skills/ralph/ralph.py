@@ -21,6 +21,7 @@ Interactive features (TUI mode):
 
 import argparse
 import enum
+import fcntl
 import json
 import os
 import re
@@ -225,6 +226,23 @@ def _phase_line_range(plan_path: str, phase: int) -> tuple[int, int]:
     return 0, 0  # phase not found: empty range
 
 
+def find_parallel_phases(plan_path: str) -> list[list[int]]:
+    """Return all parallel groups defined in the plan.
+
+    Each group is a list of phase numbers extracted from
+    ``<!-- PARALLEL N,M,... -->`` annotations.  Groups are returned in
+    the order they appear in the file.
+    """
+    groups: list[list[int]] = []
+    for line in Path(plan_path).read_text().splitlines():
+        m = _PARALLEL_RE.match(line)
+        if m:
+            phases = [int(p.strip()) for p in m.group(1).split(",") if p.strip()]
+            if phases:
+                groups.append(phases)
+    return groups
+
+
 def parse_parallel_group(plan_path: str, task_line: int) -> list[int] | None:
     """Return phase numbers if task_line is inside a parallel group, None otherwise.
 
@@ -232,18 +250,11 @@ def parse_parallel_group(plan_path: str, task_line: int) -> list[int] | None:
     covers the phases listed.  A task belongs to a group if its line falls within
     one of the group's phase sections.
     """
-    lines = Path(plan_path).read_text().splitlines()
-    # Build list of parallel groups: each is a list of phase ints
-    groups: list[list[int]] = []
-    for line in lines:
-        m = _PARALLEL_RE.match(line)
-        if m:
-            phases = [int(p.strip()) for p in m.group(1).split(",") if p.strip()]
-            if phases:
-                groups.append(phases)
+    groups = find_parallel_phases(plan_path)
     if not groups:
         return None
     # Determine which phase the task_line belongs to
+    lines = Path(plan_path).read_text().splitlines()
     current_phase: int | None = None
     for i, line in enumerate(lines, 1):
         pm = _PHASE_HEADING_RE.match(line)
@@ -380,15 +391,20 @@ def derive_log_path(plan_path: str) -> str:
 
 
 def load_learnings(learnings_path: str) -> str:
-    """Read the learnings file, returning empty string if it doesn't exist."""
+    """Read the learnings file with a shared lock, returning empty string if missing."""
     p = Path(learnings_path)
-    if p.is_file():
-        return p.read_text().strip()
-    return ""
+    if not p.is_file():
+        return ""
+    with open(p) as f:
+        fcntl.flock(f, fcntl.LOCK_SH)
+        try:
+            return f.read().strip()
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def append_learning(learnings_path: str, task_text: str, passed: bool) -> None:
-    """Append a fallback one-liner to the learnings file (safety net if Claude forgets)."""
+    """Append a one-liner to the learnings file under an exclusive lock."""
     p = Path(learnings_path)
     timestamp = time.strftime("%Y-%m-%d %H:%M")
     status = "done" if passed else "FAILED"
@@ -397,7 +413,174 @@ def append_learning(learnings_path: str, task_text: str, passed: bool) -> None:
         p.write_text(f"# Learnings\n# Ralph appends entries here. Claude also appends gotchas.\n\n{entry}")
     else:
         with open(p, "a") as f:
-            f.write(entry)
+            # Exclusive lock with 1-second blocking wait
+            deadline = time.monotonic() + 1.0
+            while True:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        fcntl.flock(f, fcntl.LOCK_EX)  # final blocking attempt
+                        break
+                    time.sleep(0.05)
+            try:
+                f.write(entry)
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+
+
+# ─── Parallel orchestration ─────────────────────────────────────────────────
+
+TMUX_SESSION = "ralph-parallel"
+
+
+def create_worktrees(phases: list[int], repo_dir: str) -> dict[int, str]:
+    """Create a git worktree for each phase, returning {phase: worktree_path}."""
+    worktrees: dict[int, str] = {}
+    for phase in phases:
+        branch = f"ralph/phase-{phase}"
+        wt_path = f"{repo_dir}-ralph-phase-{phase}"
+        subprocess.run(
+            ["git", "worktree", "add", wt_path, "-b", branch, "HEAD"],
+            cwd=repo_dir, capture_output=True, text=True, check=True,
+        )
+        worktrees[phase] = wt_path
+    return worktrees
+
+
+def cleanup_worktrees(worktrees: dict[int, str], repo_dir: str) -> None:
+    """Remove worktrees and delete their branches."""
+    for phase, wt_path in worktrees.items():
+        branch = f"ralph/phase-{phase}"
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", wt_path],
+            cwd=repo_dir, capture_output=True, text=True,
+        )
+        subprocess.run(
+            ["git", "branch", "-D", branch],
+            cwd=repo_dir, capture_output=True, text=True,
+        )
+
+
+def merge_parallel_branches(
+    phases: list[int],
+    worktrees: dict[int, str],
+    repo_dir: str,
+    on_output: Callable[[str], None] = print,
+) -> None:
+    """Merge each phase branch back into main sequentially.
+
+    First branch merges directly. Subsequent branches rebase onto updated main
+    first. If rebase conflicts occur, a Claude agent attempts resolution.
+    """
+    for i, phase in enumerate(phases):
+        branch = f"ralph/phase-{phase}"
+        on_output(f"  Merging {branch}...")
+
+        if i > 0:
+            # Rebase onto updated main before merging
+            rebase = subprocess.run(
+                ["git", "rebase", "HEAD", branch],
+                cwd=repo_dir, capture_output=True, text=True,
+            )
+            if rebase.returncode != 0:
+                on_output(f"  ⚠️  Rebase conflict on {branch} — attempting auto-resolve")
+                # Get conflict info for the Claude agent
+                diff_result = subprocess.run(
+                    ["git", "diff"], cwd=repo_dir, capture_output=True, text=True,
+                )
+                conflict_diff = diff_result.stdout[:4000]
+
+                # Spawn a Claude agent to resolve
+                resolve_prompt = (
+                    f"You are resolving a git rebase conflict.\n\n"
+                    f"Branch '{branch}' (phase {phase}) is being rebased onto main.\n"
+                    f"The other phases ({phases[:i]}) have already been merged.\n\n"
+                    f"Conflict diff:\n```\n{conflict_diff}\n```\n\n"
+                    f"Resolve all conflicts in the working tree, then run "
+                    f"'git add' on resolved files and 'git rebase --continue'.\n"
+                    f"If the conflicts are irreconcilable, run 'git rebase --abort' "
+                    f"and explain why."
+                )
+                agent = subprocess.run(
+                    ["claude", "-p", "--dangerously-skip-permissions",
+                     "--output-format", "text"],
+                    input=resolve_prompt,
+                    cwd=repo_dir, capture_output=True, text=True, timeout=300,
+                )
+                if agent.returncode != 0:
+                    # Abort rebase and raise
+                    subprocess.run(
+                        ["git", "rebase", "--abort"],
+                        cwd=repo_dir, capture_output=True, text=True,
+                    )
+                    raise RuntimeError(
+                        f"Failed to resolve conflicts merging {branch}. "
+                        f"Conflicting files are in the diff above."
+                    )
+                on_output(f"  ✅ Conflicts resolved by Claude agent")
+
+        # Fast-forward merge the (now rebased) branch
+        merge = subprocess.run(
+            ["git", "merge", "--ff-only", branch],
+            cwd=repo_dir, capture_output=True, text=True,
+        )
+        if merge.returncode != 0:
+            # Fallback to regular merge if ff not possible
+            merge = subprocess.run(
+                ["git", "merge", branch, "-m", f"Merge parallel phase {phase}"],
+                cwd=repo_dir, capture_output=True, text=True,
+            )
+            if merge.returncode != 0:
+                raise RuntimeError(
+                    f"Merge failed for {branch}: {merge.stderr}"
+                )
+        on_output(f"  ✅ {branch} merged")
+
+
+def launch_parallel_tmux(
+    phases: list[int],
+    worktrees: dict[int, str],
+    plan_path: str,
+    learnings_path: str,
+    config: Config,
+) -> None:
+    """Launch a tmux session with one window per phase running Ralph."""
+    ralph_script = str(Path(__file__).resolve())
+    model_flags = ""
+    if config.model:
+        model_flags += f" --model {config.model}"
+
+    for i, phase in enumerate(phases):
+        wt = worktrees[phase]
+        cmd = (f"cd {wt} && python3 {ralph_script} {plan_path}"
+               f" --phase {phase} --learnings-path {learnings_path}"
+               f"{model_flags}")
+        if i == 0:
+            subprocess.run(
+                ["tmux", "new-session", "-d", "-s", TMUX_SESSION,
+                 "-n", f"phase-{phase}", cmd],
+                check=True,
+            )
+        else:
+            subprocess.run(
+                ["tmux", "new-window", "-t", TMUX_SESSION,
+                 "-n", f"phase-{phase}", cmd],
+                check=True,
+            )
+
+
+def wait_for_parallel_completion() -> None:
+    """Block until all windows in the ralph-parallel tmux session have exited."""
+    while True:
+        result = subprocess.run(
+            ["tmux", "list-windows", "-t", TMUX_SESSION],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            break  # session gone — all windows finished
+        time.sleep(5)
 
 
 # ─── Plan trimming ──────────────────────────────────────────────────────────
@@ -1253,6 +1436,40 @@ class RalphApp(App):
                 min_line = task.line_num
                 continue
 
+            # ── Parallel group detection ──────────────────────────
+            if config.phase is None:  # only main Ralph orchestrates
+                parallel_phases = parse_parallel_group(config.plan_path, task.line_num)
+                if parallel_phases:
+                    out("━" * 60)
+                    out(f"🔀 Parallel group detected: phases {parallel_phases}")
+                    out("━" * 60)
+                    try:
+                        worktrees = create_worktrees(parallel_phases, config.work_dir)
+                        launch_parallel_tmux(
+                            parallel_phases, worktrees,
+                            config.plan_path, config.learnings_path, config,
+                        )
+                        out(f"  tmux attach -t {TMUX_SESSION}")
+                        n = len(parallel_phases)
+                        self.current_task = f"Parallel: {n} phases running"
+                        self.update_status()
+                        wait_for_parallel_completion()
+                        out(f"✅ All {n} parallel phases finished")
+                        # Merge back (Phase 5 logic)
+                        merge_parallel_branches(
+                            parallel_phases, worktrees, config.work_dir, out,
+                        )
+                        cleanup_worktrees(worktrees, config.work_dir)
+                    except Exception as e:
+                        out(f"❌ Parallel execution failed: {e}", style="bold red")
+                    # Skip past all tasks in the parallel phases
+                    max_line = 0
+                    for phase in parallel_phases:
+                        _, end = _phase_line_range(config.plan_path, phase)
+                        max_line = max(max_line, end)
+                    min_line = max_line + 1
+                    continue
+
             self.state = State.RUNNING
             self.current_task = task.text
             self.task_start_time = time.time()
@@ -1737,6 +1954,8 @@ Environment variables:
                         default=int(os.environ.get("RALPH_TASK_TIMEOUT",
                                                     str(DEFAULT_TASK_TIMEOUT))),
                         help="Kill stuck tasks after N seconds (default: 3600 = 1h, 0 to disable)")
+    parser.add_argument("--learnings-path", default="",
+                        help="Override auto-derived learnings file path (for worktree instances)")
 
     args = parser.parse_args()
 
@@ -1765,7 +1984,8 @@ Environment variables:
 
     # Find plan and derive auxiliary file paths
     config.plan_path = find_plan(args.plan_path)
-    config.learnings_path = derive_learnings_path(config.plan_path)
+    config.learnings_path = (args.learnings_path
+                             or derive_learnings_path(config.plan_path))
     config.log_path = derive_log_path(config.plan_path)
     config.work_dir = os.getcwd()
 

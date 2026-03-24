@@ -42,8 +42,8 @@ Parse `<!-- PARALLEL 5,6,7 -->` annotations in plan files. Add functions to dete
 ### Acceptance criteria
 
 - [x] `parse_parallel_group(plan_path, task_line) -> list[int] | None` — returns phase numbers if task is in a parallel group, None otherwise — _Criterion: unit tests cover: task in parallel group, task not in group, multiple groups in one plan_
-- [ ] `find_parallel_phases(plan_path) -> list[list[int]]` — returns all parallel groups in the plan — _Criterion: unit test parses plan with two `<!-- PARALLEL -->` annotations_
-- [ ] Parsing handles edge cases: spaces in comment, phases that don't exist, already-completed parallel phases — _Criterion: unit tests pass for malformed/edge inputs_
+- [x] `find_parallel_phases(plan_path) -> list[list[int]]` — returns all parallel groups in the plan — _Criterion: unit test parses plan with two `<!-- PARALLEL -->` annotations_
+- [x] Parsing handles edge cases: spaces in comment, phases that don't exist, already-completed parallel phases — _Criterion: unit tests pass for malformed/edge inputs_
 
 ---
 
@@ -55,10 +55,10 @@ Replace bare file I/O in `load_learnings` and `append_learning` with `fcntl.floc
 
 ### Acceptance criteria
 
-- [ ] `append_learning` acquires an exclusive `fcntl.flock` before writing, with a 1-second blocking wait — _Criterion: code review confirms lock/unlock pattern_
-- [ ] `load_learnings` acquires a shared lock before reading — _Criterion: code review confirms shared lock_
-- [ ] `--learnings-path` flag added to argparse and Config — _Criterion: `ralph.py --help` shows the flag, and passing it overrides the auto-derived path_
-- [ ] Concurrent append test: two threads appending 50 entries each produce exactly 100 entries with no corruption — _Criterion: test passes_
+- [x] `append_learning` acquires an exclusive `fcntl.flock` before writing, with a 1-second blocking wait — _Criterion: code review confirms lock/unlock pattern_
+- [x] `load_learnings` acquires a shared lock before reading — _Criterion: code review confirms shared lock_
+- [x] `--learnings-path` flag added to argparse and Config — _Criterion: `ralph.py --help` shows the flag, and passing it overrides the auto-derived path_
+- [x] Concurrent append test: two threads appending 50 entries each produce exactly 100 entries with no corruption — _Criterion: test passes_
 
 ---
 
@@ -79,11 +79,11 @@ The main Ralph TUI should update its status bar to show `Parallel: N phases runn
 
 ### Acceptance criteria
 
-- [ ] Worktree creation: `git worktree add` for each phase, branching from current HEAD — _Criterion: worktrees exist and are on correct branches_
-- [ ] Tmux session launched with correct window names and commands — _Criterion: `tmux list-windows -t ralph-parallel` shows one window per phase_
-- [ ] Plan file is accessible from each worktree (absolute path or copied) — _Criterion: ralph.py in worktree can read the plan_
-- [ ] Main Ralph blocks until all parallel processes finish — _Criterion: main loop resumes only after all tmux windows exit_
-- [ ] Status bar shows parallel execution state — _Criterion: status shows "Parallel: N phases running, M done"_
+- [x] Worktree creation: `git worktree add` for each phase, branching from current HEAD — _Criterion: worktrees exist and are on correct branches_
+- [x] Tmux session launched with correct window names and commands — _Criterion: `tmux list-windows -t ralph-parallel` shows one window per phase_
+- [x] Plan file is accessible from each worktree (absolute path or copied) — _Criterion: ralph.py in worktree can read the plan_
+- [x] Main Ralph blocks until all parallel processes finish — _Criterion: main loop resumes only after all tmux windows exit_
+- [x] Status bar shows parallel execution state — _Criterion: status shows "Parallel: N phases running, M done"_
 
 ---
 
@@ -97,11 +97,11 @@ After successful merge, clean up the worktree (`git worktree remove`) and delete
 
 ### Acceptance criteria
 
-- [ ] First finished phase merges cleanly into main — _Criterion: `git log` shows merge commit_
-- [ ] Subsequent phases rebase onto updated main before merging — _Criterion: linear history on main after all merges_
-- [ ] Merge conflicts trigger a Claude agent with context about both phases and the conflict diff — _Criterion: agent prompt includes phase descriptions, conflict markers, and instructions_
-- [ ] Failed conflict resolution stops Ralph with a clear error message — _Criterion: user sees which files conflict and which phases clashed_
-- [ ] Worktrees and branches are cleaned up after successful merge — _Criterion: `git worktree list` shows no leftover worktrees_
+- [x] First finished phase merges cleanly into main — _Criterion: `git log` shows merge commit_
+- [x] Subsequent phases rebase onto updated main before merging — _Criterion: linear history on main after all merges_
+- [x] Merge conflicts trigger a Claude agent with context about both phases and the conflict diff — _Criterion: agent prompt includes phase descriptions, conflict markers, and instructions_
+- [x] Failed conflict resolution stops Ralph with a clear error message — _Criterion: user sees which files conflict and which phases clashed_
+- [x] Worktrees and branches are cleaned up after successful merge — _Criterion: `git worktree list` shows no leftover worktrees_
 
 ---
 
@@ -113,6 +113,6 @@ Update the `prd-to-plan` SKILL.md to instruct the planner to identify which phas
 
 ### Acceptance criteria
 
-- [ ] SKILL.md vertical-slice-rules section updated with parallel phase guidance — _Criterion: instructions mention independence criteria and the PARALLEL annotation syntax_
-- [ ] Plan template includes an example of `<!-- PARALLEL -->` usage — _Criterion: template shows the annotation in context_
-- [ ] Planner is instructed to decide autonomously (not ask the user) which phases are parallelizable — _Criterion: instructions say to determine independently, not quiz the user about it_
+- [x] SKILL.md vertical-slice-rules section updated with parallel phase guidance — _Criterion: instructions mention independence criteria and the PARALLEL annotation syntax_
+- [x] Plan template includes an example of `<!-- PARALLEL -->` usage — _Criterion: template shows the annotation in context_
+- [x] Planner is instructed to decide autonomously (not ask the user) which phases are parallelizable — _Criterion: instructions say to determine independently, not quiz the user about it_

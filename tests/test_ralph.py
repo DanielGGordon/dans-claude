@@ -188,6 +188,63 @@ class TestParseParallelGroup:
         assert result is None
 
 
+# ─── find_parallel_phases tests ──────────────────────────────────────────────
+
+class TestFindParallelPhases:
+    def test_single_group(self, parallel_plan):
+        """Plan with one PARALLEL annotation returns one group."""
+        result = ralph.find_parallel_phases(parallel_plan)
+        assert result == [[2, 3]]
+
+    def test_two_groups(self, multi_parallel_plan):
+        """Plan with two PARALLEL annotations returns both groups in order."""
+        result = ralph.find_parallel_phases(multi_parallel_plan)
+        assert result == [[1, 2], [4, 5]]
+
+    def test_no_annotations(self, plan_file):
+        """Plan without PARALLEL annotations returns empty list."""
+        result = ralph.find_parallel_phases(plan_file)
+        assert result == []
+
+    def test_spaces_in_comment(self, tmp_path):
+        """Extra spaces around the phase list are tolerated."""
+        content = "<!--  PARALLEL   1 , 2 , 3  -->\n## Phase 1\n- [ ] A\n"
+        p = tmp_path / "plan.md"
+        p.write_text(content)
+        result = ralph.find_parallel_phases(str(p))
+        assert result == [[1, 2, 3]]
+
+    def test_nonexistent_phases(self, tmp_path):
+        """PARALLEL referencing phases that don't exist still parses the numbers."""
+        content = "<!-- PARALLEL 99,100 -->\n## Phase 1\n- [ ] A\n"
+        p = tmp_path / "plan.md"
+        p.write_text(content)
+        result = ralph.find_parallel_phases(str(p))
+        assert result == [[99, 100]]
+
+    def test_completed_phases(self, tmp_path):
+        """PARALLEL groups are returned even if all tasks in those phases are done."""
+        content = """\
+<!-- PARALLEL 1,2 -->
+## Phase 1
+- [x] Done task
+## Phase 2
+- [x] Also done
+"""
+        p = tmp_path / "plan.md"
+        p.write_text(content)
+        result = ralph.find_parallel_phases(str(p))
+        assert result == [[1, 2]]
+
+    def test_empty_parallel_comment_ignored(self, tmp_path):
+        """A PARALLEL comment with no numbers is ignored."""
+        content = "<!-- PARALLEL -->\n## Phase 1\n- [ ] A\n"
+        p = tmp_path / "plan.md"
+        p.write_text(content)
+        result = ralph.find_parallel_phases(str(p))
+        assert result == []
+
+
 # ─── Task parsing tests ─────────────────────────────────────────────────────
 
 class TestFindNextTask:
@@ -302,6 +359,64 @@ class TestCountTasks:
         done, total = ralph.count_tasks(plan)
         assert done == 2
         assert total == 6
+
+
+# ─── Learnings file tests ────────────────────────────────────────────────────
+
+class TestLearningsLocking:
+    def test_load_learnings_missing_file(self, tmp_path):
+        """Returns empty string for nonexistent file."""
+        assert ralph.load_learnings(str(tmp_path / "nope.md")) == ""
+
+    def test_load_learnings_reads_content(self, tmp_path):
+        """Reads and strips file content."""
+        p = tmp_path / "learnings.md"
+        p.write_text("# Learnings\nsome entry\n")
+        assert ralph.load_learnings(str(p)) == "# Learnings\nsome entry"
+
+    def test_append_learning_creates_file(self, tmp_path):
+        """First append creates the file with header."""
+        p = tmp_path / "learnings.md"
+        ralph.append_learning(str(p), "Task 1", passed=True)
+        content = p.read_text()
+        assert "# Learnings" in content
+        assert "Task 1" in content
+
+    def test_append_learning_appends_to_existing(self, tmp_path):
+        """Subsequent appends add lines."""
+        p = tmp_path / "learnings.md"
+        p.write_text("# Learnings\n")
+        ralph.append_learning(str(p), "Task A", passed=True)
+        ralph.append_learning(str(p), "Task B", passed=False)
+        content = p.read_text()
+        assert "[done" in content
+        assert "[FAILED" in content
+        assert "Task A" in content
+        assert "Task B" in content
+
+    def test_concurrent_appends_no_corruption(self, tmp_path):
+        """Two threads appending 50 entries each produce exactly 100 entries."""
+        import threading
+
+        p = tmp_path / "learnings.md"
+        p.write_text("# Learnings\n")
+        path = str(p)
+
+        def writer(prefix, count):
+            for i in range(count):
+                ralph.append_learning(path, f"{prefix}-{i}", passed=True)
+
+        t1 = threading.Thread(target=writer, args=("A", 50))
+        t2 = threading.Thread(target=writer, args=("B", 50))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        content = p.read_text()
+        # Count lines matching the entry pattern
+        entry_lines = [l for l in content.splitlines() if l.startswith("[done")]
+        assert len(entry_lines) == 100
 
 
 class TestCheckOffTask:

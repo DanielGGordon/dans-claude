@@ -39,6 +39,7 @@ Break the PRD into **tracer bullet** phases. Each phase is a thin vertical slice
 - Prefer many thin slices over few thick ones
 - Do NOT include specific file names, function names, or implementation details that are likely to change as later phases are built
 - DO include durable decisions: route paths, schema shapes, data model names
+- Identify which phases are independent and can run in parallel. Phases qualify as parallel when they have no data dependencies, no shared state mutations, and represent independent vertical slices. Annotate parallel groups with `<!-- PARALLEL N,M,... -->` on the line before the first phase in the group. Determine this independently — do not ask the user which phases are parallelizable.
 </vertical-slice-rules>
 
 ### 5. Quiz the user
@@ -91,6 +92,8 @@ A concise description of this vertical slice. Describe the end-to-end behavior, 
 
 ---
 
+<!-- PARALLEL 2,3 -->
+
 ## Phase 2: <Title>
 
 **User stories**: <list from PRD>
@@ -103,5 +106,9 @@ A concise description of this vertical slice. Describe the end-to-end behavior, 
 
 - [ ] ...
 
-<!-- Repeat for each phase -->
+## Phase 3: <Title>
+
+...
+
+<!-- Repeat for each phase. Use <!-- PARALLEL N,M,... --> before a group of independent phases that can run concurrently. -->
 </plan-template>
