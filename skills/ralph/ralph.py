@@ -203,11 +203,38 @@ _DONE_RE = re.compile(r"^\s*- \[[xX]\] (.+)$")
 _TODO_RE = re.compile(r"^\s*- \[ \] (.+)$")
 
 
-def find_next_task(plan_path: str, min_line: int = 1) -> Task | None:
+def _phase_line_range(plan_path: str, phase: int) -> tuple[int, int]:
+    """Return (start, end) 1-indexed line range for '## Phase {phase}' section.
+
+    end is the line before the next ## heading, or the last line of the file.
+    """
+    lines = Path(plan_path).read_text().splitlines()
+    phase_re = re.compile(rf"^##\s+Phase\s+{phase}\b", re.IGNORECASE)
+    start = None
+    for i, line in enumerate(lines, 1):
+        if start is None:
+            if phase_re.match(line):
+                start = i
+        else:
+            if line.startswith("## "):
+                return start, i - 1
+    if start is not None:
+        return start, len(lines)
+    return 0, 0  # phase not found: empty range
+
+
+def find_next_task(plan_path: str, min_line: int = 1,
+                   phase: int | None = None) -> Task | None:
+    phase_start, phase_end = (1, None)
+    if phase is not None:
+        phase_start, phase_end = _phase_line_range(plan_path, phase)
+    effective_min = max(min_line, phase_start)
     with open(plan_path) as f:
         for i, line in enumerate(f, 1):
-            if i < min_line:
+            if i < effective_min:
                 continue
+            if phase_end is not None and i > phase_end:
+                break
             m = _TASK_RE.match(line)
             if m:
                 text = m.group(2)
@@ -215,11 +242,18 @@ def find_next_task(plan_path: str, min_line: int = 1) -> Task | None:
     return None
 
 
-def count_tasks(plan_path: str) -> tuple[int, int]:
+def count_tasks(plan_path: str, phase: int | None = None) -> tuple[int, int]:
     done = 0
     total = 0
+    phase_start, phase_end = 1, None
+    if phase is not None:
+        phase_start, phase_end = _phase_line_range(plan_path, phase)
     with open(plan_path) as f:
-        for line in f:
+        for i, line in enumerate(f, 1):
+            if i < phase_start:
+                continue
+            if phase_end is not None and i > phase_end:
+                break
             if _CHECKED_RE.match(line):
                 total += 1
                 if re.match(r"^\s*- \[[xX]\] ", line):
@@ -890,7 +924,7 @@ class RalphApp(App):
 
     def update_status(self) -> None:
         """Refresh the status bar with elapsed time, cost, progress, state, task."""
-        done, total = count_tasks(self.config.plan_path)
+        done, total = count_tasks(self.config.plan_path, phase=self.config.phase)
         parts = [
             f"⏱ {elapsed(self.start_time)}",
             f"💰 ${self.total_cost:.4f}",
@@ -1166,11 +1200,12 @@ class RalphApp(App):
                         min_line = last_task.line_num + 1
                 continue
 
-            task = find_next_task(config.plan_path, min_line=min_line)
+            task = find_next_task(config.plan_path, min_line=min_line, phase=config.phase)
             if task is None:
                 self.current_task = ""
                 self.state = State.DONE
-                out(f"\n✅ All tasks complete! ({self._completed} completed)")
+                phase_msg = f" in phase {config.phase}" if config.phase else ""
+                out(f"\n✅ All tasks{phase_msg} complete! ({self._completed} completed)")
                 break
 
             last_task = task
@@ -1243,7 +1278,7 @@ class RalphApp(App):
                         self.total_cost += result.cost
                         self._task_results.append((f"BATCH: {batch_tasks[0].text}", result))
 
-                        new_task = find_next_task(config.plan_path, min_line=task.line_num)
+                        new_task = find_next_task(config.plan_path, min_line=task.line_num, phase=config.phase)
                         if new_task and new_task.text == batch_tasks[0].text:
                             self._failed += len(batch_tasks)
                             consecutive_fails += 1
