@@ -1325,7 +1325,7 @@ class RalphApp(App):
                         self.total_cost += result.cost
                         self._task_results.append((task.text, result))
 
-                        new_task = find_next_task(config.plan_path, min_line=task.line_num)
+                        new_task = find_next_task(config.plan_path, min_line=task.line_num, phase=config.phase)
                         if new_task and new_task.text == task.text:
                             self._failed += 1
                             consecutive_fails += 1
@@ -1379,7 +1379,7 @@ class RalphApp(App):
                         self.total_cost += rescue_result.cost
                         self._task_results.append((f"RESCUE: {task.text}", rescue_result))
 
-                        new_task = find_next_task(config.plan_path, min_line=task.line_num)
+                        new_task = find_next_task(config.plan_path, min_line=task.line_num, phase=config.phase)
                         if new_task and new_task.text == task.text:
                             self._failed += 1
                             consecutive_fails += 1

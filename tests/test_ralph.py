@@ -1998,6 +1998,46 @@ class TestDryRunEdgeCases:
         assert len(proc_values) == 0
 
     @pytest.mark.asyncio
+    async def test_dry_run_phase_exits_after_phase_tasks(self, tmp_path):
+        """--phase 1 --dry-run on a 3-phase plan completes after phase 1 tasks only."""
+        content = """\
+# Plan
+
+## Phase 1: Foundation
+
+- [ ] Build the base — _Criterion: base exists_
+- [ ] Add the walls — _Criterion: walls exist_
+
+## Phase 2: Features
+
+- [ ] Add windows — _Criterion: windows exist_
+- [ ] Add doors — _Criterion: doors exist_
+
+## Phase 3: Polish
+
+- [ ] Paint exterior — _Criterion: painted_
+- [ ] Landscaping — _Criterion: landscaped_
+"""
+        p = tmp_path / "plan.md"
+        p.write_text(content)
+        config = ralph.Config(plan_path=str(p), work_dir="/tmp", dry_run=True, delay=0, phase=1)
+        app = ralph.RalphApp(config)
+        async with app.run_test(size=(80, 24)) as pilot:
+            for _ in range(50):
+                await pilot.pause(delay=0.1)
+                if app.state == ralph.State.DONE:
+                    break
+            assert app.state == ralph.State.DONE
+        # Phase 1 tasks should be checked off
+        phase1_done, phase1_total = ralph.count_tasks(str(p), phase=1)
+        assert phase1_done == phase1_total == 2
+        # Phase 2 and 3 tasks should remain unchecked
+        phase2_done, _ = ralph.count_tasks(str(p), phase=2)
+        assert phase2_done == 0
+        phase3_done, _ = ralph.count_tasks(str(p), phase=3)
+        assert phase3_done == 0
+
+    @pytest.mark.asyncio
     async def test_dry_run_with_delay(self, tmp_path):
         """Dry-run with delay > 0 still completes."""
         content = "# Plan\n\n- [ ] Task A — do A\n- [ ] Task B — do B\n"

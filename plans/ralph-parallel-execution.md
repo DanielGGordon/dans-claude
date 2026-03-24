@@ -29,7 +29,7 @@ Add a `phase` field to `Config`. In `parse_args`, wire up the new `--phase` argu
 - [x] `--phase` argument added to argparse and `Config` dataclass — _Criterion: `ralph.py --help` shows the flag_
 - [x] `find_next_task` respects phase filtering — only returns tasks under the target phase header — _Criterion: unit test with multi-phase plan, `--phase 2` only yields phase 2 tasks_
 - [x] `count_tasks` respects phase filtering so status bar shows correct counts — _Criterion: count_tasks with phase filter returns only that phase's task counts_
-- [ ] Ralph exits cleanly when phase tasks are done (not when ALL tasks are done) — _Criterion: `--phase 1 --dry-run` on a 3-phase plan completes after phase 1 tasks_
+- [x] Ralph exits cleanly when phase tasks are done (not when ALL tasks are done) — _Criterion: `--phase 1 --dry-run` on a 3-phase plan completes after phase 1 tasks_
 
 ---
 
