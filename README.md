@@ -56,6 +56,10 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │   │   └── SKILL.md         # Break a PRD into tracer-bullet phases
 │   ├── grill-me/
 │   │   └── SKILL.md         # Interview relentlessly about a plan
+│   ├── forky/
+│   │   └── SKILL.md         # Mark a fork point for later rollback
+│   ├── rollback-with-update/
+│   │   └── SKILL.md         # Commit, summarize, and rewind to fork point
 │   ├── excalidraw-diagram/  # Excalidraw diagram generation (cloned from GitHub)
 │   │   ├── SKILL.md         # Diagram design methodology + workflow
 │   │   └── references/      # Renderer, templates, color palette
@@ -153,6 +157,28 @@ Use the plan-reviewer agent to check plan.md
   ```
   /tdd
   ```
+
+### Workflow
+
+- **`skills/forky`** — Mark a fork point in the conversation by writing a breadcrumb file (`.claude/fork-point.json`). Pair with `/rollback-with-update` to rewind later.
+  ```
+  /forky
+  ```
+
+- **`skills/rollback-with-update`** — Commit and push current work, generate a handoff summary, then rewind the conversation to the fork point set by `/forky`. Returns the session to the pre-feature baseline with context about what was done.
+  ```
+  /rollback-with-update
+  ```
+  **Workflow:**
+  1. Run `/forky` before starting a feature — marks the conversation fork point
+  2. Do your work
+  3. Run `/rollback-with-update` — commits, pushes, writes `.claude/handoff-summary.md`, then guides you through `/rewind` back to the fork point with the summary injected
+
+  **Files:**
+  | File | Purpose | Committed? |
+  |------|---------|------------|
+  | `.claude/fork-point.json` | Breadcrumb written by `/forky`, read and deleted by `/rollback-with-update` | No |
+  | `.claude/handoff-summary.md` | Handoff summary for the next agent | Yes |
 
 ### Execution & Review
 
