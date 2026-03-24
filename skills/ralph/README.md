@@ -1,6 +1,6 @@
 # Ralph
 
-Ralph is a task-by-task plan executor for Claude Code. It reads a markdown plan file, dispatches each unchecked task to a fresh `claude -p` subprocess with zero context carryover, and checks tasks off as they complete. The plan file on disk is the single source of truth.
+Ralph is a task-by-task plan executor for Claude Code. It reads a markdown plan file, dispatches each unchecked task to a fresh `claude -p` subprocess with zero context carryover, and checks tasks off as they complete. A learnings file accumulates gotchas across iterations so each fresh context window inherits institutional knowledge.
 
 Named after Ralph Wiggum — he's doing his best.
 
@@ -51,16 +51,17 @@ python3 ~/.claude/skills/ralph/ralph.py [plan_path] [options]
 
 ### Options
 
-| Flag           | Default | Description                              |
-|----------------|---------|------------------------------------------|
-| `--dry-run`    | off     | Preview tasks without running claude      |
-| `--delay`      | 5       | Seconds between tasks                    |
-| `--batch`      | off     | Execute `<!-- BATCH -->` groups together |
-| `--review`     | off     | Code review after each task              |
-| `--model`      | —       | Model preset or raw model ID             |
-| `--reviewer`   | auto    | Reviewer: `auto`, `codex`, or `claude`   |
+| Flag              | Default | Description                              |
+|-------------------|---------|------------------------------------------|
+| `--dry-run`       | off     | Preview tasks without running claude      |
+| `--delay`         | 5       | Seconds between tasks                    |
+| `--batch`         | off     | Execute `<!-- BATCH -->` groups together |
+| `--review`        | off     | Code review after each task              |
+| `--model`         | —       | Model preset or raw model ID             |
+| `--reviewer`      | auto    | Reviewer: `auto`, `codex`, or `claude`   |
+| `--task-timeout`  | 3600    | Kill stuck tasks after N seconds (0 to disable) |
 
-Environment variables: `RALPH_MODEL`, `RALPH_DELAY`, `RALPH_REVIEWER`.
+Environment variables: `RALPH_MODEL`, `RALPH_DELAY`, `RALPH_REVIEWER`, `RALPH_TASK_TIMEOUT`.
 
 ### Model Presets
 
@@ -123,6 +124,54 @@ Three ways to send guidance to the next task:
 1. **TUI input** — type in the input bar, hit enter
 2. **Inbox file** — `echo "use the new API" > .ralph-inbox` from any terminal
 3. **During countdown** — type while the countdown timer is running
+
+## Learnings File
+
+Ralph automatically maintains a learnings file alongside your plan. If your plan is `plans/my-project.md`, the learnings file will be `plans/my-project-learnings.md`.
+
+**How it works:**
+- Each task prompt includes the full learnings file, so every fresh context window sees gotchas from prior iterations
+- Claude is instructed to append a learning only when it discovers something surprising — a workaround, environment quirk, non-obvious dependency, or dead end worth avoiding
+- Ralph also appends a fallback one-liner (task name + timestamp + pass/fail) as a safety net if Claude forgets
+
+**Example entries:**
+```
+[done 2026-03-23 14:30] Set up auth middleware. ⚠️ Learning: bcrypt rounds must be ≥12 on this ARM host or tests timeout
+[FAILED 2026-03-23 14:45] Add rate limiting
+[done 2026-03-23 15:10] Add rate limiting. ⚠️ Learning: redis must be running locally — tests don't mock it
+```
+
+The file is append-only. Delete it between projects or when it gets stale.
+
+## Task Timeout & Auto-Rescue
+
+Ralph monitors how long each task has been running (visible in the status bar). If a task exceeds the timeout (default: 1 hour), Ralph:
+
+1. Kills the stuck agent process
+2. **Keeps all code changes** in the working tree (no stash, no revert)
+3. Launches a fresh "rescue" agent with context about what happened
+4. The rescue agent runs `git diff`/`git status`, assesses the partial work, and finishes (or restarts) the task
+
+If the rescue agent also fails or times out, Ralph counts it as a failure and moves on.
+
+Configure with `--task-timeout <seconds>` or `RALPH_TASK_TIMEOUT`. Set to `0` to disable.
+
+## Gemini Fallback (Review Only)
+
+If Claude hits a usage or rate limit during the **review step**, Ralph automatically retries the review using Gemini CLI (`gemini -p "" --yolo`).
+
+If Claude hits a usage limit during **task execution**, Ralph stops the loop — there's no point continuing without the primary model.
+
+Requires [Gemini CLI](https://github.com/google-gemini/gemini-cli) to be installed and authenticated.
+
+## Log File
+
+All TUI output is mirrored to a log file alongside your plan. If your plan is `plans/my-project.md`, the log is `plans/my-project-ralph.log`.
+
+- Every line is timestamped (`[HH:MM:SS] ...`)
+- The log persists across runs (append mode) so you have a complete history
+- Includes tool calls, agent output, task results, cost, and the final summary
+- When Ralph terminates, the log file path is printed in the final summary
 
 ## Failure Handling
 

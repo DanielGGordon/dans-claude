@@ -3,7 +3,14 @@
 """ralph.py — Execute a plan file task-by-task using claude -p.
 
 Each task gets a fresh claude invocation with zero context carryover.
-The plan file on disk is the only shared state.
+The plan file and a learnings file are the shared state across iterations.
+The learnings file ({plan_stem}-learnings.md) accumulates gotchas and
+progress notes so each fresh context window inherits institutional knowledge.
+
+Resilience:
+  Timeout:   tasks running over --task-timeout are killed and handed to a rescue agent
+  Fallback:  if Claude hits a usage limit during review, Gemini CLI is used instead
+  Logging:   all TUI output is mirrored to {plan_stem}-ralph.log
 
 Interactive features (TUI mode):
   Guidance:  type in the input field to queue guidance for the next task
@@ -45,6 +52,25 @@ class AgentKilled(Exception):
     """Raised when a running claude subprocess is killed (e.g., by /kill or /skip)."""
     pass
 
+
+class AgentTimeout(Exception):
+    """Raised when a running claude subprocess exceeds the task timeout."""
+    pass
+
+
+class UsageLimitExceeded(Exception):
+    """Raised when Claude reports a usage/rate limit error."""
+    pass
+
+
+_USAGE_LIMIT_RE = re.compile(
+    r"(usage limit|rate limit|over.?loaded|out of usage|"
+    r"capacity|too many requests|429|529|"
+    r"exceeded.*limit|limit.*exceeded|"
+    r"try again later|resource_exhausted)",
+    re.IGNORECASE,
+)
+
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 MODEL_PRESETS = {
@@ -61,6 +87,7 @@ CODING_AGENTS_FILE = Path.home() / ".claude" / "CODING_AGENTS.md"
 RALPH_ASCII = Path.home() / ".claude" / "skills" / "ralph" / "ralph-ascii.txt"
 INBOX_FILE = ".ralph-inbox"
 MAX_CONSECUTIVE_FAILS = 3
+DEFAULT_TASK_TIMEOUT = 3600  # 1 hour in seconds
 
 
 @dataclass
@@ -74,6 +101,9 @@ class Config:
     reviewer: str = "auto"  # auto|codex|claude
     model: str = ""
     effort: str = ""
+    learnings_path: str = ""  # auto-derived from plan_path if empty
+    log_path: str = ""  # auto-derived from plan_path
+    task_timeout: int = DEFAULT_TASK_TIMEOUT  # seconds; 0 to disable
 
     def claude_model_flags(self) -> list[str]:
         flags = []
@@ -95,6 +125,43 @@ class Task:
 class ClaudeResult:
     text: str = ""
     cost: float = 0.0
+    num_turns: int = 0
+    duration_ms: int = 0
+    duration_api_ms: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+    peak_input_tokens: int = 0  # max single-turn input (input + cache_read + cache_creation)
+
+
+def format_tokens(n: int) -> str:
+    """Format token count as human-readable string (e.g., 187k, 1.2M)."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}k"
+    return str(n)
+
+
+def format_context_summary(result: ClaudeResult) -> str:
+    """One-line summary of context/token usage for a task."""
+    parts = [f"{result.num_turns} turns"]
+    if result.peak_input_tokens > 0:
+        parts.append(f"{format_tokens(result.peak_input_tokens)} peak ctx")
+    total_in = result.input_tokens + result.cache_read_tokens + result.cache_creation_tokens
+    if total_in > 0:
+        parts.append(f"{format_tokens(total_in)} total in")
+    if result.output_tokens > 0:
+        parts.append(f"{format_tokens(result.output_tokens)} out")
+    if result.duration_ms > 0:
+        secs = result.duration_ms / 1000
+        if secs >= 60:
+            m, s = divmod(int(secs), 60)
+            parts.append(f"{m}m{s:02d}s")
+        else:
+            parts.append(f"{secs:.1f}s")
+    return " | ".join(parts)
 
 
 # ─── Plan file discovery ────────────────────────────────────────────────────
@@ -226,6 +293,41 @@ def is_batch_start(plan_path: str, task_line: int) -> bool:
     return "<!-- BATCH -->" in prev
 
 
+# ─── Learnings file ─────────────────────────────────────────────────────────
+
+def derive_learnings_path(plan_path: str) -> str:
+    """Derive learnings file path from plan path: plan.md -> plan-learnings.md"""
+    p = Path(plan_path)
+    return str(p.with_name(f"{p.stem}-learnings.md"))
+
+
+def derive_log_path(plan_path: str) -> str:
+    """Derive log file path from plan path: plan.md -> plan-ralph.log"""
+    p = Path(plan_path)
+    return str(p.with_name(f"{p.stem}-ralph.log"))
+
+
+def load_learnings(learnings_path: str) -> str:
+    """Read the learnings file, returning empty string if it doesn't exist."""
+    p = Path(learnings_path)
+    if p.is_file():
+        return p.read_text().strip()
+    return ""
+
+
+def append_learning(learnings_path: str, task_text: str, passed: bool) -> None:
+    """Append a fallback one-liner to the learnings file (safety net if Claude forgets)."""
+    p = Path(learnings_path)
+    timestamp = time.strftime("%Y-%m-%d %H:%M")
+    status = "done" if passed else "FAILED"
+    entry = f"[{status} {timestamp}] {task_text}\n"
+    if not p.exists():
+        p.write_text(f"# Learnings\n# Ralph appends entries here. Claude also appends gotchas.\n\n{entry}")
+    else:
+        with open(p, "a") as f:
+            f.write(entry)
+
+
 # ─── Plan trimming ──────────────────────────────────────────────────────────
 
 def trim_plan_for_task(plan_path: str, task_line: int) -> str:
@@ -308,7 +410,8 @@ def load_project_context(work_dir: str) -> str:
 def build_single_prompt(task: Task, plan_content: str, config: Config,
                         coding_rules: str, recent_commits: str,
                         user_guidance: str,
-                        project_context: str = "") -> str:
+                        project_context: str = "",
+                        learnings_content: str = "") -> str:
     prompt = f"""You are executing a single task from a plan.
 
 ## Your Task
@@ -341,7 +444,19 @@ These are the last 3 commits in the repo — read them to understand what work h
 - Execute ONLY this single task. Do not work on other tasks.
 - When the task is complete and the completion criterion is met, edit the plan file to check off this task: change `- [ ]` to `- [x]` for this task's line.
 - If you need clarification from the user, say so clearly at the end of your response. The orchestrator will detect this and pause for user input.
-- When done, respond with a brief summary of what you did."""
+- When done, respond with a brief summary of what you did.
+- After completing (or failing) the task, append a single line to `{config.learnings_path}`. Use this format:
+  `[done YYYY-MM-DD HH:MM] Task description. ⚠️ Learning: <only if there's a genuine gotcha, else omit>`
+  Only record a learning if you discovered something surprising — a workaround, an environment quirk, a non-obvious dependency, or a dead end worth avoiding. Do not record routine work."""
+
+    if learnings_content:
+        prompt += f"""
+
+## Progress & Learnings
+
+Previous tasks recorded these notes. Read them to avoid repeating mistakes or rediscovering gotchas:
+
+{learnings_content}"""
 
     if project_context:
         prompt += f"""
@@ -365,7 +480,8 @@ The user has provided the following context for this task. Read carefully and fo
 def build_batch_prompt(tasks: list[Task], plan_content: str, config: Config,
                        coding_rules: str, recent_commits: str,
                        user_guidance: str,
-                       project_context: str = "") -> str:
+                       project_context: str = "",
+                       learnings_content: str = "") -> str:
     task_list = "\n".join(f"- {t.text}" for t in tasks)
 
     prompt = f"""You are executing a batch of related tasks from a plan.
@@ -401,7 +517,19 @@ These are the last 3 commits in the repo — read them to understand what work h
 - Work through them in order, but use your judgment — if implementing one naturally completes another, that's fine.
 - When each task is complete, edit the plan file to check it off: change `- [ ]` to `- [x]` for that task's line.
 - If you need clarification from the user, say so clearly at the end of your response. The orchestrator will detect this and pause for user input.
-- When done, respond with a brief summary of what you did for each task."""
+- When done, respond with a brief summary of what you did for each task.
+- After completing the batch, append a single line per task to `{config.learnings_path}`. Use this format:
+  `[done YYYY-MM-DD HH:MM] Task description. ⚠️ Learning: <only if there's a genuine gotcha, else omit>`
+  Only record a learning if you discovered something surprising. Do not record routine work."""
+
+    if learnings_content:
+        prompt += f"""
+
+## Progress & Learnings
+
+Previous tasks recorded these notes. Read them to avoid repeating mistakes or rediscovering gotchas:
+
+{learnings_content}"""
 
     if project_context:
         prompt += f"""
@@ -418,6 +546,67 @@ These are the last 3 commits in the repo — read them to understand what work h
 The user has provided the following context for this task. Read carefully and follow:
 
 {user_guidance}"""
+
+    return prompt
+
+
+def build_rescue_prompt(task: Task, plan_content: str, config: Config,
+                        coding_rules: str, recent_commits: str,
+                        elapsed_mins: int,
+                        learnings_content: str = "",
+                        project_context: str = "") -> str:
+    """Build a prompt for a fresh agent to rescue a stuck task."""
+    prompt = f"""You are rescuing a stuck task. A previous agent was working on this task for over {elapsed_mins} minutes and appeared to be stuck or in a loop. It was terminated, but its code changes are still in the working tree — nothing was stashed or reverted.
+
+## Your Task
+
+**Task:** {task.text}
+**Completion Criterion:** {task.criterion}
+**Plan file:** {config.plan_path}
+**Working directory:** {config.work_dir}
+
+## What Happened
+
+The previous agent ran for {elapsed_mins} minutes without completing this task. Its partial changes are in the working tree right now. Common causes:
+- Stuck in a test-fix loop (tests fail, agent tries to fix, tests fail again)
+- Over-engineering or going down the wrong path
+- Waiting on something that won't resolve
+
+## What You Should Do
+
+1. Run `git diff` and `git status` to see what the previous agent changed
+2. Assess whether the changes are on the right track or need a different approach
+3. If the changes are close, finish them up. If they're wrong, revert and start fresh.
+4. Complete the task and check it off in the plan file: change `- [ ]` to `- [x]`
+5. Keep it simple — the previous agent likely overcomplicated things
+
+## Plan Context
+
+<plan>
+{plan_content}
+</plan>
+
+## Recent Commits
+
+{recent_commits}
+
+## Coding Agent Rules
+
+{coding_rules or "No coding agent rules file found — use your best judgment."}"""
+
+    if learnings_content:
+        prompt += f"""
+
+## Progress & Learnings
+
+{learnings_content}"""
+
+    if project_context:
+        prompt += f"""
+
+## Project Context
+
+{project_context}"""
 
     return prompt
 
@@ -462,7 +651,8 @@ def format_tool_detail(name: str, input_data: dict) -> str:
 
 def run_claude(prompt: str, config: Config,
                on_output: Callable[[str], None] = print,
-               proc_register: Callable[[subprocess.Popen], None] | None = None) -> ClaudeResult:
+               proc_register: Callable[[subprocess.Popen], None] | None = None,
+               timeout: int = 0) -> ClaudeResult:
     cmd = [
         "claude", "-p",
         *config.claude_model_flags(),
@@ -483,6 +673,20 @@ def run_claude(prompt: str, config: Config,
 
     if proc_register is not None:
         proc_register(proc)
+
+    # Watchdog: kill proc after timeout (0 = no timeout)
+    timed_out = threading.Event()
+    watchdog: threading.Timer | None = None
+    if timeout > 0:
+        def _timeout_kill():
+            timed_out.set()
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        watchdog = threading.Timer(timeout, _timeout_kill)
+        watchdog.daemon = True
+        watchdog.start()
 
     result = ClaudeResult()
 
@@ -508,13 +712,21 @@ def run_claude(prompt: str, config: Config,
         except json.JSONDecodeError:
             continue
 
-        # Tool use events
+        # Tool use events + per-turn token tracking
         if event.get("type") == "assistant":
             for block in event.get("message", {}).get("content", []):
                 if block.get("type") == "tool_use":
                     name = block.get("name", "")
                     input_data = block.get("input", {})
                     on_output(format_tool_detail(name, input_data))
+            # Track per-turn usage for peak context detection
+            usage = event.get("message", {}).get("usage", {})
+            if usage:
+                turn_input = (usage.get("input_tokens", 0)
+                              + usage.get("cache_read_input_tokens", 0)
+                              + usage.get("cache_creation_input_tokens", 0))
+                if turn_input > result.peak_input_tokens:
+                    result.peak_input_tokens = turn_input
 
         elif '"content_block_start"' in line and '"tool_use"' in line:
             tool = event.get("content_block", {}).get("name", "")
@@ -529,11 +741,34 @@ def run_claude(prompt: str, config: Config,
             cost = event.get("total_cost_usd")
             if cost is not None:
                 result.cost = float(cost)
-                on_output(f"  💰 Cost: ${result.cost}")
+            # Aggregate usage from result event
+            usage = event.get("usage", {})
+            result.input_tokens = usage.get("input_tokens", 0)
+            result.output_tokens = usage.get("output_tokens", 0)
+            result.cache_read_tokens = usage.get("cache_read_input_tokens", 0)
+            result.cache_creation_tokens = usage.get("cache_creation_input_tokens", 0)
+            result.num_turns = event.get("num_turns", 0)
+            result.duration_ms = event.get("duration_ms", 0)
+            result.duration_api_ms = event.get("duration_api_ms", 0)
+            on_output(f"  📊 {format_context_summary(result)}")
+            on_output(f"  💰 ${result.cost:.4f}")
+
+    if watchdog is not None:
+        watchdog.cancel()
 
     proc.wait()
+    if timed_out.is_set():
+        raise AgentTimeout()
     if proc.returncode is not None and proc.returncode < 0:
         raise AgentKilled()
+
+    # Detect usage/rate limit errors
+    if result.text and _USAGE_LIMIT_RE.search(result.text):
+        raise UsageLimitExceeded(result.text)
+    # Non-zero exit with no result often means an API error
+    if proc.returncode and proc.returncode > 0 and not result.text:
+        raise UsageLimitExceeded(f"claude exited with code {proc.returncode}")
+
     return result
 
 
@@ -613,10 +848,12 @@ class RalphApp(App):
         super().__init__(**kwargs)
         self.config = config
         self.start_time: float = time.time()
+        self.task_start_time: float = 0.0
         self.total_cost: float = 0.0
         self.current_task: str = ""
         self._completed: int = 0
         self._failed: int = 0
+        self._task_results: list[tuple[str, ClaudeResult]] = []  # (task_text, result)
         self.guidance_queue: deque[str] = deque()
         self.current_proc: subprocess.Popen | None = None
         self.skip_event = threading.Event()
@@ -624,6 +861,7 @@ class RalphApp(App):
         self.resume_event = threading.Event()
         self._stash_created: bool = False
         self._retry: bool = False
+        self._log_file = open(config.log_path, "a") if config.log_path else None
         self.command_handlers: dict[str, Callable[[str], None]] = {
             "stop": self.cmd_stop,
             "skip": self.cmd_skip,
@@ -636,13 +874,18 @@ class RalphApp(App):
         }
 
     def output(self, text: str = "", style: str = "") -> None:
-        """Write a line to the RichLog widget (thread-safe)."""
+        """Write a line to the RichLog widget and log file (thread-safe)."""
         from rich.text import Text
         log = self.query_one("#log", RichLog)
         if style:
             log.write(Text(text, style=style))
         else:
             log.write(text)
+        # Mirror to log file
+        if self._log_file:
+            timestamp = time.strftime("%H:%M:%S")
+            self._log_file.write(f"[{timestamp}] {text}\n")
+            self._log_file.flush()
 
     def update_status(self) -> None:
         """Refresh the status bar with elapsed time, cost, progress, state, task."""
@@ -654,7 +897,10 @@ class RalphApp(App):
             self.state.value,
         ]
         if self.current_task:
-            parts.append(self.current_task)
+            task_display = self.current_task
+            if self.task_start_time > 0 and self.state == State.RUNNING:
+                task_display += f" ({elapsed(self.task_start_time)})"
+            parts.append(task_display)
         self.query_one("#status", Static).update(" | ".join(parts))
 
     def cmd_stop(self, _arg: str = "") -> None:
@@ -880,6 +1126,10 @@ class RalphApp(App):
             out(f"Model: {model_info}")
         if not config.skip_review:
             out(f"Review: enabled (reviewer: {config.reviewer})")
+        out(f"Learnings: {config.learnings_path}")
+        out(f"Log: {config.log_path}")
+        if config.task_timeout > 0:
+            out(f"Task timeout: {config.task_timeout // 60}m (auto-rescue)")
         out("")
 
         # Pre-load context
@@ -932,6 +1182,7 @@ class RalphApp(App):
 
             self.state = State.RUNNING
             self.current_task = task.text
+            self.task_start_time = time.time()
             out("━" * 60)
             out(f"📋 Task: {task.text}")
             out("━" * 60)
@@ -967,6 +1218,9 @@ class RalphApp(App):
                 guidance = "\n".join(guidance_parts)
 
                 try:
+                    # Load learnings fresh before each task (other iterations may have appended)
+                    learnings_content = load_learnings(config.learnings_path)
+
                     if config.batch_mode and is_batch_start(config.plan_path, task.line_num):
                         batch_tasks = collect_batch(config.plan_path, task.line_num)
                         out(f"📦 BATCH ({len(batch_tasks)} tasks):")
@@ -978,12 +1232,15 @@ class RalphApp(App):
                         prompt = build_batch_prompt(
                             batch_tasks, plan_content, config,
                             coding_rules, recent_commits, guidance,
-                            project_context=project_context)
+                            project_context=project_context,
+                            learnings_content=learnings_content)
 
                         result = run_claude(prompt, config, on_output=out,
-                                            proc_register=self._register_proc)
+                                            proc_register=self._register_proc,
+                                            timeout=config.task_timeout)
                         self.current_proc = None
                         self.total_cost += result.cost
+                        self._task_results.append((f"BATCH: {batch_tasks[0].text}", result))
 
                         new_task = find_next_task(config.plan_path, min_line=task.line_num)
                         if new_task and new_task.text == batch_tasks[0].text:
@@ -991,6 +1248,8 @@ class RalphApp(App):
                             consecutive_fails += 1
                             min_line = task.line_num
                             out("\n❌ Batch failed (task not checked off)")
+                            for t in batch_tasks:
+                                append_learning(config.learnings_path, t.text, passed=False)
                         else:
                             plan_lines = Path(config.plan_path).read_text().splitlines()
                             actually_completed = sum(
@@ -1004,7 +1263,6 @@ class RalphApp(App):
                             out("\n✅ Batch complete")
                             if not config.skip_review and review_base:
                                 r_out = lambda t: out(t, style="steel_blue1")
-                                auto_commit(out=r_out)
                                 r_out("🔍 Reviewing changes...")
                                 review_result = run_review(
                                     review_base, batch_tasks[0].text, config, out=r_out)
@@ -1021,12 +1279,15 @@ class RalphApp(App):
                         prompt = build_single_prompt(
                             task, plan_content, config,
                             coding_rules, recent_commits, guidance,
-                            project_context=project_context)
+                            project_context=project_context,
+                            learnings_content=learnings_content)
 
                         result = run_claude(prompt, config, on_output=out,
-                                            proc_register=self._register_proc)
+                                            proc_register=self._register_proc,
+                                            timeout=config.task_timeout)
                         self.current_proc = None
                         self.total_cost += result.cost
+                        self._task_results.append((task.text, result))
 
                         new_task = find_next_task(config.plan_path, min_line=task.line_num)
                         if new_task and new_task.text == task.text:
@@ -1034,6 +1295,7 @@ class RalphApp(App):
                             consecutive_fails += 1
                             min_line = task.line_num
                             out("\n❌ Task failed (task not checked off)")
+                            append_learning(config.learnings_path, task.text, passed=False)
                         else:
                             self._completed += 1
                             consecutive_fails = 0
@@ -1041,7 +1303,6 @@ class RalphApp(App):
                             out("\n✅ Task complete")
                             if not config.skip_review and review_base:
                                 r_out = lambda t: out(t, style="steel_blue1")
-                                auto_commit(out=r_out)
                                 r_out("🔍 Reviewing changes...")
                                 review_result = run_review(
                                     review_base, task.text, config, out=r_out)
@@ -1050,6 +1311,61 @@ class RalphApp(App):
 
                         if needs_followup(result.text):
                             out("⚠️  Agent may need input — check output above")
+
+                except UsageLimitExceeded as e:
+                    self.current_proc = None
+                    out(f"\n🛑 Claude usage limit hit — stopping.")
+                    out(f"   ({e})")
+                    break
+
+                except AgentTimeout:
+                    self.current_proc = None
+                    elapsed_mins = int((time.time() - self.task_start_time) / 60)
+                    out(f"\n⏰ Task timed out after {elapsed_mins}m — launching rescue agent...")
+                    append_learning(config.learnings_path, task.text + " [TIMED OUT]", passed=False)
+
+                    # Build rescue prompt and run a fresh agent (no timeout on rescue)
+                    plan_content = trim_plan_for_task(config.plan_path, task.line_num)
+                    rescue_learnings = load_learnings(config.learnings_path)
+                    rescue_prompt = build_rescue_prompt(
+                        task, plan_content, config,
+                        coding_rules, recent_commits, elapsed_mins,
+                        learnings_content=rescue_learnings,
+                        project_context=project_context)
+
+                    self.task_start_time = time.time()
+                    out("🚑 Rescue agent starting...")
+                    try:
+                        rescue_result = run_claude(
+                            rescue_prompt, config, on_output=out,
+                            proc_register=self._register_proc)
+                        self.current_proc = None
+                        self.total_cost += rescue_result.cost
+                        self._task_results.append((f"RESCUE: {task.text}", rescue_result))
+
+                        new_task = find_next_task(config.plan_path, min_line=task.line_num)
+                        if new_task and new_task.text == task.text:
+                            self._failed += 1
+                            consecutive_fails += 1
+                            min_line = task.line_num
+                            out("\n❌ Rescue agent also failed")
+                            append_learning(config.learnings_path, task.text + " [RESCUE FAILED]", passed=False)
+                        else:
+                            self._completed += 1
+                            consecutive_fails = 0
+                            min_line = task.line_num + 1
+                            out("\n✅ Rescue agent completed the task!")
+                    except AgentKilled:
+                        self.current_proc = None
+                        out("🔪 Rescue agent killed")
+                        min_line = task.line_num
+                    except AgentTimeout:
+                        self.current_proc = None
+                        out("⏰ Rescue agent also timed out — moving on")
+                        self._failed += 1
+                        consecutive_fails += 1
+                        min_line = task.line_num
+                    continue
 
                 except AgentKilled:
                     self.current_proc = None
@@ -1094,40 +1410,64 @@ class RalphApp(App):
                     continue
 
 
+        # Final summary
+        out("")
+        out("━" * 60)
+        out(f"🏁 Ralph finished — {self._completed} completed, {self._failed} failed")
+        out(f"   ⏱ {elapsed(self.start_time)} | 💰 ${self.total_cost:.4f}")
+        out(f"   📄 Log: {config.log_path}")
+
+        # Context usage summary
+        if self._task_results:
+            peaks = [r.peak_input_tokens for _, r in self._task_results if r.peak_input_tokens > 0]
+            total_out = sum(r.output_tokens for _, r in self._task_results)
+            total_turns = sum(r.num_turns for _, r in self._task_results)
+            if peaks:
+                avg_peak = sum(peaks) / len(peaks)
+                max_peak = max(peaks)
+                max_task = next(
+                    name for name, r in self._task_results
+                    if r.peak_input_tokens == max_peak
+                )
+                # Truncate task name for display
+                if len(max_task) > 50:
+                    max_task = max_task[:47] + "..."
+                out(f"   📊 Context: avg {format_tokens(int(avg_peak))} peak | "
+                    f"max {format_tokens(max_peak)} ({max_task})")
+                out(f"   📊 Totals: {total_turns} turns | "
+                    f"{format_tokens(total_out)} output")
+
+                # Per-task breakdown
+                out("")
+                out("   Task context breakdown:")
+                for i, (name, r) in enumerate(self._task_results, 1):
+                    short_name = name[:45] + "..." if len(name) > 45 else name
+                    out(f"   {i:2d}. {format_tokens(r.peak_input_tokens):>5s} peak | "
+                        f"{r.num_turns:2d} turns | "
+                        f"{format_tokens(r.output_tokens):>5s} out | "
+                        f"${r.cost:.4f} | {short_name}")
+
+        out("━" * 60)
+
+        # Close log file
+        if self._log_file:
+            self._log_file.close()
+            self._log_file = None
+
         time.sleep(1)
         self.exit()
 
 
 # ─── Review (codex / claude fallback) ───────────────────────────────────────
 
-def auto_commit(out: Callable[[str], None] = print) -> None:
-    result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        capture_output=True, text=True,
-    )
-    if result.stdout.strip():
-        changed_files = [l.strip() for l in result.stdout.strip().splitlines()]
-        out(f"  auto-commit: staging {len(changed_files)} changed file(s)")
-        subprocess.run(["git", "add", "-A"], capture_output=True)
-        commit_result = subprocess.run(
-            ["git", "commit", "-m", "ralph: auto-commit before review"],
-            capture_output=True, text=True,
-        )
-        if commit_result.returncode == 0:
-            out("  auto-commit: committed successfully")
-        else:
-            out(f"  auto-commit: commit exited with code {commit_result.returncode}")
-    else:
-        out("  auto-commit: nothing to commit (working tree clean)")
-
-
 def run_review(base_sha: str, task_text: str, config: Config,
                out: Callable[[str], None] = print) -> str:
     if config.skip_review:
         return "LGTM (review skipped)"
 
+    # Diff working tree (committed + uncommitted) against review base
     result = subprocess.run(
-        ["git", "diff", f"{base_sha}..HEAD"],
+        ["git", "diff", base_sha],
         capture_output=True, text=True,
     )
     diff = result.stdout.strip()
@@ -1137,7 +1477,7 @@ def run_review(base_sha: str, task_text: str, config: Config,
 
     # Log diff stats
     diff_stat = subprocess.run(
-        ["git", "diff", "--stat", f"{base_sha}..HEAD"],
+        ["git", "diff", "--stat", base_sha],
         capture_output=True, text=True,
     )
     stat_summary = diff_stat.stdout.strip().splitlines()
@@ -1179,7 +1519,6 @@ def run_review(base_sha: str, task_text: str, config: Config,
             out(f"  codex FAILED after {elapsed:.1f}s — {type(exc).__name__}: {exc}")
             return f"LGTM (codex error: {exc})"
     else:
-        out("  🔍 Claude reviewing changes...")
         review_prompt = f"""Review this diff for bugs, edge cases, and issues the implementing agent may not have considered. Be specific about file and line. If the code looks good, just say LGTM.
 
 ## Task Context
@@ -1187,6 +1526,9 @@ def run_review(base_sha: str, task_text: str, config: Config,
 
 ## Diff
 {diff}"""
+
+        # Try Claude first
+        out("  🔍 Claude reviewing changes...")
         t0 = time.time()
         try:
             result = subprocess.run(
@@ -1194,14 +1536,37 @@ def run_review(base_sha: str, task_text: str, config: Config,
                  "--dangerously-skip-permissions"],
                 input=review_prompt, capture_output=True, text=True, timeout=300,
             )
-            elapsed = time.time() - t0
+            elapsed_t = time.time() - t0
             output = result.stdout + result.stderr
-            out(f"  claude finished in {elapsed:.1f}s — exit code {result.returncode}, output {len(output)} chars")
+            # Check for usage limit in review output
+            if _USAGE_LIMIT_RE.search(output) or (result.returncode and not output.strip()):
+                raise UsageLimitExceeded(output or f"exit code {result.returncode}")
+            out(f"  claude finished in {elapsed_t:.1f}s — exit code {result.returncode}, output {len(output)} chars")
+            return output
+        except UsageLimitExceeded:
+            elapsed_t = time.time() - t0
+            out(f"  claude hit usage limit after {elapsed_t:.1f}s — falling back to Gemini...")
+        except Exception as exc:
+            elapsed_t = time.time() - t0
+            out(f"  claude FAILED after {elapsed_t:.1f}s — {type(exc).__name__}: {exc}")
+            return f"LGTM (claude error: {exc})"
+
+        # Gemini fallback for review
+        out("  🔍 Gemini reviewing changes...")
+        t0 = time.time()
+        try:
+            result = subprocess.run(
+                ["gemini", "-p", review_prompt, "--yolo"],
+                capture_output=True, text=True, timeout=300,
+            )
+            elapsed_t = time.time() - t0
+            output = result.stdout + result.stderr
+            out(f"  gemini finished in {elapsed_t:.1f}s — exit code {result.returncode}, output {len(output)} chars")
             return output
         except Exception as exc:
-            elapsed = time.time() - t0
-            out(f"  claude FAILED after {elapsed:.1f}s — {type(exc).__name__}: {exc}")
-            return f"LGTM (claude error: {exc})"
+            elapsed_t = time.time() - t0
+            out(f"  gemini FAILED after {elapsed_t:.1f}s — {type(exc).__name__}: {exc}")
+            return f"LGTM (gemini error: {exc})"
 
 
 def has_review_issues(output: str) -> bool:
@@ -1271,9 +1636,10 @@ Interactive features (TUI mode):
   Follow-up: ralph shows agent questions in the log — reply via input field
 
 Environment variables:
-  RALPH_DELAY      Same as --delay
-  RALPH_MODEL      Same as --model
-  RALPH_REVIEWER   Same as --reviewer""",
+  RALPH_DELAY          Same as --delay
+  RALPH_MODEL          Same as --model
+  RALPH_REVIEWER       Same as --reviewer
+  RALPH_TASK_TIMEOUT   Same as --task-timeout""",
     )
     parser.add_argument("plan_path", nargs="?", default="",
                         help="Path to the plan file")
@@ -1292,12 +1658,17 @@ Environment variables:
                         help="Model preset or claude model ID")
     parser.add_argument("--reviewer", default=os.environ.get("RALPH_REVIEWER", "auto"),
                         help="Reviewer: auto (default), codex, or claude")
+    parser.add_argument("--task-timeout", type=int,
+                        default=int(os.environ.get("RALPH_TASK_TIMEOUT",
+                                                    str(DEFAULT_TASK_TIMEOUT))),
+                        help="Kill stuck tasks after N seconds (default: 3600 = 1h, 0 to disable)")
 
     args = parser.parse_args()
 
     config = Config(
         delay=args.delay,
         dry_run=args.dry_run,
+        task_timeout=args.task_timeout,
         batch_mode=args.batch,
         reviewer=args.reviewer,
     )
@@ -1316,8 +1687,10 @@ Environment variables:
         else:
             config.model = model_str
 
-    # Find plan
+    # Find plan and derive auxiliary file paths
     config.plan_path = find_plan(args.plan_path)
+    config.learnings_path = derive_learnings_path(config.plan_path)
+    config.log_path = derive_log_path(config.plan_path)
     config.work_dir = os.getcwd()
 
     return config

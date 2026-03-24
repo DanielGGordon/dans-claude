@@ -75,7 +75,13 @@ If any test fails after your changes, fix it before committing. If a pre-existin
 
 ---
 
-## 5. Code Quality
+## 5. Context Window Efficiency
+
+When exploring the codebase or searching for files/code, use the Explore subagent (`Agent` tool with `subagent_type=Explore`) rather than reading many files directly into your main context. This keeps your context window lean and improves performance.
+
+---
+
+## 6. Code Quality
 
 ### Do not break what works
 If existing tests fail after your changes, that is your problem to fix. Never commit broken code on the assumption someone else will clean it up.
@@ -91,7 +97,7 @@ Secrets go in environment variables or secret management — never in source fil
 
 ---
 
-## 6. Working From a Task List
+## 7. Working From a Task List
 
 If the project has a prioritized task list (in a `for-ai.md`, issue tracker, or similar):
 1. Work through it in order. Do not skip ahead or invent new work unless a listed item is blocked.
@@ -100,7 +106,7 @@ If the project has a prioritized task list (in a `for-ai.md`, issue tracker, or 
 
 ---
 
-## 7. When You're Done
+## 8. When You're Done
 
 Before ending a session or handing off, confirm:
 - [ ] All tests pass
