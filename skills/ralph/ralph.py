@@ -201,6 +201,8 @@ _TASK_RE = re.compile(r"^(\s*- \[ \] )(.+)$")
 _CHECKED_RE = re.compile(r"^\s*- \[[xX ]\] ")
 _DONE_RE = re.compile(r"^\s*- \[[xX]\] (.+)$")
 _TODO_RE = re.compile(r"^\s*- \[ \] (.+)$")
+_PARALLEL_RE = re.compile(r"^\s*<!--\s*PARALLEL\s+([\d,\s]+)\s*-->\s*$")
+_PHASE_HEADING_RE = re.compile(r"^##\s+Phase\s+(\d+)\b", re.IGNORECASE)
 
 
 def _phase_line_range(plan_path: str, phase: int) -> tuple[int, int]:
@@ -221,6 +223,41 @@ def _phase_line_range(plan_path: str, phase: int) -> tuple[int, int]:
     if start is not None:
         return start, len(lines)
     return 0, 0  # phase not found: empty range
+
+
+def parse_parallel_group(plan_path: str, task_line: int) -> list[int] | None:
+    """Return phase numbers if task_line is inside a parallel group, None otherwise.
+
+    A parallel group is defined by a ``<!-- PARALLEL N,M,... -->`` comment that
+    covers the phases listed.  A task belongs to a group if its line falls within
+    one of the group's phase sections.
+    """
+    lines = Path(plan_path).read_text().splitlines()
+    # Build list of parallel groups: each is a list of phase ints
+    groups: list[list[int]] = []
+    for line in lines:
+        m = _PARALLEL_RE.match(line)
+        if m:
+            phases = [int(p.strip()) for p in m.group(1).split(",") if p.strip()]
+            if phases:
+                groups.append(phases)
+    if not groups:
+        return None
+    # Determine which phase the task_line belongs to
+    current_phase: int | None = None
+    for i, line in enumerate(lines, 1):
+        pm = _PHASE_HEADING_RE.match(line)
+        if pm:
+            current_phase = int(pm.group(1))
+        if i == task_line:
+            break
+    if current_phase is None:
+        return None
+    # Check if that phase is in any group
+    for group in groups:
+        if current_phase in group:
+            return group
+    return None
 
 
 def find_next_task(plan_path: str, min_line: int = 1,

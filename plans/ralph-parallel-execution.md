@@ -41,7 +41,7 @@ Parse `<!-- PARALLEL 5,6,7 -->` annotations in plan files. Add functions to dete
 
 ### Acceptance criteria
 
-- [ ] `parse_parallel_group(plan_path, task_line) -> list[int] | None` — returns phase numbers if task is in a parallel group, None otherwise — _Criterion: unit tests cover: task in parallel group, task not in group, multiple groups in one plan_
+- [x] `parse_parallel_group(plan_path, task_line) -> list[int] | None` — returns phase numbers if task is in a parallel group, None otherwise — _Criterion: unit tests cover: task in parallel group, task not in group, multiple groups in one plan_
 - [ ] `find_parallel_phases(plan_path) -> list[list[int]]` — returns all parallel groups in the plan — _Criterion: unit test parses plan with two `<!-- PARALLEL -->` annotations_
 - [ ] Parsing handles edge cases: spaces in comment, phases that don't exist, already-completed parallel phases — _Criterion: unit tests pass for malformed/edge inputs_
 

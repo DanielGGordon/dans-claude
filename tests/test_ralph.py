@@ -60,6 +60,134 @@ def batch_plan(tmp_path):
     return str(p)
 
 
+@pytest.fixture
+def parallel_plan(tmp_path):
+    """Plan with a PARALLEL annotation covering phases 2 and 3."""
+    content = """\
+# Test Plan
+
+## Phase 1: Setup
+
+- [ ] Task A — setup stuff
+
+<!-- PARALLEL 2,3 -->
+
+## Phase 2: Feature Alpha
+
+- [ ] Task B — build alpha
+- [ ] Task C — test alpha
+
+## Phase 3: Feature Beta
+
+- [ ] Task D — build beta
+
+## Phase 4: Integration
+
+- [ ] Task E — integrate
+"""
+    p = tmp_path / "parallel.md"
+    p.write_text(content)
+    return str(p)
+
+
+@pytest.fixture
+def multi_parallel_plan(tmp_path):
+    """Plan with two separate PARALLEL groups."""
+    content = """\
+# Test Plan
+
+<!-- PARALLEL 1,2 -->
+
+## Phase 1: Foundation A
+
+- [ ] Task A — build A
+
+## Phase 2: Foundation B
+
+- [ ] Task B — build B
+
+## Phase 3: Glue
+
+- [ ] Task C — glue it
+
+<!-- PARALLEL 4,5 -->
+
+## Phase 4: Polish A
+
+- [ ] Task D — polish A
+
+## Phase 5: Polish B
+
+- [ ] Task E — polish B
+
+## Phase 6: Ship
+
+- [ ] Task F — ship it
+"""
+    p = tmp_path / "multi_parallel.md"
+    p.write_text(content)
+    return str(p)
+
+
+# ─── Parallel group parsing tests ──────────────────────────────────────────
+
+class TestParseParallelGroup:
+    def test_task_in_parallel_group(self, parallel_plan):
+        """Task B (phase 2) is in the PARALLEL 2,3 group."""
+        lines = Path(parallel_plan).read_text().splitlines()
+        # Find line number for Task B
+        task_b_line = next(i for i, l in enumerate(lines, 1) if "Task B" in l)
+        result = ralph.parse_parallel_group(parallel_plan, task_b_line)
+        assert result == [2, 3]
+
+    def test_task_in_second_phase_of_group(self, parallel_plan):
+        """Task D (phase 3) is also in the PARALLEL 2,3 group."""
+        lines = Path(parallel_plan).read_text().splitlines()
+        task_d_line = next(i for i, l in enumerate(lines, 1) if "Task D" in l)
+        result = ralph.parse_parallel_group(parallel_plan, task_d_line)
+        assert result == [2, 3]
+
+    def test_task_not_in_group(self, parallel_plan):
+        """Task A (phase 1) is not in any parallel group."""
+        lines = Path(parallel_plan).read_text().splitlines()
+        task_a_line = next(i for i, l in enumerate(lines, 1) if "Task A" in l)
+        result = ralph.parse_parallel_group(parallel_plan, task_a_line)
+        assert result is None
+
+    def test_task_after_group_not_in_group(self, parallel_plan):
+        """Task E (phase 4) is after the parallel group, not in it."""
+        lines = Path(parallel_plan).read_text().splitlines()
+        task_e_line = next(i for i, l in enumerate(lines, 1) if "Task E" in l)
+        result = ralph.parse_parallel_group(parallel_plan, task_e_line)
+        assert result is None
+
+    def test_multiple_groups_first(self, multi_parallel_plan):
+        """Task A (phase 1) belongs to the first parallel group [1,2]."""
+        lines = Path(multi_parallel_plan).read_text().splitlines()
+        task_a_line = next(i for i, l in enumerate(lines, 1) if "Task A" in l)
+        result = ralph.parse_parallel_group(multi_parallel_plan, task_a_line)
+        assert result == [1, 2]
+
+    def test_multiple_groups_second(self, multi_parallel_plan):
+        """Task D (phase 4) belongs to the second parallel group [4,5]."""
+        lines = Path(multi_parallel_plan).read_text().splitlines()
+        task_d_line = next(i for i, l in enumerate(lines, 1) if "Task D" in l)
+        result = ralph.parse_parallel_group(multi_parallel_plan, task_d_line)
+        assert result == [4, 5]
+
+    def test_multiple_groups_gap_phase(self, multi_parallel_plan):
+        """Task C (phase 3) is between the two groups and not in either."""
+        lines = Path(multi_parallel_plan).read_text().splitlines()
+        task_c_line = next(i for i, l in enumerate(lines, 1) if "Task C" in l)
+        result = ralph.parse_parallel_group(multi_parallel_plan, task_c_line)
+        assert result is None
+
+    def test_no_parallel_annotations(self, plan_file):
+        """Plan with no PARALLEL annotations returns None for any task."""
+        result = ralph.parse_parallel_group(plan_file, 6)
+        assert result is None
+
+
 # ─── Task parsing tests ─────────────────────────────────────────────────────
 
 class TestFindNextTask:
