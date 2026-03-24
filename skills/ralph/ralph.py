@@ -103,6 +103,7 @@ class Config:
     effort: str = ""
     learnings_path: str = ""  # auto-derived from plan_path if empty
     log_path: str = ""  # auto-derived from plan_path
+    phase: int | None = None  # only execute tasks under this phase heading
     task_timeout: int = DEFAULT_TASK_TIMEOUT  # seconds; 0 to disable
 
     def claude_model_flags(self) -> list[str]:
@@ -1658,6 +1659,8 @@ Environment variables:
                         help="Model preset or claude model ID")
     parser.add_argument("--reviewer", default=os.environ.get("RALPH_REVIEWER", "auto"),
                         help="Reviewer: auto (default), codex, or claude")
+    parser.add_argument("--phase", type=int, default=None,
+                        help="Only execute tasks under ## Phase N heading")
     parser.add_argument("--task-timeout", type=int,
                         default=int(os.environ.get("RALPH_TASK_TIMEOUT",
                                                     str(DEFAULT_TASK_TIMEOUT))),
@@ -1671,6 +1674,7 @@ Environment variables:
         task_timeout=args.task_timeout,
         batch_mode=args.batch,
         reviewer=args.reviewer,
+        phase=args.phase,
     )
 
     # --review / --no-review logic (--no-review wins if both given)
