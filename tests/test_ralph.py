@@ -131,6 +131,50 @@ class TestCountTasks:
         assert done == 1
         assert total == 4
 
+    def test_phase_filter_counts_only_target_phase(self, tmp_path):
+        """count_tasks with phase filter returns only that phase's task counts."""
+        content = """\
+# Multi-phase Plan
+
+## Phase 1: Foundation
+
+- [x] Task A — done
+- [ ] Task B — todo
+
+## Phase 2: Features
+
+- [ ] Task C — todo
+- [ ] Task D — todo
+- [x] Task E — done
+
+## Phase 3: Polish
+
+- [ ] Task F — todo
+"""
+        p = tmp_path / "count.md"
+        p.write_text(content)
+        plan = str(p)
+
+        # Phase 1: 1 done, 2 total
+        done, total = ralph.count_tasks(plan, phase=1)
+        assert done == 1
+        assert total == 2
+
+        # Phase 2: 1 done, 3 total
+        done, total = ralph.count_tasks(plan, phase=2)
+        assert done == 1
+        assert total == 3
+
+        # Phase 3: 0 done, 1 total
+        done, total = ralph.count_tasks(plan, phase=3)
+        assert done == 0
+        assert total == 1
+
+        # No phase filter: all tasks
+        done, total = ralph.count_tasks(plan)
+        assert done == 2
+        assert total == 6
+
 
 class TestCheckOffTask:
     def test_checks_off_specific_line(self, plan_file):
