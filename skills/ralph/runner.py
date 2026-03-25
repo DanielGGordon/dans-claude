@@ -55,7 +55,8 @@ def format_tool_detail(name: str, input_data: dict) -> str:
 def run_claude(prompt: str, config: Config,
                on_output: Callable[[str], None] = print,
                proc_register: Callable[[subprocess.Popen], None] | None = None,
-               timeout: int = 0) -> ClaudeResult:
+               timeout: int = 0,
+               continue_session: str = "") -> ClaudeResult:
     cmd = [
         "claude", "-p",
         *config.claude_model_flags(),
@@ -63,6 +64,8 @@ def run_claude(prompt: str, config: Config,
         "--verbose",
         "--output-format", "stream-json",
     ]
+    if continue_session:
+        cmd += ["--resume", continue_session]
 
     proc = subprocess.Popen(
         cmd,
@@ -150,6 +153,7 @@ def run_claude(prompt: str, config: Config,
             result.output_tokens = usage.get("output_tokens", 0)
             result.cache_read_tokens = usage.get("cache_read_input_tokens", 0)
             result.cache_creation_tokens = usage.get("cache_creation_input_tokens", 0)
+            result.session_id = event.get("session_id", "")
             result.num_turns = event.get("num_turns", 0)
             result.duration_ms = event.get("duration_ms", 0)
             result.duration_api_ms = event.get("duration_api_ms", 0)

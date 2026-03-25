@@ -54,6 +54,7 @@ RALPH_ASCII = Path.home() / ".claude" / "skills" / "ralph" / "ralph-ascii.txt"
 INBOX_FILE = ".ralph-inbox"
 MAX_CONSECUTIVE_FAILS = 3
 DEFAULT_TASK_TIMEOUT = 3600  # 1 hour in seconds
+CONTEXT_REUSE_THRESHOLD = 75_000  # tokens — reuse session if peak was under this
 
 
 @dataclass
@@ -100,6 +101,7 @@ class ClaudeResult:
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
     peak_input_tokens: int = 0  # max single-turn input (input + cache_read + cache_creation)
+    session_id: str = ""  # conversation session ID for --resume
 
 
 # ─── Formatting utilities ────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # Ralph
 
-Ralph is a task-by-task plan executor for Claude Code. It reads a markdown plan file, dispatches each unchecked task to a fresh `claude -p` subprocess with zero context carryover, and checks tasks off as they complete. A learnings file accumulates gotchas across iterations so each fresh context window inherits institutional knowledge.
+Ralph is a task-by-task plan executor for Claude Code. It reads a markdown plan file, dispatches each unchecked task to a `claude -p` subprocess and checks tasks off as they complete. When the previous task used less than 75k context, Ralph reuses the session (`--resume`) instead of starting fresh — saving time and money. A learnings file accumulates gotchas across iterations so each context window inherits institutional knowledge.
 
 Named after Ralph Wiggum — he's doing his best.
 
@@ -211,6 +211,26 @@ Ralph monitors how long each task has been running (visible in the status bar). 
 If the rescue agent also fails or times out, Ralph counts it as a failure and moves on.
 
 Configure with `--task-timeout <seconds>` or `RALPH_TASK_TIMEOUT`. Set to `0` to disable.
+
+## Context Reuse
+
+By default, Ralph starts each task in a fresh `claude -p` subprocess. However, if the previous task's **peak context** was under 75k tokens, Ralph reuses the session via `claude -p --resume <session_id>` instead of spinning up a new one.
+
+**How it works:**
+- After each successful single task, Ralph checks `peak_input_tokens` from the stream-json result
+- If under 75k (the `CONTEXT_REUSE_THRESHOLD`), the `session_id` is saved
+- The next task sends a lightweight continuation prompt (just the new task + criterion) via `--resume` — the agent already has the plan, coding rules, and project context loaded
+- If the resumed session's context grows past 75k, the next task starts fresh again — this naturally limits how many tasks share a window
+- If the resume fails for any reason, Ralph transparently falls back to a fresh invocation
+
+**Context reuse is disabled when:**
+- The previous task failed
+- The previous task was a batch (`<!-- BATCH -->`)
+- The previous task timed out or was killed/skipped
+- Ralph was paused and resumed (`/kill` + `/resume`)
+- The session_id wasn't captured (feature silently stays inactive)
+
+The TUI shows `♻️ Reusing context from previous task (42k peak)` when a session is reused.
 
 ## Gemini Fallback (Review Only)
 

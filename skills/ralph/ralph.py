@@ -32,7 +32,7 @@ from models import (  # noqa: F401
     State, AgentKilled, AgentTimeout, UsageLimitExceeded,
     _USAGE_LIMIT_RE, MODEL_PRESETS,
     CODING_AGENTS_FILE, RALPH_ASCII, INBOX_FILE,
-    MAX_CONSECUTIVE_FAILS, DEFAULT_TASK_TIMEOUT,
+    MAX_CONSECUTIVE_FAILS, DEFAULT_TASK_TIMEOUT, CONTEXT_REUSE_THRESHOLD,
     Config, Task, ClaudeResult,
     format_tokens, format_context_summary, elapsed,
 )
@@ -50,7 +50,8 @@ from plan import (  # noqa: F401
 from prompt import (  # noqa: F401
     get_recent_commits, load_coding_rules, load_project_context,
     _append_prompt_context,
-    build_single_prompt, build_batch_prompt, build_rescue_prompt,
+    build_single_prompt, build_batch_prompt, build_continuation_prompt,
+    build_rescue_prompt,
 )
 from runner import (  # noqa: F401
     format_tool_detail, run_claude,

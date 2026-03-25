@@ -168,6 +168,34 @@ These are the last 3 commits in the repo — read them to understand what work h
                                   user_guidance)
 
 
+def build_continuation_prompt(task: Task, config: Config,
+                              user_guidance: str = "",
+                              learnings_content: str = "") -> str:
+    """Build a lightweight prompt for resuming a previous session.
+
+    Used when the prior task's peak context was under the reuse threshold,
+    so the agent already has the plan, coding rules, and project context loaded.
+    """
+    prompt = f"""The previous task is complete. Now execute the next task from the same plan.
+
+## Your Next Task
+
+**Task:** {task.text}
+**Completion Criterion:** {task.criterion}
+**Plan file:** {config.plan_path}
+
+## Instructions
+
+- Execute ONLY this single task. Do not revisit completed tasks.
+- When complete, edit the plan file to check it off: change `- [ ]` to `- [x]` for this task's line.
+- After completing (or failing), append a learning line to `{config.learnings_path}`. Format:
+  `[done YYYY-MM-DD HH:MM] Task description. ⚠️ Learning: <only if genuine gotcha>`
+  Only record a learning if you discovered something surprising."""
+
+    return _append_prompt_context(prompt, learnings_content,
+                                  user_guidance=user_guidance)
+
+
 def build_rescue_prompt(task: Task, plan_content: str, config: Config,
                         coding_rules: str, recent_commits: str,
                         elapsed_mins: int,

@@ -15,7 +15,7 @@ from textual import work
 from models import (
     State, Config, ClaudeResult, Task,
     AgentKilled, AgentTimeout, UsageLimitExceeded,
-    RALPH_ASCII, MAX_CONSECUTIVE_FAILS,
+    RALPH_ASCII, MAX_CONSECUTIVE_FAILS, CONTEXT_REUSE_THRESHOLD,
     elapsed, format_tokens,
 )
 from plan import (
@@ -27,7 +27,8 @@ from plan import (
 )
 from prompt import (
     get_recent_commits, load_coding_rules, load_project_context,
-    build_single_prompt, build_batch_prompt, build_rescue_prompt,
+    build_single_prompt, build_batch_prompt, build_continuation_prompt,
+    build_rescue_prompt,
 )
 from runner import run_claude, read_inbox, needs_followup
 from review import run_review, fix_review_issues
@@ -364,6 +365,8 @@ class RalphApp(App):
         project_context = load_project_context(config.work_dir)
         consecutive_fails = 0
         user_guidance = ""
+        last_session_id = ""
+        last_peak_ctx = 0
 
         min_line = 1
         last_task: Task | None = None
@@ -377,6 +380,8 @@ class RalphApp(App):
                         return
                 self.resume_event.clear()
                 self.pause_event.clear()
+                # Session is stale after pause — start fresh
+                last_session_id = ""
 
                 if self._retry and last_task is not None:
                     # Retry: pop stash to restore changes, re-run same task
@@ -520,18 +525,40 @@ class RalphApp(App):
                             consecutive_fails=consecutive_fails,
                             out=out,
                         )
+                        # Batch tasks don't participate in context reuse
+                        last_session_id = ""
+                        last_peak_ctx = 0
 
                     else:
-                        # Single task
-                        prompt = build_single_prompt(
-                            task, plan_content, config,
-                            coding_rules, recent_commits, guidance,
-                            project_context=project_context,
-                            learnings_content=learnings_content)
+                        # Single task — try context reuse if previous session was lightweight
+                        result = None
+                        if last_session_id:
+                            try:
+                                out(f"♻️  Reusing context from previous task ({format_tokens(last_peak_ctx)} peak)")
+                                prompt = build_continuation_prompt(
+                                    task, config, guidance,
+                                    learnings_content=learnings_content)
+                                result = run_claude(
+                                    prompt, config, on_output=out,
+                                    proc_register=self._register_proc,
+                                    timeout=config.task_timeout,
+                                    continue_session=last_session_id)
+                            except (AgentKilled, AgentTimeout):
+                                raise
+                            except Exception:
+                                out("⚠️  Context reuse failed — starting fresh")
+                                last_session_id = ""
 
-                        result = run_claude(prompt, config, on_output=out,
-                                            proc_register=self._register_proc,
-                                            timeout=config.task_timeout)
+                        if result is None:
+                            prompt = build_single_prompt(
+                                task, plan_content, config,
+                                coding_rules, recent_commits, guidance,
+                                project_context=project_context,
+                                learnings_content=learnings_content)
+                            result = run_claude(
+                                prompt, config, on_output=out,
+                                proc_register=self._register_proc,
+                                timeout=config.task_timeout)
 
                         consecutive_fails, min_line = self._handle_task_result(
                             result, task, config,
@@ -547,14 +574,27 @@ class RalphApp(App):
                             out=out,
                         )
 
+                        # Track session for potential context reuse on next task
+                        if (consecutive_fails == 0
+                                and result.session_id
+                                and result.peak_input_tokens > 0
+                                and result.peak_input_tokens < CONTEXT_REUSE_THRESHOLD):
+                            last_session_id = result.session_id
+                            last_peak_ctx = result.peak_input_tokens
+                        else:
+                            last_session_id = ""
+                            last_peak_ctx = 0
+
                 except UsageLimitExceeded as e:
                     self.current_proc = None
+                    last_session_id = ""
                     out(f"\n🛑 Claude usage limit hit — stopping.")
                     out(f"   ({e})")
                     break
 
                 except AgentTimeout:
                     self.current_proc = None
+                    last_session_id = ""
                     elapsed_mins = int((time.time() - self.task_start_time) / 60)
                     out(f"\n⏰ Task timed out after {elapsed_mins}m — launching rescue agent...")
                     append_learning(config.learnings_path, task.text + " [TIMED OUT]", passed=False)
@@ -604,6 +644,7 @@ class RalphApp(App):
 
                 except AgentKilled:
                     self.current_proc = None
+                    last_session_id = ""
                     if self.skip_event.is_set():
                         self.skip_event.clear()
                         out("⏭️  Skipped")
