@@ -8,6 +8,23 @@ Named after Ralph Wiggum — he's doing his best.
 
 ![Ralph Execution Flow](diagrams/execution-flow.png)
 
+### Detailed Workflow
+
+Each iteration of the task loop:
+
+1. **Find next task** — scan the plan file for the first unchecked `- [ ]` line (optionally filtered by `--phase`)
+2. **Parallel detection** — if the task falls inside a `<!-- PARALLEL -->` group, Ralph spawns parallel worktrees instead of running sequentially (see [Parallel Execution](#parallel-execution))
+3. **Collect context** — load the learnings file, coding rules (`CODING_AGENTS.md`), project context (`README.md`/`PROJECT_STRUCTURE.md`), recent git commits, and any queued user guidance
+4. **Trim plan** — the plan is trimmed to only the current phase section (other phases replaced with `[... completed phases omitted ...]`) to keep prompt size manageable
+5. **Build prompt** — assemble a structured prompt with the task, its completion criterion, trimmed plan, and all context
+6. **Execute** — run `claude -p --dangerously-skip-permissions --verbose --output-format stream-json` as a subprocess; stream-parse tool use events, token counts, and cost
+7. **Check result** — re-read the plan file; if the task line changed from `- [ ]` to `- [x]`, it's a success; otherwise a failure
+8. **Review** (optional) — if `--review` is enabled, diff the working tree against the pre-task HEAD and run a code review via Codex or Claude; auto-fix any findings
+9. **Append learning** — record a one-liner to the learnings file (pass/fail + any gotcha the agent discovered)
+10. **Countdown** — wait `--delay` seconds before the next task (guidance can be queued during this time)
+
+The loop stops when all tasks are checked off, 3 consecutive failures occur, or a usage limit is hit.
+
 ## TUI Interface
 
 Ralph runs as a Textual terminal app with three regions:
@@ -59,9 +76,17 @@ python3 ~/.claude/skills/ralph/ralph.py [plan_path] [options]
 | `--review`        | off     | Code review after each task              |
 | `--model`         | —       | Model preset or raw model ID             |
 | `--reviewer`      | auto    | Reviewer: `auto`, `codex`, or `claude`   |
+| `--phase`         | —       | Only execute tasks under `## Phase N` heading |
 | `--task-timeout`  | 3600    | Kill stuck tasks after N seconds (0 to disable) |
 
 Environment variables: `RALPH_MODEL`, `RALPH_DELAY`, `RALPH_REVIEWER`, `RALPH_TASK_TIMEOUT`.
+
+### Interactive Launcher
+
+When no flags are provided, Ralph presents an interactive menu (using [fzf](https://github.com/junegunn/fzf) if installed, numbered menu otherwise) to select:
+1. Plan file (searched in `./`, `./plans/`, `~/.claude/plans/`)
+2. Model preset
+3. Review toggle and reviewer
 
 ### Model Presets
 
@@ -116,6 +141,37 @@ Mark consecutive tasks for single-shot execution:
 ```
 
 All three run in one `claude -p` invocation with `--batch`.
+
+### Parallel phases
+
+Mark phases for concurrent execution with a `<!-- PARALLEL -->` comment listing phase numbers:
+
+```markdown
+<!-- PARALLEL 2,3,4 -->
+
+## Phase 2: Backend API
+- [ ] Create REST endpoints — _Criterion: tests pass_
+
+## Phase 3: Frontend UI
+- [ ] Build dashboard components — _Criterion: renders correctly_
+
+## Phase 4: Database
+- [ ] Set up migrations — _Criterion: migrate up/down works_
+```
+
+When Ralph encounters a task inside a parallel group, it orchestrates all listed phases concurrently:
+
+1. **Create worktrees** — one git worktree per phase, branched from HEAD (`ralph/phase-N`)
+2. **Launch tmux** — a tmux session (`ralph-parallel`) with one window per phase, each running a separate Ralph instance scoped to its phase via `--phase N`
+3. **Wait** — Ralph blocks until all tmux windows exit
+4. **Merge** — branches are merged back sequentially; the first branch fast-forwards, subsequent branches are rebased onto the updated main; if rebase conflicts occur, a Claude agent attempts automatic resolution
+5. **Cleanup** — worktrees and temporary branches are removed
+
+The shared learnings file is used across all parallel instances (with file locking via `fcntl`) so discoveries in one phase are visible to others.
+
+**Requirements:** git, tmux
+
+**Monitoring:** `tmux attach -t ralph-parallel` to watch all phases live.
 
 ## Guidance
 
@@ -185,3 +241,5 @@ All TUI output is mirrored to a log file alongside your plan. If your plan is `p
 - Python 3
 - [Textual](https://github.com/Textualize/textual) (`pip install textual`)
 - Claude Code CLI (`claude`)
+- [tmux](https://github.com/tmux/tmux) (required for parallel execution)
+- [fzf](https://github.com/junegunn/fzf) (optional, for interactive plan/model selection)
