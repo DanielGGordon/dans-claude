@@ -530,9 +530,9 @@ class RalphApp(App):
                         last_peak_ctx = 0
 
                     else:
-                        # Single task — try context reuse if previous session was lightweight
+                        # Single task — try context reuse if enabled and previous session was lightweight
                         result = None
-                        if last_session_id:
+                        if config.reuse_context and last_session_id:
                             try:
                                 out(f"♻️  Reusing context from previous task ({format_tokens(last_peak_ctx)} peak)")
                                 prompt = build_continuation_prompt(

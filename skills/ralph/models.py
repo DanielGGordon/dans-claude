@@ -72,6 +72,7 @@ class Config:
     log_path: str = ""  # auto-derived from plan_path
     phase: int | None = None  # only execute tasks under this phase heading
     task_timeout: int = DEFAULT_TASK_TIMEOUT  # seconds; 0 to disable
+    reuse_context: bool = False  # --reuse-context: resume session when peak < 75k
 
     def claude_model_flags(self) -> list[str]:
         flags = []

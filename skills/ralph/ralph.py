@@ -103,7 +103,8 @@ Environment variables:
   RALPH_DELAY          Same as --delay
   RALPH_MODEL          Same as --model
   RALPH_REVIEWER       Same as --reviewer
-  RALPH_TASK_TIMEOUT   Same as --task-timeout""",
+  RALPH_TASK_TIMEOUT   Same as --task-timeout
+  RALPH_REUSE_CONTEXT  Same as --reuse-context (1/true/yes to enable)""",
     )
     parser.add_argument("plan_path", nargs="?", default="",
                         help="Path to the plan file")
@@ -128,6 +129,9 @@ Environment variables:
                         default=int(os.environ.get("RALPH_TASK_TIMEOUT",
                                                     str(DEFAULT_TASK_TIMEOUT))),
                         help="Kill stuck tasks after N seconds (default: 3600 = 1h, 0 to disable)")
+    parser.add_argument("--reuse-context", action="store_true",
+                        default=os.environ.get("RALPH_REUSE_CONTEXT", "").lower() in ("1", "true", "yes"),
+                        help="Resume previous session when peak context < 75k tokens (default: off)")
     parser.add_argument("--learnings-path", default="",
                         help="Override auto-derived learnings file path (for worktree instances)")
 
@@ -141,6 +145,7 @@ Environment variables:
         reviewer=args.reviewer,
         phase=args.phase,
         learnings_path=args.learnings_path,
+        reuse_context=args.reuse_context,
     )
 
     # --review / --no-review logic (--no-review wins if both given)

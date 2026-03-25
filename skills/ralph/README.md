@@ -214,7 +214,7 @@ Configure with `--task-timeout <seconds>` or `RALPH_TASK_TIMEOUT`. Set to `0` to
 
 ## Context Reuse
 
-By default, Ralph starts each task in a fresh `claude -p` subprocess. However, if the previous task's **peak context** was under 75k tokens, Ralph reuses the session via `claude -p --resume <session_id>` instead of spinning up a new one.
+By default, Ralph starts each task in a fresh `claude -p` subprocess. With `--reuse-context` (or `RALPH_REUSE_CONTEXT=1`), if the previous task's **peak context** was under 75k tokens, Ralph reuses the session via `claude -p --resume <session_id>` instead of spinning up a new one. This is off by default.
 
 **How it works:**
 - After each successful single task, Ralph checks `peak_input_tokens` from the stream-json result
