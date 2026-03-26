@@ -1,74 +1,107 @@
 ---
 name: write-a-prd
-description: Create a PRD through user interview, codebase exploration, and module design, then submit as a GitHub issue. Use when user wants to write a PRD, create a product requirements document, or plan a new feature.
+description: Create a PRD through user description, codebase exploration, and autonomous gap-filling, then submit as a GitHub issue or local file. Use when user wants to write a PRD, create a product requirements document, or plan a new feature.
 ---
 
-This skill will be invoked when the user wants to create a PRD. You may skip steps if you don't consider them necessary.
+# Write a PRD
 
-1. Ask the user for a long, detailed description of the problem they want to solve and any potential ideas for solutions.
+Create a PRD from the user's description. The user's job is the vision and specific requirements. Your job is structure, technical enhancement, and filling gaps autonomously.
 
-2. Explore the repo to verify their assertions and understand the current state of the codebase.
+## Process
 
-3. Interview the user relentlessly about every aspect of this plan until you reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one.
+### 1. Get the user's description
 
-4. Sketch out the major modules you will need to build or modify to complete the implementation. Actively look for opportunities to extract deep modules that can be tested in isolation.
+Ask the user to describe what they want to build. They should be specific about:
 
-A deep module (as opposed to a shallow module) is one which encapsulates a lot of functionality in a simple, testable interface which rarely changes.
+- The problem they are solving
+- Features they want
+- Constraints or preferences (tech stack, deployment, integrations)
+- Anything they feel strongly about
 
-Check with the user that these modules match their expectations. Check with the user which modules they want tests written for.
+Let them write as much or as little as they want. Do NOT interrogate -- if they gave you enough to work with, move forward.
 
-5. Once you have a complete understanding of the problem and solution, use the template below to write the PRD. The PRD should be submitted as a GitHub issue.
+### 2. Explore the codebase
+
+If there is an existing codebase, explore it to understand the current architecture, patterns, and integration points. This informs your technical decisions.
+
+### 3. Fill gaps autonomously
+
+Based on the user's description and codebase exploration, make decisions about anything the user did not specify:
+
+- Tech stack (prefer agentic-first: CLI-friendly, hot-reload, easy to test and automate)
+- Architecture and data model
+- API design
+- AI self-modification surface (chat panel, /ai endpoint, or similar)
+- Testing approach
+- Edge cases and error handling
+
+Do NOT ask the user about each of these. Make reasonable choices and include them in the PRD. The user can revise after seeing the full picture.
+
+### 4. One round of feedback
+
+Present a brief summary of what you plan to write:
+
+- Problem + solution (2-3 sentences each)
+- Key features (bulleted list)
+- Technical decisions you made autonomously
+
+Ask: "Does this match your vision? Anything to add, remove, or change?"
+
+One round. Then write the PRD.
+
+### 5. Write the PRD
+
+Use the template below. Submit as a GitHub issue if in a repo, otherwise save to a local file.
 
 <prd-template>
 
-## Problem Statement
+## Problem
 
-The problem that the user is facing, from the user's perspective.
+The problem from the user's perspective. 2-4 sentences.
 
 ## Solution
 
-The solution to the problem, from the user's perspective.
+What will be built. Concrete enough to plan from, abstract enough to leave implementation flexibility. 3-6 sentences.
 
-## User Stories
+## Requirements
 
-A LONG, numbered list of user stories. Each user story should be in the format of:
+Specific, testable requirements grouped by area. These become the acceptance criteria when the plan is built. Each requirement should be verifiable -- an evaluator agent should be able to test it.
 
-1. As an <actor>, I want a <feature>, so that <benefit>
+### Core features
+- Requirement 1
+- Requirement 2
+- ...
 
-<user-story-example>
-1. As a mobile bank customer, I want to see balance on my accounts, so that I can make better informed decisions about my spending
-</user-story-example>
+### AI integration
+- How the app exposes self-modification (chat panel, /ai command, etc.)
+- ...
 
-This list of user stories should be extremely extensive and cover all aspects of the feature.
+### UX / interface
+- ...
 
-## Implementation Decisions
+### Data / persistence
+- ...
 
-A list of implementation decisions that were made. This can include:
+(Add or remove sections as appropriate for the project.)
 
-- The modules that will be built/modified
-- The interfaces of those modules that will be modified
-- Technical clarifications from the developer
-- Architectural decisions
-- Schema changes
-- API contracts
-- Specific interactions
+## Technical decisions
 
-Do NOT include specific file paths or code snippets. They may end up being outdated very quickly.
+Decisions made during PRD creation. These carry forward into the plan.
 
-## Testing Decisions
+- **Stack**: chosen technologies and why
+- **Architecture**: high-level structure
+- **Data model**: key entities and relationships
+- **API surface**: routes, endpoints, or CLI commands
+- **Testing**: approach and tools
 
-A list of testing decisions that were made. Include:
+Do NOT include specific file paths or code snippets -- they become outdated quickly.
 
-- A description of what makes a good test (only test external behavior, not implementation details)
-- Which modules will be tested
-- Prior art for the tests (i.e. similar types of tests in the codebase)
+## Out of scope
 
-## Out of Scope
+What this PRD explicitly does NOT cover. Helps prevent scope creep during implementation.
 
-A description of the things that are out of scope for this PRD.
+## Open questions
 
-## Further Notes
-
-Any further notes about the feature.
+Anything unresolved that should be decided during planning or implementation. If empty, omit this section.
 
 </prd-template>
