@@ -1,2 +1,6 @@
 # Cloned third-party skills (managed by install.sh)
 skills/excalidraw-diagram/
+
+# Python bytecode
+__pycache__/
+*.pyc
