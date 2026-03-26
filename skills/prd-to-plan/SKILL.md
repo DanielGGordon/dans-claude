@@ -7,6 +7,8 @@ description: Turn a PRD into a multi-phase implementation plan using tracer-bull
 
 Break a PRD into a phased implementation plan using vertical slices (tracer bullets). Output is a Markdown file in `./plans/`.
 
+Plans are executed by Ralph v2 -- a phase-level build/evaluate harness. Each phase gets one generator invocation (implements the whole phase) followed by an evaluator (tests against acceptance criteria). The plan describes WHAT to build; the generator decides HOW.
+
 ## Process
 
 ### 1. Confirm the PRD is in context
@@ -17,9 +19,31 @@ The PRD should already be in the conversation. If it isn't, ask the user to past
 
 If you have not already explored the codebase, do so to understand the current architecture, existing patterns, and integration layers.
 
-### 3. Identify durable architectural decisions
+### 3. Pick an agentic-first tech stack
 
-Before slicing, identify high-level decisions that are unlikely to change throughout implementation:
+Every plan should prefer technologies that make it easy for an AI agent to run, test, and deploy:
+
+- CLI-friendly tooling (Vite, FastAPI, SQLite for dev, pytest)
+- One-command dev server (`npm run dev`, `uvicorn main:app --reload`)
+- Hot reload by default
+- Test suites the evaluator can run without manual setup
+- Simple deployment (Docker, single binary, static export)
+
+Even at the cost of some additional complexity, prefer stacks that are agent-friendly over ones that are slightly simpler but harder to automate.
+
+### 4. Design AI self-modification surface
+
+Every app plan should include a surface for AI-assisted modification:
+
+- A chat panel / command interface where users can ask for new features
+- An `/ai` endpoint or command that accepts natural language requests
+- The app should be easy to modify by pointing an agent at it
+
+This makes the app its own harness -- users can iterate on it without returning to the terminal.
+
+### 5. Identify durable architectural decisions
+
+Before slicing, identify high-level decisions that are unlikely to change:
 
 - Route structures / URL patterns
 - Database schema shape
@@ -29,7 +53,7 @@ Before slicing, identify high-level decisions that are unlikely to change throug
 
 These go in the plan header so every phase can reference them.
 
-### 4. Draft vertical slices
+### 6. Draft vertical slices
 
 Break the PRD into **tracer bullet** phases. Each phase is a thin vertical slice that cuts through ALL integration layers end-to-end, NOT a horizontal slice of one layer.
 
@@ -37,37 +61,42 @@ Break the PRD into **tracer bullet** phases. Each phase is a thin vertical slice
 - Each slice delivers a narrow but COMPLETE path through every layer (schema, API, UI, tests)
 - A completed slice is demoable or verifiable on its own
 - Prefer many thin slices over few thick ones
-- Do NOT include specific file names, function names, or implementation details that are likely to change as later phases are built
+- Describe outcomes and acceptance criteria, NOT implementation steps
+- The acceptance criteria become the evaluator's contract -- they must be testable
+- Do NOT include specific file names, function names, or implementation details
 - DO include durable decisions: route paths, schema shapes, data model names
-- Identify which phases are independent and can run in parallel. Phases qualify as parallel when they have no data dependencies, no shared state mutations, and represent independent vertical slices. Annotate parallel groups with `<!-- PARALLEL N,M,... -->` on the line before the first phase in the group. Determine this independently — do not ask the user which phases are parallelizable.
+- Identify which phases are independent and can run in parallel. Phases qualify as parallel when they have no data dependencies, no shared state mutations, and represent independent vertical slices. Annotate parallel groups with `<!-- PARALLEL N,M,... -->` on the line before the first phase in the group. Determine this independently -- do not ask the user which phases are parallelizable.
 </vertical-slice-rules>
 
-### 5. Quiz the user
+### 7. Quiz the user
 
 Present the proposed breakdown as a numbered list. For each phase show:
 
 - **Title**: short descriptive name
-- **User stories covered**: which user stories from the PRD this addresses
+- **Delivers**: 1-2 sentence summary of what the user can see/use after this phase
 
 Ask the user:
 
-- Does the granularity feel right? (too coarse / too fine)
-- Should any phases be merged or split further?
+- Does the phase breakdown make sense? Anything to add/remove?
 
-Iterate until the user approves the breakdown.
+One round of feedback, not a deep interrogation. The planner fills gaps autonomously. The user's role is vision and specific requirements; the planner's role is structure and technical enhancement.
 
-### 6. Write the plan file
+### 8. Write the plan file
 
 Create `./plans/` if it doesn't exist. Write the plan as a Markdown file named after the feature (e.g. `./plans/user-onboarding.md`). Use the template below.
 
 <plan-template>
 # Plan: <Feature Name>
 
-> Source PRD: <brief identifier or link>
+> Source: <PRD identifier or link>
+
+## Project config
+
+- **Tech stack**: <chosen stack -- agentic-first>
+- **Eval approach**: <playwright + pytest / CLI testing / etc.>
+- **AI surface**: <how the app exposes self-modification -- chat panel, /ai command, etc.>
 
 ## Architectural decisions
-
-Durable decisions that apply across all phases:
 
 - **Routes**: ...
 - **Schema**: ...
@@ -78,17 +107,15 @@ Durable decisions that apply across all phases:
 
 ## Phase 1: <Title>
 
-**User stories**: <list from PRD>
+**Delivers**: 2-3 sentence description of what this phase produces.
+The user should be able to see/use something concrete after this phase.
 
-### What to build
+**Acceptance criteria**:
+- Criterion 1 (evaluator tests this)
+- Criterion 2
+- Criterion 3
 
-A concise description of this vertical slice. Describe the end-to-end behavior, not layer-by-layer implementation.
-
-### Acceptance criteria
-
-- [ ] Criterion 1
-- [ ] Criterion 2
-- [ ] Criterion 3
+**AI opportunity**: Optional. AI-integrated features to add in this phase.
 
 ---
 
@@ -96,19 +123,27 @@ A concise description of this vertical slice. Describe the end-to-end behavior, 
 
 ## Phase 2: <Title>
 
-**User stories**: <list from PRD>
+**Delivers**: ...
 
-### What to build
+**Acceptance criteria**:
+- ...
 
-...
-
-### Acceptance criteria
-
-- [ ] ...
+---
 
 ## Phase 3: <Title>
 
-...
+**Delivers**: ...
 
-<!-- Repeat for each phase. Use <!-- PARALLEL N,M,... --> before a group of independent phases that can run concurrently. -->
+**Acceptance criteria**:
+- ...
+
+<!-- Repeat for each phase. Use <!-- PARALLEL N,M,... --> before a group of independent phases. -->
 </plan-template>
+
+## Key differences from v1 plans
+
+- **No checkbox tasks**: Phases describe outcomes and acceptance criteria, not implementation steps. The generator decides how to implement.
+- **Acceptance criteria are the contract**: The evaluator tests each criterion independently. Make them concrete and testable.
+- **Plan evolution**: Generators can write to `{plan_stem}-proposed-changes.md` to suggest changes to future phases. Ralph reads this before each phase.
+- **AI self-modification**: Every plan includes a surface for AI-assisted modification.
+- **Project config section**: Explicitly states tech stack, eval approach, and AI surface.
