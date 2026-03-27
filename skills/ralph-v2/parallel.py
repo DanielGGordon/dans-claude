@@ -104,6 +104,24 @@ def merge_parallel_branches(
         on_output(f"  {branch} merged")
 
 
+def _build_ralph_flags(config: Config) -> str:
+    """Build CLI flags string from Config to pass to parallel ralph instances."""
+    flags: list[str] = []
+    if config.model:
+        flags.append(f"--model {config.model}")
+    if config.skip_eval:
+        flags.append("--no-eval")
+    if config.task_timeout != 3600:
+        flags.append(f"--task-timeout {config.task_timeout}")
+    if config.max_eval_rounds != 3:
+        flags.append(f"--max-eval-rounds {config.max_eval_rounds}")
+    if config.reuse_context:
+        flags.append("--reuse-context")
+    if config.delay > 0:
+        flags.append(f"--delay {config.delay}")
+    return " ".join(flags)
+
+
 def launch_parallel_tmux(
     phases: list[int],
     worktrees: dict[int, str],
@@ -113,15 +131,13 @@ def launch_parallel_tmux(
 ) -> None:
     """Launch a tmux session with one window per phase running Ralph v2."""
     ralph_script = str(Path(__file__).resolve().parent / "ralph.py")
-    model_flags = ""
-    if config.model:
-        model_flags += f" --model {config.model}"
+    config_flags = _build_ralph_flags(config)
 
     for i, phase in enumerate(phases):
         wt = worktrees[phase]
         cmd = (f"cd {wt} && python3 {ralph_script} {plan_path}"
                f" --phase {phase} --learnings-path {learnings_path}"
-               f"{model_flags}")
+               f" {config_flags}".rstrip())
         if i == 0:
             subprocess.run(
                 ["tmux", "new-session", "-d", "-s", TMUX_SESSION,
