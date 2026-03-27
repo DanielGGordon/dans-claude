@@ -43,6 +43,7 @@ from plan import (  # noqa: F401
 )
 from prompt import (  # noqa: F401
     get_recent_commits, load_coding_rules, load_project_context,
+    get_restart_context,
     build_generator_prompt, build_evaluator_prompt,
     build_generator_retry_prompt, build_rescue_prompt,
     extract_learnings, PLAYWRIGHT_DIRECTIONS,
@@ -127,6 +128,8 @@ Environment variables:
                         default=os.environ.get("RALPH_REUSE_CONTEXT", "").lower()
                         in ("1", "true", "yes"),
                         help="Resume previous session when peak context < 75k")
+    parser.add_argument("--restart", action="store_true",
+                        help="Resume from an interrupted run — injects git state context into the first phase prompt")
     parser.add_argument("--learnings-path", default="",
                         help="Override auto-derived learnings file path")
 
@@ -142,6 +145,7 @@ Environment variables:
         learnings_path=args.learnings_path,
         reuse_context=args.reuse_context,
         max_eval_rounds=args.max_eval_rounds,
+        restart=args.restart,
     )
 
     # Resolve model preset

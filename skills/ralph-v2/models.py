@@ -82,6 +82,7 @@ class Config:
     task_timeout: int = DEFAULT_TASK_TIMEOUT
     max_eval_rounds: int = DEFAULT_MAX_EVAL_ROUNDS
     reuse_context: bool = False
+    restart: bool = False  # --restart: resuming from interrupted run, check working dir state
 
     def claude_model_flags(self) -> list[str]:
         flags = []

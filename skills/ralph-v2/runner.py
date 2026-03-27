@@ -56,7 +56,8 @@ def run_claude(prompt: str, config: Config,
                on_output: Callable[[str], None] = print,
                proc_register: Callable[[subprocess.Popen], None] | None = None,
                timeout: int = 0,
-               continue_session: str = "") -> ClaudeResult:
+               continue_session: str = "",
+               on_context: Callable[[int], None] | None = None) -> ClaudeResult:
     cmd = [
         "claude", "-p",
         *config.claude_model_flags(),
@@ -132,6 +133,8 @@ def run_claude(prompt: str, config: Config,
                               + usage.get("cache_creation_input_tokens", 0))
                 if turn_input > result.peak_input_tokens:
                     result.peak_input_tokens = turn_input
+                    if on_context is not None:
+                        on_context(turn_input)
 
         elif '"content_block_start"' in line and '"tool_use"' in line:
             tool = event.get("content_block", {}).get("name", "")

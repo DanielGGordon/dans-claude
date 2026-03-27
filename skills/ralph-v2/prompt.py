@@ -93,12 +93,67 @@ def load_project_context(work_dir: str) -> str:
     return "\n\n".join(parts)
 
 
+def get_restart_context(work_dir: str) -> str:
+    """Gather git state for --restart mode: status, diff summary, and stash list."""
+    parts: list[str] = []
+    try:
+        status = subprocess.run(
+            ["git", "status", "--short"],
+            capture_output=True, text=True, timeout=10, cwd=work_dir,
+        )
+        if status.stdout.strip():
+            parts.append(f"### git status --short\n```\n{status.stdout.strip()}\n```")
+        else:
+            parts.append("### git status\nWorking tree is clean.")
+    except Exception:
+        parts.append("### git status\nFailed to run git status.")
+
+    try:
+        diff_stat = subprocess.run(
+            ["git", "diff", "--stat", "HEAD"],
+            capture_output=True, text=True, timeout=10, cwd=work_dir,
+        )
+        if diff_stat.stdout.strip():
+            parts.append(f"### git diff --stat HEAD\n```\n{diff_stat.stdout.strip()}\n```")
+    except Exception:
+        pass
+
+    try:
+        stash = subprocess.run(
+            ["git", "stash", "list"],
+            capture_output=True, text=True, timeout=5, cwd=work_dir,
+        )
+        if stash.stdout.strip():
+            parts.append(f"### git stash list\n```\n{stash.stdout.strip()}\n```")
+    except Exception:
+        pass
+
+    return "\n\n".join(parts)
+
+
 # ─── Shared context appender ────────────────────────────────────────────────
 
 def _append_context(prompt: str, learnings: str = "",
                     project_context: str = "",
                     user_guidance: str = "",
-                    proposed_changes: str = "") -> str:
+                    proposed_changes: str = "",
+                    restart_context: str = "") -> str:
+    if restart_context:
+        prompt += f"""
+
+## RESTART — READ CAREFULLY
+
+This is a **restart** — a previous run was interrupted mid-phase. There are uncommitted changes in the working directory from the interrupted run. Before starting:
+
+1. Run `git status` and `git diff --stat` to understand what was already changed
+2. Check if work related to your current phase was already partially or fully done
+3. If work was partially done, continue from where it left off — do NOT redo or revert existing changes
+4. If the uncommitted changes are unrelated to your phase, leave them alone and proceed normally
+
+Here is the git state at restart time:
+
+{restart_context}"""
+
     if learnings:
         prompt += f"""
 
@@ -143,7 +198,8 @@ def build_generator_prompt(phase: Phase, plan_header: str, config: Config,
                            user_guidance: str = "",
                            project_context: str = "",
                            learnings: str = "",
-                           proposed_changes: str = "") -> str:
+                           proposed_changes: str = "",
+                           restart_context: str = "") -> str:
     criteria_list = "\n".join(f"- {c}" for c in phase.acceptance_criteria)
 
     v1_context = ""
@@ -211,7 +267,7 @@ Your job is to implement this entire phase autonomously in a single session.
    Only include genuine gotchas, surprises, or non-obvious decisions. Do not summarize routine work."""
 
     return _append_context(prompt, learnings, project_context, user_guidance,
-                           proposed_changes)
+                           proposed_changes, restart_context=restart_context)
 
 
 # ─── Evaluator prompt ───────────────────────────────────────────────────────

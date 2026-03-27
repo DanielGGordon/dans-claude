@@ -26,6 +26,7 @@ from plan import (
 )
 from prompt import (
     get_recent_commits, load_coding_rules, load_project_context,
+    get_restart_context,
     build_generator_prompt, build_evaluator_prompt,
     build_generator_retry_prompt, build_rescue_prompt,
     extract_learnings,
@@ -46,7 +47,7 @@ class RalphApp(App):
         height: 1fr;
     }
     #status {
-        height: 1;
+        height: auto;
         background: $surface;
         color: $text-muted;
         padding: 0 1;
@@ -78,6 +79,7 @@ class RalphApp(App):
         self.current_phase_num: int = 0
         self.total_phases: int = 0
         self.current_status: str = ""  # "Generating", "Evaluating 2/3", etc.
+        self._current_peak_context: int = 0
         self._completed_phases: int = 0
         self._failed_phases: int = 0
         self._phase_results: list[tuple[str, ClaudeResult]] = []
@@ -122,11 +124,16 @@ class RalphApp(App):
         parts.append(self.state.value)
         if self.current_status:
             parts.append(self.current_status)
+        if self._current_peak_context > 0:
+            parts.append(f"Ctx {format_tokens(self._current_peak_context)}")
         if self.current_phase_title and self.phase_start_time > 0:
             parts.append(
                 f"{self.current_phase_title} ({elapsed(self.phase_start_time)})"
             )
         self.query_one("#status", Static).update(" | ".join(parts))
+
+    def _on_context_update(self, peak_tokens: int) -> None:
+        self._current_peak_context = peak_tokens
 
     def _git_stash(self, message: str) -> bool:
         try:
@@ -315,6 +322,13 @@ class RalphApp(App):
         project_context = load_project_context(config.work_dir)
         consecutive_fails = 0
 
+        # Gather restart context if --restart was used
+        restart_ctx = ""
+        if config.restart:
+            restart_ctx = get_restart_context(config.work_dir)
+            out("🔄 RESTART MODE — injecting git state into first phase prompt")
+            out("")
+
         # Parse phases
         all_phases = parse_phases(config.plan_path)
         if config.phase is not None:
@@ -458,7 +472,9 @@ class RalphApp(App):
                             project_context=project_context,
                             learnings=learnings_content,
                             proposed_changes=proposed_changes,
+                            restart_context=restart_ctx,
                         )
+                        restart_ctx = ""  # only inject into first phase
                     else:
                         self.current_status = f"Retrying ({eval_round}/{config.max_eval_rounds})"
                         out(f"\n--- Generator retry (round {eval_round}/{config.max_eval_rounds}) ---")
@@ -472,10 +488,12 @@ class RalphApp(App):
                             proposed_changes=proposed_changes,
                         )
 
+                    self._current_peak_context = 0
                     gen_result = run_claude(
                         prompt, config, on_output=out,
                         proc_register=self._register_proc,
                         timeout=config.task_timeout,
+                        on_context=self._on_context_update,
                     )
                     self.current_proc = None
                     self.total_cost += gen_result.cost
@@ -507,10 +525,12 @@ class RalphApp(App):
                     out(f"\n--- Evaluator (round {eval_round}/{config.max_eval_rounds}) ---")
 
                     eval_prompt = build_evaluator_prompt(phase, config)
+                    self._current_peak_context = 0
                     eval_result_claude = run_claude(
                         eval_prompt, config, on_output=out,
                         proc_register=self._register_proc,
                         timeout=config.task_timeout,
+                        on_context=self._on_context_update,
                     )
                     self.current_proc = None
                     self.total_cost += eval_result_claude.cost
@@ -587,9 +607,11 @@ class RalphApp(App):
                 self.current_status = "Rescue"
                 out("Rescue agent starting...")
                 try:
+                    self._current_peak_context = 0
                     rescue_result = run_claude(
                         rescue_prompt, config, on_output=out,
                         proc_register=self._register_proc,
+                        on_context=self._on_context_update,
                     )
                     self.current_proc = None
                     self.total_cost += rescue_result.cost
