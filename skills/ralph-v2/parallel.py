@@ -146,3 +146,43 @@ def wait_for_parallel_completion() -> None:
         if result.returncode != 0:
             break
         time.sleep(5)
+
+
+def verify_parallel_results(
+    phases: list[int],
+    worktrees: dict[int, str],
+    repo_dir: str,
+    on_output: Callable[[str], None] = print,
+) -> list[int]:
+    """Verify each parallel branch has commits. Returns list of failed phase numbers."""
+    base_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_dir, capture_output=True, text=True,
+    ).stdout.strip()
+
+    failed: list[int] = []
+    for phase in phases:
+        branch = f"ralph/phase-{phase}"
+        # Check if branch exists
+        branch_check = subprocess.run(
+            ["git", "rev-parse", "--verify", branch],
+            cwd=repo_dir, capture_output=True, text=True,
+        )
+        if branch_check.returncode != 0:
+            on_output(f"  ⚠ Phase {phase}: branch {branch} does not exist")
+            failed.append(phase)
+            continue
+
+        # Check if branch has commits ahead of base
+        log_result = subprocess.run(
+            ["git", "log", "--oneline", f"{base_sha}..{branch}"],
+            cwd=repo_dir, capture_output=True, text=True,
+        )
+        commit_count = len(log_result.stdout.strip().splitlines()) if log_result.stdout.strip() else 0
+        if commit_count == 0:
+            on_output(f"  ⚠ Phase {phase}: branch {branch} has no commits (phase likely crashed)")
+            failed.append(phase)
+        else:
+            on_output(f"  ✓ Phase {phase}: {commit_count} commit(s) on {branch}")
+
+    return failed

@@ -59,6 +59,7 @@ from parallel import (  # noqa: F401
     TMUX_SESSION,
     create_worktrees, cleanup_worktrees, merge_parallel_branches,
     launch_parallel_tmux, wait_for_parallel_completion,
+    verify_parallel_results,
 )
 from launcher import (  # noqa: F401
     interactive_config, _has_fzf, _fzf_select, _menu_select,
@@ -130,6 +131,8 @@ Environment variables:
                         help="Resume previous session when peak context < 75k")
     parser.add_argument("--restart", action="store_true",
                         help="Resume from an interrupted run — injects git state context into the first phase prompt")
+    parser.add_argument("--prompt", default="",
+                        help="One-time guidance message injected into the first phase prompt")
     parser.add_argument("--learnings-path", default="",
                         help="Override auto-derived learnings file path")
 
@@ -146,6 +149,7 @@ Environment variables:
         reuse_context=args.reuse_context,
         max_eval_rounds=args.max_eval_rounds,
         restart=args.restart,
+        prompt=args.prompt,
     )
 
     # Resolve model preset

@@ -83,6 +83,7 @@ class Config:
     max_eval_rounds: int = DEFAULT_MAX_EVAL_ROUNDS
     reuse_context: bool = False
     restart: bool = False  # --restart: resuming from interrupted run, check working dir state
+    prompt: str = ""  # --prompt: one-time guidance injected into first phase
 
     def claude_model_flags(self) -> list[str]:
         flags = []

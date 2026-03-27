@@ -36,7 +36,8 @@ from runner import run_claude, read_inbox, needs_followup
 from evaluator import parse_eval_output, format_eval_summary
 from parallel import (
     create_worktrees, cleanup_worktrees, merge_parallel_branches,
-    launch_parallel_tmux, wait_for_parallel_completion, TMUX_SESSION,
+    launch_parallel_tmux, wait_for_parallel_completion,
+    verify_parallel_results, TMUX_SESSION,
 )
 
 
@@ -330,6 +331,12 @@ class RalphApp(App):
             out("🔄 RESTART MODE — injecting git state into first phase prompt")
             out("")
 
+        # Inject --prompt as initial guidance
+        if config.prompt:
+            self.guidance_queue.append(config.prompt)
+            out(f"📝 CLI prompt: {config.prompt}")
+            out("")
+
         # Parse phases
         all_phases = parse_phases(config.plan_path)
         if config.phase is not None:
@@ -405,12 +412,30 @@ class RalphApp(App):
                         self.current_status = f"Parallel: {n} phases"
                         self.update_status()
                         wait_for_parallel_completion()
-                        out(f"All {n} parallel phases finished")
-                        merge_parallel_branches(
+                        out(f"All {n} parallel tmux windows closed")
+
+                        # Verify each branch actually produced commits
+                        out("Verifying parallel results...")
+                        failed_phases = verify_parallel_results(
                             parallel_group, worktrees, config.work_dir, out,
                         )
+
+                        if failed_phases:
+                            out(
+                                f"⚠ {len(failed_phases)} parallel phase(s) "
+                                f"produced no commits: {failed_phases}",
+                                style="bold red",
+                            )
+                            self._failed_phases += len(failed_phases)
+
+                        # Only merge phases that succeeded
+                        succeeded = [p for p in parallel_group if p not in failed_phases]
+                        if succeeded:
+                            merge_parallel_branches(
+                                succeeded, worktrees, config.work_dir, out,
+                            )
+                            self._completed_phases += len(succeeded)
                         cleanup_worktrees(worktrees, config.work_dir)
-                        self._completed_phases += n
                     except Exception as e:
                         out(f"Parallel execution failed: {e}",
                             style="bold red")
