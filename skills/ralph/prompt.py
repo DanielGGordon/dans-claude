@@ -37,12 +37,68 @@ def load_project_context(work_dir: str) -> str:
     return "\n\n".join(parts)
 
 
+def get_restart_context(work_dir: str) -> str:
+    """Gather git state for --restart mode: status, diff summary, and stash list."""
+    parts: list[str] = []
+    try:
+        status = subprocess.run(
+            ["git", "status", "--short"],
+            capture_output=True, text=True, timeout=10, cwd=work_dir,
+        )
+        if status.stdout.strip():
+            parts.append(f"### git status --short\n```\n{status.stdout.strip()}\n```")
+        else:
+            parts.append("### git status\nWorking tree is clean.")
+    except Exception:
+        parts.append("### git status\nFailed to run git status.")
+
+    try:
+        diff_stat = subprocess.run(
+            ["git", "diff", "--stat", "HEAD"],
+            capture_output=True, text=True, timeout=10, cwd=work_dir,
+        )
+        if diff_stat.stdout.strip():
+            parts.append(f"### git diff --stat HEAD\n```\n{diff_stat.stdout.strip()}\n```")
+    except Exception:
+        pass
+
+    try:
+        stash = subprocess.run(
+            ["git", "stash", "list"],
+            capture_output=True, text=True, timeout=5, cwd=work_dir,
+        )
+        if stash.stdout.strip():
+            parts.append(f"### git stash list\n```\n{stash.stdout.strip()}\n```")
+    except Exception:
+        pass
+
+    return "\n\n".join(parts)
+
+
 # ─── Shared prompt context ──────────────────────────────────────────────────
 
 def _append_prompt_context(prompt: str, learnings_content: str = "",
                            project_context: str = "",
-                           user_guidance: str = "") -> str:
-    """Append learnings, project context, and user guidance sections to a prompt."""
+                           user_guidance: str = "",
+                           restart_context: str = "") -> str:
+    """Append learnings, project context, user guidance, and restart context sections to a prompt."""
+    if restart_context:
+        prompt += f"""
+
+## ⚠️ Restart Context — READ CAREFULLY
+
+This is a **restart** — a previous run was interrupted mid-phase. There are uncommitted changes in the working directory from the interrupted run. Before starting your task:
+
+1. Run `git status` and `git diff --stat` to understand what was already changed
+2. Check if work related to your current task was already partially or fully done
+3. If the previous run already completed work for your task, verify it and check off the task
+4. If work was partially done, continue from where it left off — do NOT redo or revert existing changes
+5. If the uncommitted changes are unrelated to your task, leave them alone and proceed normally
+
+Here is the git state at restart time:
+
+{restart_context}"""
+
     if learnings_content:
         prompt += f"""
 
@@ -77,7 +133,8 @@ def build_single_prompt(task: Task, plan_content: str, config: Config,
                         coding_rules: str, recent_commits: str,
                         user_guidance: str,
                         project_context: str = "",
-                        learnings_content: str = "") -> str:
+                        learnings_content: str = "",
+                        restart_context: str = "") -> str:
     prompt = f"""You are executing a single task from a plan.
 
 ## Your Task
@@ -116,14 +173,15 @@ These are the last 3 commits in the repo — read them to understand what work h
   Only record a learning if you discovered something surprising — a workaround, an environment quirk, a non-obvious dependency, or a dead end worth avoiding. Do not record routine work."""
 
     return _append_prompt_context(prompt, learnings_content, project_context,
-                                  user_guidance)
+                                  user_guidance, restart_context=restart_context)
 
 
 def build_batch_prompt(tasks: list[Task], plan_content: str, config: Config,
                        coding_rules: str, recent_commits: str,
                        user_guidance: str,
                        project_context: str = "",
-                       learnings_content: str = "") -> str:
+                       learnings_content: str = "",
+                       restart_context: str = "") -> str:
     task_list = "\n".join(f"- {t.text}" for t in tasks)
 
     prompt = f"""You are executing a batch of related tasks from a plan.
@@ -165,7 +223,7 @@ These are the last 3 commits in the repo — read them to understand what work h
   Only record a learning if you discovered something surprising. Do not record routine work."""
 
     return _append_prompt_context(prompt, learnings_content, project_context,
-                                  user_guidance)
+                                  user_guidance, restart_context=restart_context)
 
 
 def build_continuation_prompt(task: Task, config: Config,

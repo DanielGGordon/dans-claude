@@ -49,7 +49,7 @@ from plan import (  # noqa: F401
 )
 from prompt import (  # noqa: F401
     get_recent_commits, load_coding_rules, load_project_context,
-    _append_prompt_context,
+    get_restart_context, _append_prompt_context,
     build_single_prompt, build_batch_prompt, build_continuation_prompt,
     build_rescue_prompt,
 )
@@ -132,6 +132,8 @@ Environment variables:
     parser.add_argument("--reuse-context", action="store_true",
                         default=os.environ.get("RALPH_REUSE_CONTEXT", "").lower() in ("1", "true", "yes"),
                         help="Resume previous session when peak context < 75k tokens (default: off)")
+    parser.add_argument("--restart", action="store_true",
+                        help="Resume from an interrupted run — injects git state context into the first task prompt")
     parser.add_argument("--learnings-path", default="",
                         help="Override auto-derived learnings file path (for worktree instances)")
 
@@ -146,6 +148,7 @@ Environment variables:
         phase=args.phase,
         learnings_path=args.learnings_path,
         reuse_context=args.reuse_context,
+        restart=args.restart,
     )
 
     # --review / --no-review logic (--no-review wins if both given)

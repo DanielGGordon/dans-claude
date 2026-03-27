@@ -27,6 +27,7 @@ from plan import (
 )
 from prompt import (
     get_recent_commits, load_coding_rules, load_project_context,
+    get_restart_context,
     build_single_prompt, build_batch_prompt, build_continuation_prompt,
     build_rescue_prompt,
 )
@@ -368,6 +369,13 @@ class RalphApp(App):
         last_session_id = ""
         last_peak_ctx = 0
 
+        # Gather restart context (git state) if --restart was used
+        restart_ctx = ""
+        if config.restart:
+            restart_ctx = get_restart_context(config.work_dir)
+            out("🔄 RESTART MODE — injecting git state into first task prompt")
+            out("")
+
         min_line = 1
         last_task: Task | None = None
         while True:
@@ -500,7 +508,9 @@ class RalphApp(App):
                             batch_tasks, plan_content, config,
                             coding_rules, recent_commits, guidance,
                             project_context=project_context,
-                            learnings_content=learnings_content)
+                            learnings_content=learnings_content,
+                            restart_context=restart_ctx)
+                        restart_ctx = ""  # only inject into first task
 
                         result = run_claude(prompt, config, on_output=out,
                                             proc_register=self._register_proc,
@@ -554,7 +564,9 @@ class RalphApp(App):
                                 task, plan_content, config,
                                 coding_rules, recent_commits, guidance,
                                 project_context=project_context,
-                                learnings_content=learnings_content)
+                                learnings_content=learnings_content,
+                                restart_context=restart_ctx)
+                            restart_ctx = ""  # only inject into first task
                             result = run_claude(
                                 prompt, config, on_output=out,
                                 proc_register=self._register_proc,
