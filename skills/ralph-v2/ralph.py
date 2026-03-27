@@ -36,7 +36,7 @@ from plan import (  # noqa: F401
     _PHASE_HEADING_RE, _TASK_RE, _PARALLEL_RE,
     find_plan, parse_phases, get_phase, find_parallel_phases,
     parse_parallel_group, get_plan_header, get_phase_section,
-    is_phase_complete_v1, check_off_v1_tasks,
+    is_phase_complete_v1, is_phase_complete, check_off_v1_tasks, mark_phase_complete,
     derive_proposed_changes_path, load_proposed_changes,
     derive_learnings_path, derive_log_path,
     load_learnings, append_learning, format_plan_summary,

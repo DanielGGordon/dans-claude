@@ -21,7 +21,8 @@ from models import (
 from plan import (
     parse_phases, get_plan_header, find_parallel_phases,
     parse_parallel_group, load_proposed_changes,
-    check_off_v1_tasks, format_plan_summary,
+    is_phase_complete, check_off_v1_tasks, mark_phase_complete,
+    format_plan_summary,
     load_learnings, append_learning,
 )
 from prompt import (
@@ -370,6 +371,13 @@ class RalphApp(App):
                     # Continue with current phase_idx (already incremented or not)
                 continue
 
+            # Skip already-completed phases
+            if is_phase_complete(config.plan_path, phase):
+                out(f"⏭️  Phase {phase.number}: {phase.title} — already complete, skipping")
+                self._completed_phases += 1
+                phase_idx += 1
+                continue
+
             last_phase = phase
             self.current_phase_num = phase.number
             self.current_phase_title = phase.title
@@ -572,6 +580,7 @@ class RalphApp(App):
                     consecutive_fails = 0
                     if phase.v1_tasks:
                         check_off_v1_tasks(config.plan_path, phase)
+                    mark_phase_complete(config.plan_path, phase)
                 else:
                     self._failed_phases += 1
                     consecutive_fails += 1

@@ -253,6 +253,38 @@ def is_phase_complete_v1(plan_path: str, phase: Phase) -> bool:
     return True
 
 
+_PHASE_COMPLETE_RE = re.compile(r"<!--\s*PHASE\s+(\d+)\s+COMPLETE\s*-->", re.IGNORECASE)
+
+
+def is_phase_complete(plan_path: str, phase: Phase) -> bool:
+    """Check if a phase is complete (v1 checkbox or v2 completion marker)."""
+    if phase.v1_tasks is not None:
+        return is_phase_complete_v1(plan_path, phase)
+    # v2: look for <!-- PHASE N COMPLETE --> within the phase section
+    lines = Path(plan_path).read_text().splitlines()
+    start_idx = phase.line_start - 1
+    end_idx = min(phase.line_end, len(lines))
+    for line in lines[start_idx:end_idx]:
+        m = _PHASE_COMPLETE_RE.match(line.strip())
+        if m and int(m.group(1)) == phase.number:
+            return True
+    return False
+
+
+def mark_phase_complete(plan_path: str, phase: Phase) -> None:
+    """Insert a <!-- PHASE N COMPLETE --> marker after the phase heading."""
+    content = Path(plan_path).read_text()
+    lines = content.splitlines(keepends=True)
+    # Insert marker right after the phase heading line
+    marker = f"<!-- PHASE {phase.number} COMPLETE -->\n"
+    idx = phase.line_start  # line_start is 1-based, so this inserts after it
+    if idx < len(lines):
+        lines.insert(idx, marker)
+    else:
+        lines.append(marker)
+    Path(plan_path).write_text("".join(lines))
+
+
 def check_off_v1_tasks(plan_path: str, phase: Phase) -> None:
     """Check off all unchecked v1 tasks in a phase."""
     if phase.v1_tasks is None:
