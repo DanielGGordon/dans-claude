@@ -160,11 +160,16 @@ def run_claude(prompt: str, config: Config,
             result.duration_api_ms = event.get("duration_api_ms", 0)
             on_output(f"  {format_context_summary(result)}")
             on_output(f"  ${result.cost:.4f}")
+            break  # result is the final event — stop reading
 
     if watchdog is not None:
         watchdog.cancel()
 
-    proc.wait()
+    try:
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
     if timed_out.is_set():
         raise AgentTimeout()
     if proc.returncode is not None and proc.returncode < 0:

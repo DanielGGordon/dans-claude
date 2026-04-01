@@ -411,7 +411,17 @@ class RalphApp(App):
                         n = len(parallel_group)
                         self.current_status = f"Parallel: {n} phases"
                         self.update_status()
-                        wait_for_parallel_completion()
+
+                        # Stream children's log output to RichLog (without
+                        # re-writing to the log file, since children already do)
+                        def _parallel_display(line: str) -> None:
+                            log_widget = self.query_one("#log", RichLog)
+                            log_widget.write(f"  ║ {line}")
+
+                        wait_for_parallel_completion(
+                            log_path=config.log_path,
+                            on_output=_parallel_display,
+                        )
                         out(f"All {n} parallel tmux windows closed")
 
                         # Verify each branch actually produced commits

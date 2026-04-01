@@ -133,6 +133,8 @@ Environment variables:
                         help="Resume from an interrupted run — injects git state context into the first phase prompt")
     parser.add_argument("--prompt", default="",
                         help="One-time guidance message injected into the first phase prompt")
+    parser.add_argument("--effort", default="",
+                        help="Thinking effort level (forwarded to parallel children)")
     parser.add_argument("--learnings-path", default="",
                         help="Override auto-derived learnings file path")
 
@@ -159,6 +161,9 @@ Environment variables:
             config.model, config.effort = MODEL_PRESETS[model_str]
         else:
             config.model = model_str
+    # --effort flag (used by parallel children) takes precedence over preset
+    if args.effort:
+        config.effort = args.effort
 
     explicit = {
         "plan_path": bool(args.plan_path),
@@ -177,7 +182,9 @@ Environment variables:
 def main() -> None:
     config, explicit = parse_args()
 
-    interactive_config(config, explicit)
+    # Skip interactive prompts for parallel child processes (launched with --phase)
+    if config.phase is None:
+        interactive_config(config, explicit)
 
     if not config.plan_path:
         config.plan_path = find_plan("")

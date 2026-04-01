@@ -1,5 +1,6 @@
 """Parallel phase orchestration via git worktrees and tmux."""
 
+import shlex
 import subprocess
 import time
 from collections.abc import Callable
@@ -109,6 +110,8 @@ def _build_ralph_flags(config: Config) -> str:
     flags: list[str] = []
     if config.model:
         flags.append(f"--model {config.model}")
+    if config.effort:
+        flags.append(f"--effort {config.effort}")
     if config.skip_eval:
         flags.append("--no-eval")
     if config.task_timeout != 3600:
@@ -119,6 +122,10 @@ def _build_ralph_flags(config: Config) -> str:
         flags.append("--reuse-context")
     if config.delay > 0:
         flags.append(f"--delay {config.delay}")
+    if config.restart:
+        flags.append("--restart")
+    if config.prompt:
+        flags.append(f"--prompt {shlex.quote(config.prompt)}")
     return " ".join(flags)
 
 
@@ -152,13 +159,42 @@ def launch_parallel_tmux(
             )
 
 
-def wait_for_parallel_completion() -> None:
-    """Block until all windows in the ralph-parallel tmux session have exited."""
+def wait_for_parallel_completion(
+    log_path: str = "",
+    on_output: Callable[[str], None] | None = None,
+) -> None:
+    """Block until all windows in the ralph-parallel tmux session have exited.
+
+    If log_path and on_output are provided, tails the log file and streams
+    new lines to on_output so the parent TUI stays updated.
+    """
+    # Record current end of log so we only stream new content from children
+    log_pos = 0
+    if log_path and on_output:
+        try:
+            log_pos = Path(log_path).stat().st_size
+        except OSError:
+            pass
+
     while True:
         result = subprocess.run(
             ["tmux", "list-windows", "-t", TMUX_SESSION],
             capture_output=True, text=True,
         )
+
+        # Stream new log lines from parallel children
+        if log_path and on_output:
+            try:
+                with open(log_path, "r") as f:
+                    f.seek(log_pos)
+                    new_data = f.read()
+                    log_pos = f.tell()
+                if new_data:
+                    for line in new_data.splitlines():
+                        on_output(line)
+            except OSError:
+                pass
+
         if result.returncode != 0:
             break
         time.sleep(5)
