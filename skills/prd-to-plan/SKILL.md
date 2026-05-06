@@ -85,6 +85,24 @@ One round of feedback, not a deep interrogation. The planner fills gaps autonomo
 
 Create `./plans/` if it doesn't exist. Write the plan as a Markdown file named after the feature (e.g. `./plans/user-onboarding.md`). Use the template below.
 
+### 9. Auto-review the plan (always)
+
+After writing the plan file, automatically validate it before returning control to the user.
+
+`/review-plan`'s default search does not cover `./plans/` — so do not invoke that skill. Instead, run the `plan-reviewer` agent directly with the explicit path you just wrote, mirroring `/review-plan`'s logic locally. The flow:
+
+1. Launch the `plan-reviewer` named agent with: `Review the plan at {ABSOLUTE_PLAN_PATH}`.
+2. If it returns `{"ok": true}`, report `Plan written and review passed: {PLAN_PATH}` and stop.
+3. If it returns `{"ok": false, "reason": "..."}`, edit the plan to address every listed issue substantively (no filler). Then re-run the agent.
+4. If still failing, perform one more revision round and re-run the agent. **Cap at 2 revision rounds** — never loop more than twice.
+5. If the second round still fails, report the remaining issues to the user and ask them to address them manually:
+   > Plan written but still has issues after 2 auto-review rounds. Remaining feedback:
+   > {reason}
+   >
+   > Please review and address these manually in {PLAN_PATH}.
+
+Always use the `plan-reviewer` agent for the actual judgment — do not evaluate requirements yourself. Preserve passing sections; only modify what's needed to resolve the reviewer's feedback.
+
 <plan-template>
 # Plan: <Feature Name>
 

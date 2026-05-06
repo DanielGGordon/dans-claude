@@ -134,7 +134,7 @@ Use the plan-reviewer agent to check plan.md
   /write-a-prd
   ```
 
-- **`skills/prd-to-plan`** — Break a PRD into a phased implementation plan using vertical slices (tracer bullets), saved as a Markdown file in `./plans/`.
+- **`skills/prd-to-plan`** — Break a PRD into a phased implementation plan using vertical slices (tracer bullets), saved as a Markdown file in `./plans/`. After writing, automatically validates the plan via the `plan-reviewer` agent and revises it (up to 2 rounds) before returning control to the user.
   ```
   /prd-to-plan
   ```
@@ -182,7 +182,7 @@ Use the plan-reviewer agent to check plan.md
 
 ### Execution & Review
 
-- **`skills/ralph`** — Ralph Loop: executes a plan file task-by-task, dispatching each task to a fresh subagent so context resets between tasks.
+- **`skills/ralph`** — Ralph Loop: executes a plan file task-by-task, dispatching each task to a fresh subagent so context resets between tasks. Every dispatched prompt has the TDD red-green-refactor methodology baked in — subagents are required to drive each task with one-test-at-a-time vertical slices.
   ```
   /ralph                          # auto-finds plan.md or checks ~/.claude/plans/
   /ralph path/to/my-plan.md      # explicit plan path
@@ -201,7 +201,7 @@ Use the plan-reviewer agent to check plan.md
 
   **Stopping and resuming:** Ctrl+C or tell it to stop. Next time you run `/ralph`, it picks up from the first unchecked task.
 
-- **`skills/ralph-codex`** — Ralph-Codex: executes a plan file using OpenAI Codex CLI in a single automated shot. Codex reads the plan, executes the next unchecked task, and checks it off — with full permissions and zero user interaction.
+- **`skills/ralph-codex`** — Ralph-Codex: executes a plan file using OpenAI Codex CLI in a single automated shot. Codex reads the plan, executes the next unchecked task, and checks it off — with full permissions and zero user interaction. The codex prompt has the TDD red-green-refactor methodology baked in.
   ```
   /ralph-codex                       # auto-finds plan.md or checks ~/.claude/plans/
   /ralph-codex path/to/my-plan.md   # explicit plan path

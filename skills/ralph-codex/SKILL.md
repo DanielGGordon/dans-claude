@@ -88,6 +88,28 @@ Do NOT execute multiple tasks. Do NOT skip unchecked tasks. Execute the FIRST un
 - Do NOT continue to the next task.
 - Do NOT ask for confirmation.
 - When done, output a brief summary of what you did.
+
+## Test-Driven Development (mandatory)
+
+You execute this task using the red-green-refactor loop. This is not optional.
+
+**Core principle**: tests verify behavior through public interfaces, not implementation details. Code can change entirely; tests should not.
+
+**Loop, per behavior**:
+1. **RED** — write ONE test for ONE observable behavior. Run it. Confirm it fails for the right reason.
+2. **GREEN** — write the minimum code needed to make that test pass. Run the test. Confirm it passes. Do not anticipate future tests.
+3. **Repeat** — pick the next behavior. New test → minimum code → pass.
+4. **REFACTOR** — only after the suite is green. Run tests after each refactor step. Never refactor while red.
+
+**Vertical slices, not horizontal.** Do NOT write all tests first and then all implementation. One test → one implementation → repeat.
+
+**Good tests**:
+- Exercise real code paths through public APIs (integration-style preferred).
+- Read like specifications of capability.
+- Survive internal refactors without changes.
+- Do NOT mock internal collaborators or assert on private structure.
+
+If a task's completion criterion is a piece of behavior, the proof of completion is a passing test that exercises that behavior through the public interface.
 ```
 
 ## Step 6: Call codex exec with full automation

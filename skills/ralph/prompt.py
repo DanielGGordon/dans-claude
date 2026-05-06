@@ -75,6 +75,40 @@ def get_restart_context(work_dir: str) -> str:
     return "\n\n".join(parts)
 
 
+# ─── Shared prompt sections ─────────────────────────────────────────────────
+
+TDD_SECTION = """
+
+## Test-Driven Development (mandatory)
+
+You execute every task using the red-green-refactor loop. This is not optional and not a style preference — it is how Ralph tasks are completed.
+
+**Core principle**: tests verify behavior through public interfaces, not implementation details. Code can change entirely; tests should not.
+
+**Loop, per behavior**:
+1. **RED** — write ONE test for ONE observable behavior. Run it. Confirm it fails for the right reason.
+2. **GREEN** — write the minimum code needed to make that test pass. Run the test. Confirm it passes. Do not anticipate future tests.
+3. **Repeat** — pick the next behavior. New test → minimum code → pass.
+4. **REFACTOR** — only after the suite is green. Run tests after each refactor step. Never refactor while red.
+
+**Vertical slices, not horizontal.** Do NOT write all the tests first and then all the implementation. That produces tests of imagined behavior coupled to data shapes rather than tests of real behavior. One test → one implementation → repeat.
+
+**What good tests look like here**:
+- They exercise real code paths through public APIs (integration-style preferred).
+- They read like specifications of capability ("user can X with Y").
+- They survive internal refactors without changes.
+- They do NOT mock internal collaborators or assert on private structure.
+
+**Per-cycle checklist**:
+- [ ] Test describes behavior, not implementation
+- [ ] Test uses the public interface only
+- [ ] Test would survive an internal refactor
+- [ ] Code added is the minimum for this test to pass
+- [ ] No speculative features added beyond what the current test demands
+
+If a task's completion criterion is a piece of behavior, the proof of completion is a passing test that exercises that behavior through the public interface. If a test cannot be written for a criterion, surface that in your summary rather than skipping the test."""
+
+
 # ─── Shared prompt context ──────────────────────────────────────────────────
 
 def _append_prompt_context(prompt: str, learnings_content: str = "",
@@ -172,6 +206,8 @@ These are the last 3 commits in the repo — read them to understand what work h
   `[done YYYY-MM-DD HH:MM] Task description. ⚠️ Learning: <only if there's a genuine gotcha, else omit>`
   Only record a learning if you discovered something surprising — a workaround, an environment quirk, a non-obvious dependency, or a dead end worth avoiding. Do not record routine work."""
 
+    prompt += TDD_SECTION
+
     return _append_prompt_context(prompt, learnings_content, project_context,
                                   user_guidance, restart_context=restart_context)
 
@@ -222,6 +258,8 @@ These are the last 3 commits in the repo — read them to understand what work h
   `[done YYYY-MM-DD HH:MM] Task description. ⚠️ Learning: <only if there's a genuine gotcha, else omit>`
   Only record a learning if you discovered something surprising. Do not record routine work."""
 
+    prompt += TDD_SECTION
+
     return _append_prompt_context(prompt, learnings_content, project_context,
                                   user_guidance, restart_context=restart_context)
 
@@ -249,6 +287,8 @@ def build_continuation_prompt(task: Task, config: Config,
 - After completing (or failing), append a learning line to `{config.learnings_path}`. Format:
   `[done YYYY-MM-DD HH:MM] Task description. ⚠️ Learning: <only if genuine gotcha>`
   Only record a learning if you discovered something surprising."""
+
+    prompt += TDD_SECTION
 
     return _append_prompt_context(prompt, learnings_content,
                                   user_guidance=user_guidance)
@@ -297,5 +337,7 @@ The previous agent ran for {elapsed_mins} minutes without completing this task. 
 ## Coding Agent Rules
 
 {coding_rules or "No coding agent rules file found — use your best judgment."}"""
+
+    prompt += TDD_SECTION
 
     return _append_prompt_context(prompt, learnings_content, project_context)
