@@ -48,13 +48,18 @@ _USAGE_LIMIT_RE = re.compile(
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 MODEL_PRESETS = {
-    "opus-max":    ("claude-opus-4-6",            "max"),
-    "opus-high":   ("claude-opus-4-6",            "high"),
-    "opus-med":    ("claude-opus-4-6",            "medium"),
-    "opus":        ("claude-opus-4-6",            ""),
-    "sonnet-high": ("claude-sonnet-4-6",          "high"),
-    "sonnet":      ("claude-sonnet-4-6",          ""),
-    "haiku":       ("claude-haiku-4-5-20251001",  ""),
+    "opus-xhigh":      ("claude-opus-4-7",            "xhigh"),
+    "opus-max":        ("claude-opus-4-7",            "max"),
+    "opus-high":       ("claude-opus-4-7",            "high"),
+    "opus-med":        ("claude-opus-4-7",            "medium"),
+    "opus":            ("claude-opus-4-7",            ""),
+    "opus-4-6-max":    ("claude-opus-4-6",            "max"),
+    "opus-4-6-high":   ("claude-opus-4-6",            "high"),
+    "opus-4-6-med":    ("claude-opus-4-6",            "medium"),
+    "opus-4-6":        ("claude-opus-4-6",            ""),
+    "sonnet-high":     ("claude-sonnet-4-6",          "high"),
+    "sonnet":          ("claude-sonnet-4-6",          ""),
+    "haiku":           ("claude-haiku-4-5-20251001",  ""),
 }
 
 CODING_AGENTS_FILE = Path.home() / ".claude" / "CODING_AGENTS.md"

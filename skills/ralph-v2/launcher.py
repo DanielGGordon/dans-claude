@@ -103,7 +103,7 @@ def interactive_config(config: Config, explicit: dict[str, bool]) -> Config:
     # -- Model selector --
     if not explicit["model"]:
         presets = list(MODEL_PRESETS.keys())
-        selected = _pick(presets, "Model: ", default="opus-high")
+        selected = _pick(presets, "Model: ", default="opus-xhigh")
         if selected in MODEL_PRESETS:
             config.model, config.effort = MODEL_PRESETS[selected]
         else:

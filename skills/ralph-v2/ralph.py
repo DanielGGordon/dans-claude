@@ -76,14 +76,19 @@ def parse_args() -> tuple[Config, dict[str, bool]]:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Model presets:
-  opus-max       Opus 4.6, max thinking      (most capable, slowest)
-  opus-high      Opus 4.6, high thinking     (default for hard tasks)
-  opus-med       Opus 4.6, medium thinking
-  opus           Opus 4.6, no effort set
+  opus-xhigh     Opus 4.7, xhigh thinking    (default; most capable)
+  opus-max       Opus 4.7, max thinking
+  opus-high      Opus 4.7, high thinking
+  opus-med       Opus 4.7, medium thinking
+  opus           Opus 4.7, no effort set
+  opus-4-6-max   Opus 4.6, max thinking
+  opus-4-6-high  Opus 4.6, high thinking
+  opus-4-6-med   Opus 4.6, medium thinking
+  opus-4-6       Opus 4.6, no effort set
   sonnet-high    Sonnet 4.6, high thinking
   sonnet         Sonnet 4.6, no effort set   (fast, good for simple tasks)
   haiku          Haiku 4.5, no effort set    (fastest, cheapest)
-  Or pass any claude model ID directly (e.g. claude-opus-4-6)
+  Or pass any claude model ID directly (e.g. claude-opus-4-7)
 
 Build/evaluate loop:
   For each phase, the generator implements the full phase, then the
