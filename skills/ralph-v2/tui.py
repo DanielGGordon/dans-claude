@@ -311,7 +311,10 @@ class RalphApp(App):
         if config.skip_eval:
             out("Evaluator: disabled")
         else:
-            out(f"Evaluator: enabled (max {config.max_eval_rounds} rounds)")
+            reviewer_info = config.reviewer_model or "(same as generator)"
+            if config.reviewer_model and config.reviewer_effort:
+                reviewer_info += f" (effort: {config.reviewer_effort})"
+            out(f"Evaluator: enabled (max {config.max_eval_rounds} rounds) — model: {reviewer_info}")
         out(f"Learnings: {config.learnings_path}")
         out(f"Log: {config.log_path}")
         if config.task_timeout > 0:
@@ -574,6 +577,7 @@ class RalphApp(App):
                         proc_register=self._register_proc,
                         timeout=config.task_timeout,
                         on_context=self._on_context_update,
+                        model_flags=config.reviewer_flags(),
                     )
                     self.current_proc = None
                     self.total_cost += eval_result_claude.cost

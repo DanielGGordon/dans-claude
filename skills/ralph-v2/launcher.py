@@ -115,4 +115,15 @@ def interactive_config(config: Config, explicit: dict[str, bool]) -> Config:
                          default="yes")
         config.skip_eval = (selected != "yes")
 
+    # -- Reviewer model selector (skip if evaluator disabled or already set) --
+    if not config.skip_eval and not explicit.get("reviewer_model"):
+        SAME = "same-as-generator"
+        choices = [SAME] + list(MODEL_PRESETS.keys())
+        selected = _pick(choices, "Reviewer model: ", default=SAME)
+        if selected and selected != SAME:
+            if selected in MODEL_PRESETS:
+                config.reviewer_model, config.reviewer_effort = MODEL_PRESETS[selected]
+            else:
+                config.reviewer_model = selected
+
     return config

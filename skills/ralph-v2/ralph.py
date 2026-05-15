@@ -103,6 +103,7 @@ Interactive features (TUI mode):
 Environment variables:
   RALPH_DELAY            Same as --delay
   RALPH_MODEL            Same as --model
+  RALPH_REVIEWER_MODEL   Same as --reviewer-model
   RALPH_TASK_TIMEOUT     Same as --task-timeout
   RALPH_MAX_EVAL_ROUNDS  Same as --max-eval-rounds
   RALPH_REUSE_CONTEXT    Same as --reuse-context (1/true/yes to enable)""",
@@ -124,6 +125,9 @@ Environment variables:
                         help="Model preset or claude model ID")
     parser.add_argument("--reviewer", default="auto",
                         help="Kept for backward compatibility")
+    parser.add_argument("--reviewer-model", default=os.environ.get("RALPH_REVIEWER_MODEL", ""),
+                        help="Model preset or claude model ID for the evaluator/reviewer "
+                             "(default: same as generator)")
     parser.add_argument("--phase", type=int, default=None,
                         help="Only execute a single phase")
     parser.add_argument("--task-timeout", type=int,
@@ -170,10 +174,19 @@ Environment variables:
     if args.effort:
         config.effort = args.effort
 
+    # Resolve reviewer-model preset
+    reviewer_str = args.reviewer_model
+    if reviewer_str:
+        if reviewer_str in MODEL_PRESETS:
+            config.reviewer_model, config.reviewer_effort = MODEL_PRESETS[reviewer_str]
+        else:
+            config.reviewer_model = reviewer_str
+
     explicit = {
-        "plan_path": bool(args.plan_path),
-        "model":     bool(args.model),
-        "eval":      args.no_eval,
+        "plan_path":      bool(args.plan_path),
+        "model":          bool(args.model),
+        "eval":           args.no_eval,
+        "reviewer_model": bool(args.reviewer_model),
     }
 
     if explicit["plan_path"]:

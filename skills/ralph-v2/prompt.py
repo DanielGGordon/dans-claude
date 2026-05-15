@@ -248,10 +248,22 @@ Your job is to implement this entire phase autonomously in a single session.
 
 {coding_rules or "No coding agent rules file found -- use your best judgment."}
 
+## Methodology: Test-Driven Development (REQUIRED)
+
+You MUST use TDD for this phase. Invoke the `/tdd` skill before writing implementation code, and follow it throughout:
+
+- **Vertical slices, not horizontal.** One test → minimal implementation → next test. Never write all tests up front, then all code — that produces tests of imagined behavior.
+- **Red → Green → Refactor.** Write a failing test for one behavior, write the minimal code to pass, then refactor with tests green.
+- **Test behavior through public interfaces**, not implementation details. Tests should survive internal refactors.
+- **Integration-style over unit-of-the-week.** Prefer tests that exercise real code paths over heavy mocking. Mock only at true system boundaries.
+- Run tests after every step. Never refactor while red.
+
+If the project already has a test runner (`pytest`, `npm test`, `vitest`, etc.), use it. If it does not, set one up as your first step.
+
 ## Instructions
 
-1. Implement the full phase autonomously. Do NOT ask for permission or clarification -- make decisions and move forward.
-2. Commit your work incrementally with meaningful commit messages. Each logical unit of work should be its own commit.
+1. Start by invoking the `/tdd` skill, then implement the full phase autonomously using red-green-refactor. Do NOT ask for permission or clarification -- make decisions and move forward.
+2. Commit your work incrementally with meaningful commit messages. Each logical unit of work (one passing test + its implementation) should be its own commit when feasible.
 3. The acceptance criteria above are your target. The evaluator will test each one independently after you finish.
 4. Do NOT self-evaluate quality -- that is the evaluator's job. Focus on building.
 5. If you discover something relevant to future phases (architectural decisions, gotchas, suggested changes), write it to `{proposed_changes_file}`. Format:
@@ -379,6 +391,13 @@ The evaluator found issues with the previous implementation. Fix them without re
 ## Coding Rules
 
 {coding_rules or "No coding agent rules file found -- use your best judgment."}
+
+## Methodology: TDD (REQUIRED)
+
+Continue using TDD via the `/tdd` skill. For each failed criterion:
+1. Write a failing test that captures the bug or missing behavior.
+2. Make the minimal change to pass it.
+3. Keep all previously passing tests green — do not regress.
 
 ## Instructions
 

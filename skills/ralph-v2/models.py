@@ -81,6 +81,8 @@ class Config:
     reviewer: str = "auto"
     model: str = ""
     effort: str = ""
+    reviewer_model: str = ""   # if empty, evaluator uses the generator's model
+    reviewer_effort: str = ""
     learnings_path: str = ""
     log_path: str = ""
     phase: int | None = None
@@ -96,6 +98,17 @@ class Config:
             flags += ["--model", self.model]
         if self.effort:
             flags += ["--effort", self.effort]
+        return flags
+
+    def reviewer_flags(self) -> list[str]:
+        """Flags for the evaluator/reviewer. Falls back to generator model/effort."""
+        model = self.reviewer_model or self.model
+        effort = self.reviewer_effort if self.reviewer_model else self.effort
+        flags = []
+        if model:
+            flags += ["--model", model]
+        if effort:
+            flags += ["--effort", effort]
         return flags
 
 

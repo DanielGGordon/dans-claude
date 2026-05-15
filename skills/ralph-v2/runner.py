@@ -57,10 +57,11 @@ def run_claude(prompt: str, config: Config,
                proc_register: Callable[[subprocess.Popen], None] | None = None,
                timeout: int = 0,
                continue_session: str = "",
-               on_context: Callable[[int], None] | None = None) -> ClaudeResult:
+               on_context: Callable[[int], None] | None = None,
+               model_flags: list[str] | None = None) -> ClaudeResult:
     cmd = [
         "claude", "-p",
-        *config.claude_model_flags(),
+        *(model_flags if model_flags is not None else config.claude_model_flags()),
         "--dangerously-skip-permissions",
         "--verbose",
         "--output-format", "stream-json",
