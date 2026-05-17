@@ -140,6 +140,14 @@ def launch_parallel_tmux(
     ralph_script = str(Path(__file__).resolve().parent / "ralph.py")
     config_flags = _build_ralph_flags(config)
 
+    # Kill any leftover session with the same name. tmux's session-uniqueness
+    # rule otherwise causes new-session to fail with exit 1, which is a common
+    # silent failure mode after an interrupted parallel run.
+    subprocess.run(
+        ["tmux", "kill-session", "-t", TMUX_SESSION],
+        capture_output=True, text=True,
+    )
+
     for i, phase in enumerate(phases):
         wt = worktrees[phase]
         cmd = (f"cd {wt} && python3 {ralph_script} {plan_path}"
