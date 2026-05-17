@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from models import Config
+from recovery import git_state_clean, run_with_recovery, post_merge_wrap
 
 
 TMUX_SESSION = "ralph-parallel"
@@ -45,64 +46,98 @@ def merge_parallel_branches(
     worktrees: dict[int, str],
     repo_dir: str,
     on_output: Callable[[str], None] = print,
+    *,
+    run_post_wrap: bool = True,
 ) -> None:
-    """Merge each phase branch back into main sequentially."""
+    """Merge each phase branch back into main sequentially.
+
+    Every git operation is wrapped in `run_with_recovery` so a non-zero exit
+    code, a half-finished rebase, or a dirty working tree triggers a
+    `claude -p` recovery agent before we give up. The merge step also
+    verifies the working tree is clean before continuing to the next branch,
+    closing the gap where a "resolved" conflict left files uncommitted.
+    """
+    # Make sure we start from a clean tree — uncommitted changes here will
+    # silently sabotage `git merge --ff-only` and `git rebase`.
+    ok, why = git_state_clean(repo_dir)
+    if not ok:
+        on_output(f"  Pre-merge: working tree not clean ({why})")
+        res = run_with_recovery(
+            ["git", "status"], cwd=repo_dir, on_output=on_output,
+            directive=(
+                "Ralph is about to merge parallel phase branches but the "
+                "working tree is not clean. Decide whether the uncommitted "
+                "changes should be committed, stashed, or discarded based on "
+                "their content, then leave the working tree clean. Be "
+                "conservative: prefer commit or stash over discard."
+            ),
+            extra_context=why,
+            check_ok=lambda: git_state_clean(repo_dir),
+        )
+        if not res.ok:
+            raise RuntimeError(
+                "Pre-merge cleanup failed: working tree still dirty"
+            )
+
     for i, phase in enumerate(phases):
         branch = f"ralph/phase-{phase}"
         on_output(f"  Merging {branch}...")
 
         if i > 0:
-            rebase = subprocess.run(
+            rebase_res = run_with_recovery(
                 ["git", "rebase", "HEAD", branch],
-                cwd=repo_dir, capture_output=True, text=True,
+                cwd=repo_dir, on_output=on_output,
+                directive=(
+                    f"A git rebase of '{branch}' (phase {phase}) onto the "
+                    f"current branch failed. Other phases already merged: "
+                    f"{phases[:i]}. Resolve every conflict in the working "
+                    f"tree, `git add` the resolved files, run "
+                    f"`git rebase --continue` until the rebase completes, "
+                    f"and leave HEAD on '{branch}' with a clean working "
+                    f"tree. If conflicts are genuinely irreconcilable, run "
+                    f"`git rebase --abort` and report why."
+                ),
+                check_ok=lambda: git_state_clean(repo_dir),
             )
-            if rebase.returncode != 0:
-                on_output(f"  Rebase conflict on {branch} -- attempting auto-resolve")
-                diff_result = subprocess.run(
-                    ["git", "diff"], cwd=repo_dir, capture_output=True, text=True,
+            if not rebase_res.ok:
+                # Make sure we leave no dangling rebase state behind.
+                subprocess.run(
+                    ["git", "rebase", "--abort"],
+                    cwd=repo_dir, capture_output=True, text=True,
                 )
-                conflict_diff = diff_result.stdout[:4000]
-
-                resolve_prompt = (
-                    f"You are resolving a git rebase conflict.\n\n"
-                    f"Branch '{branch}' (phase {phase}) is being rebased onto main.\n"
-                    f"The other phases ({phases[:i]}) have already been merged.\n\n"
-                    f"Conflict diff:\n```\n{conflict_diff}\n```\n\n"
-                    f"Resolve all conflicts in the working tree, then run "
-                    f"'git add' on resolved files and 'git rebase --continue'.\n"
-                    f"If the conflicts are irreconcilable, run 'git rebase --abort' "
-                    f"and explain why."
-                )
-                agent = subprocess.run(
-                    ["claude", "-p", "--dangerously-skip-permissions",
-                     "--output-format", "text"],
-                    input=resolve_prompt,
-                    cwd=repo_dir, capture_output=True, text=True, timeout=300,
-                )
-                if agent.returncode != 0:
-                    subprocess.run(
-                        ["git", "rebase", "--abort"],
-                        cwd=repo_dir, capture_output=True, text=True,
-                    )
-                    raise RuntimeError(
-                        f"Failed to resolve conflicts merging {branch}."
-                    )
-                on_output(f"  Conflicts resolved by Claude agent")
-
-        merge = subprocess.run(
-            ["git", "merge", "--ff-only", branch],
-            cwd=repo_dir, capture_output=True, text=True,
-        )
-        if merge.returncode != 0:
-            merge = subprocess.run(
-                ["git", "merge", branch, "-m", f"Merge parallel phase {phase}"],
-                cwd=repo_dir, capture_output=True, text=True,
-            )
-            if merge.returncode != 0:
                 raise RuntimeError(
-                    f"Merge failed for {branch}: {merge.stderr}"
+                    f"Rebase of {branch} could not be completed."
+                )
+
+        # Try fast-forward first; fall back to a merge commit if histories
+        # have diverged. Both go through recovery so an unexpected error
+        # (e.g. uncommitted leftovers) gets addressed instead of bubbling up.
+        ff_res = run_with_recovery(
+            ["git", "merge", "--ff-only", branch],
+            cwd=repo_dir, on_output=on_output,
+            max_retries=0,  # don't recover ff-only; we'll fall through
+        )
+        if not ff_res.ok:
+            merge_res = run_with_recovery(
+                ["git", "merge", branch, "-m",
+                 f"Merge parallel phase {phase}"],
+                cwd=repo_dir, on_output=on_output,
+                directive=(
+                    f"`git merge {branch}` failed. Inspect the working tree "
+                    f"and resolve whatever is blocking the merge (conflicts, "
+                    f"uncommitted state, missing files). Complete the merge "
+                    f"and leave the working tree clean."
+                ),
+                check_ok=lambda: git_state_clean(repo_dir),
+            )
+            if not merge_res.ok:
+                raise RuntimeError(
+                    f"Merge failed for {branch}: {merge_res.last_stderr}"
                 )
         on_output(f"  {branch} merged")
+
+    if run_post_wrap:
+        post_merge_wrap(repo_dir, on_output=on_output)
 
 
 def _build_ralph_flags(config: Config) -> str:
