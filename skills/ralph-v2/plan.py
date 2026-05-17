@@ -260,11 +260,12 @@ def is_phase_complete(plan_path: str, phase: Phase) -> bool:
     """Check if a phase is complete (v1 checkbox or v2 completion marker)."""
     if phase.v1_tasks is not None:
         return is_phase_complete_v1(plan_path, phase)
-    # v2: look for <!-- PHASE N COMPLETE --> within the phase section
+    # v2: search the whole file for <!-- PHASE N COMPLETE --> matching this phase.
+    # Whole-file search is intentional: markers can drift out of their original
+    # phase section if multiple phases are marked in one session (each insert
+    # shifts subsequent line numbers).
     lines = Path(plan_path).read_text().splitlines()
-    start_idx = phase.line_start - 1
-    end_idx = min(phase.line_end, len(lines))
-    for line in lines[start_idx:end_idx]:
+    for line in lines:
         m = _PHASE_COMPLETE_RE.match(line.strip())
         if m and int(m.group(1)) == phase.number:
             return True
@@ -272,16 +273,34 @@ def is_phase_complete(plan_path: str, phase: Phase) -> bool:
 
 
 def mark_phase_complete(plan_path: str, phase: Phase) -> None:
-    """Insert a <!-- PHASE N COMPLETE --> marker after the phase heading."""
+    """Insert a <!-- PHASE N COMPLETE --> marker right after the phase heading.
+
+    Re-finds the heading line at write time so the marker lands correctly even
+    if the file has shifted since phases were parsed.
+    """
     content = Path(plan_path).read_text()
     lines = content.splitlines(keepends=True)
-    # Insert marker right after the phase heading line
     marker = f"<!-- PHASE {phase.number} COMPLETE -->\n"
-    idx = phase.line_start  # line_start is 1-based, so this inserts after it
-    if idx < len(lines):
-        lines.insert(idx, marker)
-    else:
+
+    # Skip if already marked anywhere in the file
+    bare_lines = content.splitlines()
+    for line in bare_lines:
+        m = _PHASE_COMPLETE_RE.match(line.strip())
+        if m and int(m.group(1)) == phase.number:
+            return
+
+    heading_re = re.compile(rf"^##\s+Phase\s+{phase.number}\b", re.IGNORECASE)
+    insert_at = None
+    for i, line in enumerate(lines):
+        if heading_re.match(line):
+            insert_at = i + 1
+            break
+
+    if insert_at is None:
+        # Heading not found — append at EOF as a last resort
         lines.append(marker)
+    else:
+        lines.insert(insert_at, marker)
     Path(plan_path).write_text("".join(lines))
 
 
