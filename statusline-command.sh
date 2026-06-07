@@ -26,8 +26,15 @@
 
 input=$(cat)
 
+# Pick an available Python interpreter (python3 preferred, python as fallback)
+PYTHON_BIN="$(command -v python3 || command -v python)"
+if [ -z "$PYTHON_BIN" ]; then
+  printf "statusline: no python found"
+  exit 0
+fi
+
 # Parse all fields in a single python call for efficiency
-parsed="$(echo "$input" | python -c "
+parsed="$(echo "$input" | "$PYTHON_BIN" -c "
 import sys, json, shlex, os
 
 d = json.load(sys.stdin)
@@ -85,6 +92,10 @@ remote = bool(d.get('remoteControl') or d.get('remote_control') or d.get('isRemo
 
 def fmt_model(m):
     mappings = {
+        'claude-opus-4-8[1m]': 'Opus 4.8 (1M)',
+        'claude-opus-4-8': 'Opus 4.8',
+        'claude-opus-4-7[1m]': 'Opus 4.7 (1M)',
+        'claude-opus-4-7': 'Opus 4.7',
         'claude-opus-4-6[1m]': 'Opus 4.6 (1M)',
         'claude-opus-4-6': 'Opus 4.6',
         'claude-sonnet-4-6[1m]': 'Sonnet 4.6 (1M)',
