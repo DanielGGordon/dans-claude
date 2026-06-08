@@ -39,15 +39,17 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── hooks/
 │   └── plan-review-stop.sh  # Stop hook: auto-review plan before Claude proceeds
 ├── skills/
-│   ├── ralph/
-│   │   ├── SKILL.md         # Ralph loop: execute plans task-by-task with context reset
-│   │   ├── ralph.py         # Python implementation (replaces ralph.sh)
-│   │   └── ralph-legacy.sh  # Bash implementation (kept for rollback)
-│   ├── ralph-codex/
-│   │   └── SKILL.md         # Ralph-Codex: execute plans with OpenAI Codex CLI in one shot
-│   ├── ralph-github/
-│   │   ├── SKILL.md         # Ralph-GitHub: wrapper for ralph.py --review
-│   │   └── ralph-github.sh  # Thin wrapper that runs ralph.py --review
+│   ├── ralph-v2/
+│   │   ├── ralph.py         # Phase-level build/evaluate harness (generator + evaluator + rescue)
+│   │   ├── launcher.py      # Entry point / arg parsing
+│   │   ├── runner.py        # Per-phase execution loop
+│   │   ├── evaluator.py     # Tests phase output against acceptance criteria
+│   │   ├── recovery.py      # Rescues stuck phases after timeout
+│   │   ├── parallel.py      # Parallel phase execution across worktrees
+│   │   ├── plan.py          # Plan parsing (phases + acceptance criteria)
+│   │   ├── prompt.py        # Prompt building
+│   │   ├── models.py        # Shared dataclasses/constants
+│   │   └── tui.py           # Textual TUI (live progress + guidance input)
 │   ├── review-plan/
 │   │   └── SKILL.md         # On-demand plan review and auto-fix
 │   ├── write-a-prd/
@@ -71,7 +73,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │       ├── refactoring.md   # Refactoring checklist
 │       └── tests.md         # Test examples
 ├── tests/
-│   └── test_ralph.py        # Tests for ralph.py
+│   └── test_ralph_v2.py     # Tests for ralph-v2
 ├── aliases.sh               # Shell aliases sourced from ~/.bash_aliases
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md
@@ -182,55 +184,21 @@ Use the plan-reviewer agent to check plan.md
 
 ### Execution & Review
 
-- **`skills/ralph`** — Ralph Loop: executes a plan file task-by-task, dispatching each task to a fresh subagent so context resets between tasks. Every dispatched prompt has the TDD red-green-refactor methodology baked in — subagents are required to drive each task with one-test-at-a-time vertical slices.
+- **`skills/ralph-v2`** — Ralph v2: a phase-level build/evaluate harness. Unlike the old task-by-task loop, each **phase** gets one generator invocation (implements the whole phase) followed by an evaluator that tests the output against the phase's acceptance criteria, retrying up to `--max-eval-rounds` times. A rescue agent recovers phases that stall past `--task-timeout`. The plan file and a learnings file are the shared state across phases. Plans produced by `prd-to-plan` are written in exactly this format (`## Phase N` + `**Delivers**` + `**Acceptance criteria**`); v2 also parses old `- [ ]` checkbox plans for backward compatibility.
   ```
-  /ralph                          # auto-finds plan.md or checks ~/.claude/plans/
-  /ralph path/to/my-plan.md      # explicit plan path
+  python3 ~/dotfiles/claude/skills/ralph-v2/ralph.py            # auto-finds plan.md or ~/.claude/plans/
+  python3 ~/dotfiles/claude/skills/ralph-v2/ralph.py plan.md    # explicit plan path
   ```
-  **What it does:**
-  1. Finds and reads the plan file
-  2. Adds `- [ ]` checkboxes to tasks if they don't exist (converts tables to checkbox lists)
-  3. Pre-loads plan context and `CODING_AGENTS.md` once, injecting them into every subagent (avoids redundant re-reads)
-  4. Prints ASCII Ralph Wiggum, then shows each task with a 15-second countdown before executing
-  5. Launches a subagent per task (fresh context, no history bleed)
-  6. Subagent checks off the task (`- [x]`) when the completion criterion is met
-  7. Respects parallel/sequential markers in the plan — offers to run parallel tasks concurrently
-  8. Respects `<!-- BATCH -->` markers — sends all consecutive unchecked tasks after the marker to a single subagent
+  **Three-agent system:**
+  1. **Generator** — implements the full phase autonomously
+  2. **Evaluator** — tests output against acceptance criteria (Playwright, pytest, etc.); loops the generator until criteria pass or `--max-eval-rounds` is hit
+  3. **Rescue** — recovers a stuck phase after `--task-timeout`
 
-  **Code review:** Use `--review` to enable codex review (falls back to Claude Opus 4.6) after each task. The reviewer checks for bugs, edge cases, and issues the implementing agent may have missed. If issues are found, a fix agent addresses them automatically.
+  **Useful flags:** `--phase N` (run a single phase), `--no-eval` (skip evaluation), `--parallel` worktree execution across independent phases (`<!-- PARALLEL N,M -->`), `--model` / `--reviewer-model`, `--learnings-path`, `--restart`. TUI mode shows live progress and lets you type guidance queued for the next phase.
 
-  **Stopping and resuming:** Ctrl+C or tell it to stop. Next time you run `/ralph`, it picks up from the first unchecked task.
+  **Stopping and resuming:** The plan file on disk is the source of truth — re-run to pick up from the first incomplete phase.
 
-- **`skills/ralph-codex`** — Ralph-Codex: executes a plan file using OpenAI Codex CLI in a single automated shot. Codex reads the plan, executes the next unchecked task, and checks it off — with full permissions and zero user interaction. The codex prompt has the TDD red-green-refactor methodology baked in.
-  ```
-  /ralph-codex                       # auto-finds plan.md or checks ~/.claude/plans/
-  /ralph-codex path/to/my-plan.md   # explicit plan path
-  ```
-  **What it does:**
-  1. Finds and reads the plan file
-  2. Adds `- [ ]` checkboxes to tasks if they don't exist (converts tables to checkbox lists)
-  3. Pre-loads plan context and `CODING_AGENTS.md`, embedding them in the codex prompt
-  4. Builds a comprehensive prompt with all plan context, coding standards, and working directory
-  5. Calls `codex exec --full-auto --dangerously-bypass-approvals-and-sandbox` with full permissions
-  6. Codex executes the next unchecked task and checks it off (`- [x]`) when complete
-  7. Reports task completion and repeats for the next unchecked task
-
-  **When to use it:** For linear, independent tasks where you want pure automation without user interaction or approval windows. Codex operates in a single execution context, so all plan context is visible at once — useful for interdependent tasks but less transparent than ralph's step-by-step progress.
-
-  **Stopping and resuming:** Same as `/ralph` — the plan file on disk is the source of truth. Run `/ralph-codex` again to pick up from the first unchecked task.
-
-- **`skills/ralph-github`** — Ralph with codex review: thin wrapper that runs `ralph.py --review`, enabling codex (or Claude Opus 4.6 fallback) code review after each task.
-  ```
-  python3 ~/dotfiles/claude/skills/ralph/ralph.py plan.md --review      # direct usage
-  bash ~/dotfiles/claude/skills/ralph-github/ralph-github.sh plan.md   # via wrapper
-  ```
-  **Review pipeline (per task):**
-  1. Executes the task with `claude -p` (fresh context)
-  2. Auto-commits any uncommitted changes
-  3. Runs `codex review` on the diff (falls back to Claude Opus 4.6 if codex unavailable)
-  4. If issues found, launches a fix agent to address them
-
-  **Options:** Same as `/ralph`, plus `--review` (enabled by default via wrapper). Use `--no-review` to skip the review step.
+  > Note: ralph-v2 currently ships as Python modules with **no `SKILL.md`**, so there is no `/ralph-v2` slash command yet — invoke it via `python3` as shown above.
 
 - **`skills/review-plan`** — Plan Review & Auto-Fix: on-demand plan review that finds the active plan, runs the `plan-reviewer` agent against `plan-requirements.md`, and automatically edits the plan to fix any issues.
   ```
