@@ -10,7 +10,7 @@ bash ~/dotfiles/claude/install.sh
 ```
 
 The install script:
-1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, `android.md`, and `statusline-command.sh` into `~/.claude/`
+1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, `android.md`, `models.md`, and `statusline-command.sh` into `~/.claude/`
 2. Deep-merges `settings.partial.json` into your existing `~/.claude/settings.json` (preserves CC-managed keys like model, permissions, plugins)
 3. Adds `source ~/dotfiles/claude/aliases.sh` to `~/.bash_aliases` (creates the file if needed)
 4. Backs up any existing files before overwriting
@@ -35,6 +35,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── settings.partial.json    # Hook and statusline config (merged into settings.json)
 ├── plan-requirements.md     # Requirements the plan reviewer enforces
 ├── android.md               # System-wide Android deployment reference (symlinked to ~/.claude/android.md)
+├── models.md                # Model strategy & Codex delegation reference (symlinked to ~/.claude/models.md)
 ├── agents/
 │   └── plan-reviewer.md     # Reusable named agent for plan review
 ├── hooks/
@@ -92,6 +93,7 @@ After install, `~/.claude/` looks like:
 ├── skills/ → ~/dotfiles/claude/skills/
 ├── plan-requirements.md → ~/dotfiles/claude/plan-requirements.md
 ├── android.md → ~/dotfiles/claude/android.md
+├── models.md → ~/dotfiles/claude/models.md
 ├── statusline-command.sh → ~/dotfiles/claude/statusline-command.sh
 ├── projects/                  ← CC runtime (untouched)
 ├── sessions/                  ← CC runtime (untouched)

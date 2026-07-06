@@ -12,6 +12,7 @@
 #   ~/.claude/skills/              → Skills (e.g. /ralph)
 #   ~/.claude/plan-requirements.md → Requirements enforced by the plan review hook
 #   ~/.claude/android.md           → System-wide Android deployment reference
+#   ~/.claude/models.md            → Model strategy & Codex delegation reference
 #   ~/.claude/hooks/                → Hook scripts (e.g. plan review on Stop)
 #   ~/.claude/statusline-command.sh → Status bar renderer (model, tokens, context, cost)
 #
@@ -61,6 +62,7 @@ link "$REPO_DIR/agents"              "$CLAUDE_DIR/agents"
 link "$REPO_DIR/skills"              "$CLAUDE_DIR/skills"
 link "$REPO_DIR/plan-requirements.md" "$CLAUDE_DIR/plan-requirements.md"
 link "$REPO_DIR/android.md"           "$CLAUDE_DIR/android.md"
+link "$REPO_DIR/models.md"            "$CLAUDE_DIR/models.md"
 link "$REPO_DIR/statusline-command.sh" "$CLAUDE_DIR/statusline-command.sh"
 link "$REPO_DIR/CODING_AGENTS.md"    "$CLAUDE_DIR/CODING_AGENTS.md"
 link "$REPO_DIR/hooks"               "$CLAUDE_DIR/hooks"
