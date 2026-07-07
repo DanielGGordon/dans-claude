@@ -10,7 +10,7 @@ bash ~/dotfiles/claude/install.sh
 ```
 
 The install script:
-1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, `android.md`, `models.md`, and `statusline-command.sh` into `~/.claude/`
+1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, `android.md`, `models.md`, `playwright.md`, and `statusline-command.sh` into `~/.claude/`
 2. Deep-merges `settings.partial.json` into your existing `~/.claude/settings.json` (preserves CC-managed keys like model, permissions, plugins)
 3. Registers user-scoped MCP servers via `claude mcp add` (idempotent; skipped if the server binary isn't on this machine)
 4. Adds `source ~/dotfiles/claude/aliases.sh` to `~/.bash_aliases` (creates the file if needed)
@@ -37,6 +37,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── plan-requirements.md     # Requirements the plan reviewer enforces
 ├── android.md               # System-wide Android deployment reference (symlinked to ~/.claude/android.md)
 ├── models.md                # Model strategy & delegation reference — raw `codex exec` wrapper pattern + native Claude model routing for subagents/workflows (symlinked to ~/.claude/models.md)
+├── playwright.md            # Playwright visual web-testing reference — screenshot toolkit + how agents visually evaluate UIs, used only when the user asks to "test visually" (symlinked to ~/.claude/playwright.md)
 ├── agents/
 │   └── plan-reviewer.md     # Reusable named agent for plan review
 ├── hooks/
@@ -95,6 +96,7 @@ After install, `~/.claude/` looks like:
 ├── plan-requirements.md → ~/dotfiles/claude/plan-requirements.md
 ├── android.md → ~/dotfiles/claude/android.md
 ├── models.md → ~/dotfiles/claude/models.md
+├── playwright.md → ~/dotfiles/claude/playwright.md
 ├── statusline-command.sh → ~/dotfiles/claude/statusline-command.sh
 ├── projects/                  ← CC runtime (untouched)
 ├── sessions/                  ← CC runtime (untouched)

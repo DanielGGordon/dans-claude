@@ -13,6 +13,7 @@
 #   ~/.claude/plan-requirements.md → Requirements enforced by the plan-reviewer agent
 #   ~/.claude/android.md           → System-wide Android deployment reference
 #   ~/.claude/models.md            → Model strategy & Codex delegation reference
+#   ~/.claude/playwright.md        → Playwright visual web-testing reference
 #   ~/.claude/hooks/                → Hook scripts (e.g. second-brain SessionEnd ingest)
 #   ~/.claude/statusline-command.sh → Status bar renderer (model, tokens, context, cost)
 #
@@ -68,6 +69,7 @@ link "$REPO_DIR/skills"              "$CLAUDE_DIR/skills"
 link "$REPO_DIR/plan-requirements.md" "$CLAUDE_DIR/plan-requirements.md"
 link "$REPO_DIR/android.md"           "$CLAUDE_DIR/android.md"
 link "$REPO_DIR/models.md"            "$CLAUDE_DIR/models.md"
+link "$REPO_DIR/playwright.md"        "$CLAUDE_DIR/playwright.md"
 link "$REPO_DIR/statusline-command.sh" "$CLAUDE_DIR/statusline-command.sh"
 link "$REPO_DIR/CODING_AGENTS.md"    "$CLAUDE_DIR/CODING_AGENTS.md"
 link "$REPO_DIR/hooks"               "$CLAUDE_DIR/hooks"

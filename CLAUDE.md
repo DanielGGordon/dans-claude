@@ -27,6 +27,10 @@ intelligence > taste > cost-efficiency priority for anything that ships, and the
 canonical `codex exec` CLI wrapper pattern. Follow it strictly unless the user
 explicitly says otherwise.
 
+## Visual Web Testing (Playwright)
+
+When the user asks you to "test visually", screenshot a web app, or use Playwright, read `~/.claude/playwright.md` first — it documents the canonical screenshot toolkit and how to visually evaluate the result. Only on the user's request; do not add Playwright testing to tasks that didn't ask for it.
+
 ## Android Deployment
 
 When planning or executing an Android app deployment for any project, consult `~/.claude/android.md` first. It is the system-wide canonical reference for Android signing, build, version bumping, and distribution. If the project's deploy process changes (or a new project deploys Android differently), update `~/.claude/android.md` to reflect the new canonical process — diverging projects must be documented there.
