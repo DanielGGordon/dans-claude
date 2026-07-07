@@ -91,11 +91,25 @@ Avoid raw bash wrappers when possible.
 
 For subagents and workflows, instruct them to use the slash commands above or exposed `codex-cli-runtime` skills directly.
 
+## Using Claude Models in Subagents & Workflows
+
+Routing to a different **Claude** model needs no CLI and no plugin — it is native to Claude Code's own tools:
+
+| Mechanism | How to select the model |
+| --------- | ----------------------- |
+| **Agent tool** (subagents) | Pass the `model` parameter: `"sonnet"`, `"opus"`, `"haiku"`, or `"fable"`. |
+| **Workflow scripts** | Every `agent()` call accepts options: `agent(prompt, { model: 'sonnet', effort: 'low' })`. |
+| **Default (no `model`)** | The subagent inherits the session model — a Fable-5 session fans out Fable-5 workers unless overridden. |
+
+- `effort` is settable per call too: `'low' | 'medium' | 'high' | 'xhigh' | 'max'`.
+- Apply the rankings table per stage: mechanical/fan-out workflow stages → `{ model: 'sonnet', effort: 'low' }`; judge, verify, and taste-sensitive stages → session model (Fable-5 / Opus-4.8) at high effort.
+- **Do not use `claude -p --model <model>` from Bash** for this. It spawns a nested Claude Code session with separate context and permissions, and you must parse stdout — the same raw-wrapper antipattern the Codex section avoids. Reserve it for genuinely detached background jobs; the Agent tool's background mode covers most of those anyway.
+
 ## Subagent & Workflow Guidelines
 
 - The main orchestrator should usually be **Fable-5** or **Opus-4.8** for high-effort work.
 - The orchestrator should break down tasks and delegate clearly.
-- Use thin wrapper agents, such as **Sonnet on low effort**, when you need a Claude model to call Codex.
+- Use thin wrapper agents, such as **Sonnet on low effort** (`{ model: 'sonnet', effort: 'low' }` — see the Claude models section above), when you need a Claude model to call Codex.
 - Always provide:
   - Clear success criteria
   - Required tools

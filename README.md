@@ -35,7 +35,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── settings.partial.json    # Hook and statusline config (merged into settings.json)
 ├── plan-requirements.md     # Requirements the plan reviewer enforces
 ├── android.md               # System-wide Android deployment reference (symlinked to ~/.claude/android.md)
-├── models.md                # Model strategy & Codex delegation reference (symlinked to ~/.claude/models.md)
+├── models.md                # Model strategy & delegation reference — Codex commands + native Claude model routing for subagents/workflows (symlinked to ~/.claude/models.md)
 ├── agents/
 │   └── plan-reviewer.md     # Reusable named agent for plan review
 ├── hooks/
