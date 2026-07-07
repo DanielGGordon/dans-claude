@@ -38,8 +38,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── models.md                # Model strategy & delegation reference — Codex commands + native Claude model routing for subagents/workflows (symlinked to ~/.claude/models.md)
 ├── agents/
 │   └── plan-reviewer.md     # Reusable named agent for plan review
-├── hooks/
-│   └── plan-review-stop.sh  # Stop hook: auto-review plan before Claude proceeds
+├── hooks/                   # Hook scripts (currently empty)
 ├── skills/
 │   ├── ralph-v2/
 │   │   ├── ralph.py         # Phase-level build/evaluate harness (generator + evaluator + rescue)
@@ -100,32 +99,11 @@ After install, `~/.claude/` looks like:
 └── ...
 ```
 
-## Plan Review Hook
-
-A `Stop` command hook runs automatically when Claude finishes a turn. It looks for the most recently modified plan file (within 120 seconds) in two locations:
-
-1. **`~/.claude/plans/*.md`** — where Claude Code writes plans during plan mode
-2. **`plan.md` / `PLAN.md` in the working directory** — for manually created plan files
-
-If no recently modified plan file is found, the hook exits immediately (fast path). When a plan file is found, it runs a Python-based review against `plan-requirements.md` and blocks Claude (exit 2 + stderr feedback) if requirements are unmet. It checks `stop_hook_active` to prevent infinite review loops (only blocks once per stop).
-
-**Requirements enforced:**
-
-1. Testing strategy with named framework(s) and test types
-2. System tools and external dependencies enumerated
-3. Fully automated test runs — human steps explicitly labeled
-4. Agent-loop compatible task lists
-5. Parallel tasks marked
-6. Full lifecycle coverage: setup → development → testing → deployment
-
-**To edit requirements:** modify `plan-requirements.md` and commit.
-**To edit review logic:** modify `hooks/plan-review-stop.sh` and commit.
-
 ## Named Agents
 
 ### `agents/plan-reviewer.md`
 
-The plan reviewer as a standalone named agent. While the hook runs it automatically on plan exit, you can also invoke it directly:
+The plan reviewer as a standalone named agent (validates against `plan-requirements.md`). Invoke it directly:
 
 ```
 Use the plan-reviewer agent to check plan.md
@@ -216,7 +194,7 @@ Use the plan-reviewer agent to check plan.md
   5. Re-runs the reviewer to confirm fixes landed
   6. If still failing, makes one more revision pass (max 2 rounds), then reports any remaining issues
 
-  **When to use it:** Mid-planning when you want to check your plan without exiting plan mode. The Stop hook reviews automatically on exit; this skill lets you review on demand at any point.
+  **When to use it:** Any time you want to validate a plan — mid-planning or before execution. Plan review is on-demand only (via this skill or the `plan-reviewer` agent); nothing runs automatically.
 
 ### Adding a new skill
 

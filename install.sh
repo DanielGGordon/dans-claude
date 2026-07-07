@@ -10,10 +10,10 @@
 #   ~/.claude/CODING_AGENTS.md     → Coding agent rules injected by the ralph skill
 #   ~/.claude/agents/              → Named agents (e.g. plan-reviewer)
 #   ~/.claude/skills/              → Skills (e.g. /ralph)
-#   ~/.claude/plan-requirements.md → Requirements enforced by the plan review hook
+#   ~/.claude/plan-requirements.md → Requirements enforced by the plan-reviewer agent
 #   ~/.claude/android.md           → System-wide Android deployment reference
 #   ~/.claude/models.md            → Model strategy & Codex delegation reference
-#   ~/.claude/hooks/                → Hook scripts (e.g. plan review on Stop)
+#   ~/.claude/hooks/                → Hook scripts (currently empty)
 #   ~/.claude/statusline-command.sh → Status bar renderer (model, tokens, context, cost)
 #
 # Settings merge:
