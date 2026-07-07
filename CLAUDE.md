@@ -15,12 +15,17 @@ Before making any changes to hooks, skills, agents, or Claude settings:
 
 ## Model Strategy & Delegation
 
-For model selection, subagent/workflow delegation, and using Codex (`gpt-5.5`)
-inside Claude Code, consult `~/.claude/models.md`. It is the canonical reference
-for which model to use per task type (bulk/mechanical vs. user-facing vs.
-review/planning), the intelligence > taste > cost-efficiency priority for
-anything that ships, and the Codex plugin commands. Follow it strictly unless
-the user explicitly says otherwise.
+**Any time you are about to use a subagent (Agent tool) or a workflow (Workflow
+tool), read `~/.claude/models.md` FIRST — before launching anything — and pick
+each agent's model according to it.** This applies to every delegation, not just
+big ones: single Explore agents, review panels, workflow fan-outs, all of it.
+
+`~/.claude/models.md` is also the canonical reference for model selection
+generally and for using Codex (`gpt-5.5`) inside Claude Code: which model to use
+per task type (bulk/mechanical vs. user-facing vs. review/planning), the
+intelligence > taste > cost-efficiency priority for anything that ships, and the
+Codex plugin commands. Follow it strictly unless the user explicitly says
+otherwise.
 
 ## Android Deployment
 
