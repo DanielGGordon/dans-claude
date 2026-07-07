@@ -73,23 +73,36 @@ Never use **Haiku** for important work.
 
 ## Using Codex `gpt-5.5` Inside Claude Code
 
-Use **codex-plugin-cc** for native integration.
+Drive Codex from subagents via the **CLI directly**. Thin **Sonnet low-effort wrapper agents** remain the delegation vehicle (see Subagent & Workflow Guidelines below).
 
-Avoid raw bash wrappers when possible.
+### Canonical Invocation
 
-### Available Commands
+Write the task prompt to a scratch **file**, then run foreground with a generous timeout (10 min):
 
-| Command                             | Purpose                                                                                                      |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `/codex:review`                     | Standard code quality review. Supports `--base <ref>` for branch reviews.                                    |
-| `/codex:adversarial-review`         | Skeptical review that pressure-tests design, security, and tradeoffs. Append custom instructions as needed.  |
-| `/codex:rescue`                     | Delegate debugging, refactoring, or implementation loops to Codex.                                           |
-| `/codex:status`                     | Check background / async Codex jobs.                                                                         |
-| `/codex:result`                     | Retrieve results from Codex jobs.                                                                            |
-| `/codex:cancel`                     | Cancel a running Codex job.                                                                                  |
-| `/codex:setup --enable-review-gate` | Enable the automatic Codex challenge before finalizing changes.                                              |
+```bash
+codex exec --dangerously-bypass-approvals-and-sandbox -C <repo> "$(cat <promptfile>)"
+```
 
-For subagents and workflows, instruct them to use the slash commands above or exposed `codex-cli-runtime` skills directly.
+- **NEVER inline large prompts** in the shell string — 20KB inline prompts hang with zero output. Always go through a prompt file.
+- Continue an existing session with:
+
+```bash
+codex exec --dangerously-bypass-approvals-and-sandbox resume --last "..."
+```
+
+### Why the Flag
+
+Codex's bwrap sandbox cannot nest inside Claude Code's Bash sandbox (`bwrap: loopback: Failed RTM_NEWADDR`). Claude Code's own sandbox remains the outer boundary, so bypassing Codex's inner sandbox is safe and required.
+
+### Reviews
+
+Same mechanism: `codex exec` with a review prompt that asks for findings with **severity**, **file:line**, and a **concrete failing scenario**, plus a **SHIP / FIX-FIRST** verdict. This is the "gpt-5.5 second opinion" the Reviews & Planning section mentions.
+
+### Quota / Billing Errors
+
+If Codex reports quota or billing errors (`429`, `insufficient_quota`): **stop and surface to the user**. Never silently substitute a different model for Codex-designated work.
+
+> Historical note: **codex-plugin-cc** was evaluated and removed 2026-07-07 — its hardcoded per-turn sandbox modes are incompatible with nested bwrap on this machine; re-evaluate only if upstream adds a sandbox passthrough.
 
 ## Using Claude Models in Subagents & Workflows
 
@@ -103,7 +116,7 @@ Routing to a different **Claude** model needs no CLI and no plugin — it is nat
 
 - `effort` is settable per call too: `'low' | 'medium' | 'high' | 'xhigh' | 'max'`.
 - Apply the rankings table per stage: mechanical/fan-out workflow stages → `{ model: 'sonnet', effort: 'low' }`; judge, verify, and taste-sensitive stages → session model (Fable-5 / Opus-4.8) at high effort.
-- **Do not use `claude -p --model <model>` from Bash** for this. It spawns a nested Claude Code session with separate context and permissions, and you must parse stdout — the same raw-wrapper antipattern the Codex section avoids. Reserve it for genuinely detached background jobs; the Agent tool's background mode covers most of those anyway.
+- **Do not use `claude -p --model <model>` from Bash** for this. It spawns a nested Claude Code session with separate context and permissions, and you must parse stdout. Unlike Codex (which has no native integration and must go through its CLI), Claude models have first-class routing via the Agent tool — use it. Reserve `claude -p` for genuinely detached background jobs; the Agent tool's background mode covers most of those anyway.
 
 ## Subagent & Workflow Guidelines
 
@@ -117,7 +130,7 @@ Routing to a different **Claude** model needs no CLI and no plugin — it is nat
   - Constraints and non-goals
 - For long-running work, use background mode and status checks so the main session is not blocked.
 - Report results back clearly to the main agent.
-- Keep the review gate enabled by default for PR-bound work.
+- For PR-bound work, run a Codex review (see the Reviews subsection above) before finalizing by default.
 
 ## Effort & Model Selection Reminders
 

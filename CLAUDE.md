@@ -24,8 +24,8 @@ big ones: single Explore agents, review panels, workflow fan-outs, all of it.
 generally and for using Codex (`gpt-5.5`) inside Claude Code: which model to use
 per task type (bulk/mechanical vs. user-facing vs. review/planning), the
 intelligence > taste > cost-efficiency priority for anything that ships, and the
-Codex plugin commands. Follow it strictly unless the user explicitly says
-otherwise.
+canonical `codex exec` CLI wrapper pattern. Follow it strictly unless the user
+explicitly says otherwise.
 
 ## Android Deployment
 
