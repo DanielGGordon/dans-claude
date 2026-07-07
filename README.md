@@ -12,8 +12,9 @@ bash ~/dotfiles/claude/install.sh
 The install script:
 1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, `android.md`, `models.md`, and `statusline-command.sh` into `~/.claude/`
 2. Deep-merges `settings.partial.json` into your existing `~/.claude/settings.json` (preserves CC-managed keys like model, permissions, plugins)
-3. Adds `source ~/dotfiles/claude/aliases.sh` to `~/.bash_aliases` (creates the file if needed)
-4. Backs up any existing files before overwriting
+3. Registers user-scoped MCP servers via `claude mcp add` (idempotent; skipped if the server binary isn't on this machine)
+4. Adds `source ~/dotfiles/claude/aliases.sh` to `~/.bash_aliases` (creates the file if needed)
+5. Backs up any existing files before overwriting
 
 Then restart Claude Code (`/exit` or Ctrl+C, then run `claude`).
 
@@ -38,7 +39,8 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── models.md                # Model strategy & delegation reference — Codex commands + native Claude model routing for subagents/workflows (symlinked to ~/.claude/models.md)
 ├── agents/
 │   └── plan-reviewer.md     # Reusable named agent for plan review
-├── hooks/                   # Hook scripts (currently empty)
+├── hooks/
+│   └── second-brain-ingest-session-end.sh  # SessionEnd → second-brain quick ingest
 ├── skills/
 │   ├── ralph-v2/
 │   │   ├── ralph.py         # Phase-level build/evaluate harness (generator + evaluator + rescue)
@@ -215,20 +217,34 @@ model: sonnet
 System prompt here.
 ```
 
-## Adding a new hook
+## Hooks
 
-Add entries to `settings.partial.json` and re-run `install.sh`:
+### `hooks/second-brain-ingest-session-end.sh`
+
+SessionEnd hook that triggers a **second-brain quick ingest** so the just-ended session becomes searchable within seconds. Reads the port and token from `~/.second-brain/config.json` (jq if available, python3 fallback) and POSTs to `http://127.0.0.1:$PORT/api/ingest` with a 5s timeout. Fails silently — always exits 0, whether the config is missing or the service is down — so session exit is never noisy or slow. Registered under `SessionEnd` in `settings.partial.json`.
+
+### Adding a new hook
+
+Put the script in `hooks/` (symlinked to `~/.claude/hooks/`), make it executable, register it in `settings.partial.json`, and re-run `install.sh`:
 
 ```json
 "hooks": {
-  "PreToolUse": [
+  "SessionEnd": [
     {
-      "matcher": "ToolName",
-      "hooks": [{ "type": "agent", "prompt": "Instructions. Data: $ARGUMENTS", "timeout": 60 }]
+      "matcher": "",
+      "hooks": [{ "type": "command", "command": "bash ~/.claude/hooks/my-hook.sh" }]
     }
   ]
 }
 ```
+
+## MCP servers
+
+User-scoped MCP servers live in `~/.claude.json`, which is CC-managed — the settings merge can't touch it. So `install.sh` registers them with `claude mcp add --scope user`, guarded by `claude mcp get` to stay idempotent, and skips servers whose binary doesn't exist on the machine.
+
+- **`brain`** — second-brain semantic memory (stdio server at `~/projects/meta/second-brain/bin/brain-mcp`). Loads into new Claude Code sessions after restart.
+
+To add another server, copy the `brain` block in `install.sh`'s MCP section.
 
 ## Notes
 

@@ -13,7 +13,7 @@
 #   ~/.claude/plan-requirements.md → Requirements enforced by the plan-reviewer agent
 #   ~/.claude/android.md           → System-wide Android deployment reference
 #   ~/.claude/models.md            → Model strategy & Codex delegation reference
-#   ~/.claude/hooks/                → Hook scripts (currently empty)
+#   ~/.claude/hooks/                → Hook scripts (e.g. second-brain SessionEnd ingest)
 #   ~/.claude/statusline-command.sh → Status bar renderer (model, tokens, context, cost)
 #
 # Settings merge:
@@ -21,6 +21,11 @@
 #   hooks, statusline config, and other custom keys are applied without
 #   overwriting Claude Code-managed keys (model, permissions, plugins).
 #   Requires Python.
+#
+# MCP servers:
+#   Registers user-scoped MCP servers via `claude mcp add` (idempotent),
+#   since ~/.claude.json is CC-managed and can't be handled by the settings
+#   merge. Currently: brain (second-brain semantic memory).
 #
 # Safe to re-run: existing symlinks are replaced; regular files are backed up
 # to *.bak before being overwritten.
@@ -153,6 +158,29 @@ with open(settings_path, 'w') as f:
 
 print('  Merged successfully.')
 " "$SETTINGS" "$PARTIAL"
+
+# --- MCP servers ---
+#
+# User-scoped MCP servers live in ~/.claude.json (CC-managed, not tracked
+# here), so they are registered via `claude mcp add` rather than the
+# settings merge. Each registration is guarded to be idempotent and skipped
+# if the server binary doesn't exist on this machine.
+
+echo ""
+echo "Registering MCP servers..."
+
+BRAIN_MCP="$HOME/projects/meta/second-brain/bin/brain-mcp"
+
+if ! command -v claude >/dev/null 2>&1; then
+  echo "  WARNING: 'claude' CLI not found — skipping MCP registration."
+elif [ ! -x "$BRAIN_MCP" ]; then
+  echo "  Skipping 'brain' (no $BRAIN_MCP on this machine)."
+elif claude mcp get brain >/dev/null 2>&1; then
+  echo "  'brain' already registered."
+else
+  claude mcp add --scope user brain "$BRAIN_MCP"
+  echo "  Registered 'brain' (user scope) → $BRAIN_MCP"
+fi
 
 # --- Shell aliases ---
 
