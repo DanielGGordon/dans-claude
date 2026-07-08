@@ -9,7 +9,9 @@ System-wide canonical reference for shipping Android apps from any project on th
 
 ## Testing / prototype deployment
 
-This is the current default for every Android app on this machine. Source-of-truth project: **DanCode** (`~/projects/meta/DanCode/android/`). When porting to a new project, mirror this structure unless there's a deliberate reason to diverge — then document the divergence above.
+This is the current default for native-Kotlin Android apps on this machine. Source-of-truth project: **DanCode** (`~/projects/meta/DanCode/android/`). When porting to a new project, mirror this structure unless there's a deliberate reason to diverge — then document the divergence.
+
+**Divergent branch:** T3 Code is an Expo/React Native app and deploys differently — see the "T3 Code (Expo/React Native)" section below.
 
 ### Toolchain (one-time, project-local)
 
@@ -125,6 +127,56 @@ Gated tests are headless (`./gradlew test`). The on-phone path is not gated — 
         ├── sync-pin.sh
         └── publish-apk.sh
 ```
+
+## T3 Code (Expo/React Native) — divergent branch
+
+Project: `~/projects/meta/t3code-v2` (fork of `pingdotgg/t3code`), app at `apps/mobile`. First deployed 2026-07-08 from branch `t3code/android-deploy-sideload`. Diverges from the DanCode structure because the `android/` project is **generated** by `expo prebuild`, not committed — so there is no project-local toolchain dir.
+
+### Host identity gotcha (read first)
+
+The build host, the T3 server, and the DanCode server are all the **same machine**: `dancode` = 15.204.108.12. Claude agent sessions for T3 run *inside* `t3code.service` on this box — `systemctl --user restart t3code.service` kills every running agent session (including your own commands, mid-flight). Restart it only at the very end of a work sequence, and expect the session to resume afterward.
+
+### Toolchain (machine-level, one-time)
+
+- JDK 17 via mise (`JAVA_HOME=$(mise where java)`).
+- Android SDK at `~/Android/Sdk`: `cmdline-tools/latest`, `platform-tools`, `platforms;android-36`, `build-tools;36.0.0`, `ndk;27.1.12297006`, `cmake;3.22.1` (RN 0.85 pins; Gradle auto-downloads additional pinned packages). Installed via `sdkmanager`, licenses accepted with `yes |`. Note: no `unzip` on this box — extract cmdline-tools with `python3 -m zipfile -e`.
+
+### Build (sideloadable APK)
+
+```bash
+cd apps/mobile
+export JAVA_HOME=$(mise where java) ANDROID_HOME=$HOME/Android/Sdk
+APP_VARIANT=preview EXPO_NO_GIT_STATUS=1 npx expo prebuild --clean --platform android
+cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a
+# → app/build/outputs/apk/release/app-release.apk (~90MB, first build ~8 min, warm ~3-5)
+```
+
+- **Variant:** `preview` ("T3 Code Preview", `com.t3tools.t3code.preview`) — installable side-by-side with any future store build.
+- **Signing:** the stock Expo template signs `release` with `~/.android/debug.keystore` — debug-signed sideload, same keystore caveats as DanCode (regenerated keystore ⇒ uninstall before reinstall).
+- **ABI:** `-PreactNativeArchitectures=arm64-v8a` halves build time; drop it for a universal APK.
+- **expo-updates** is enabled and points at upstream's EAS project, but the `fingerprint` runtime-version policy means no foreign OTA can apply to a local build. Harmless; leave it.
+
+### Self-signed TLS trust (required for pairing)
+
+The app pairs to `https://15.204.108.12:7443` (Caddy, self-signed cert, Techloq-driven bare-IP pattern). Android rejects self-signed TLS unless the app ships a trust anchor:
+
+- `apps/mobile/plugins/withAndroidSelfSignedServerTrust.cjs` writes a `network_security_config.xml` trusting `apps/mobile/certs/t3-server.crt` (committed; SAN=IP:15.204.108.12, expires 2036) alongside system CAs, and keeps cleartext permitted for tailnet/LAN.
+- If the cert is ever re-minted: re-fetch it (`openssl s_client -connect 15.204.108.12:7443 -showcerts`), replace `certs/t3-server.crt`, rebuild.
+
+### Publish + sideload
+
+```bash
+bash apps/mobile/scripts/publish-android-apk.sh   # copies APK → /var/lib/t3code-apk, keeps *.previous.apk
+```
+
+- Caddy serves `/var/lib/t3code-apk` at `https://15.204.108.12:7443/downloads/` (handle_path block inside the :7443 site; `admin off` means config changes need `systemctl restart caddy`, not reload).
+- Phone: browse to `https://15.204.108.12:7443/downloads/t3code-android-preview.apk`, accept the cert warning (browser only — the app itself trusts the cert), install.
+- Pair: mint a token on the server (`t3 auth pairing create`, one-time, ~5 min expiry), then in the app enter host `https://15.204.108.12:7443` + the token (or scan the QR).
+- Rollback: sideload `t3code-android-preview.previous.apk` from the same directory.
+
+### Server-version skew
+
+The mobile app and `t3code.service` must run compatible `packages/contracts`. Deploy them from the same branch: build the APK and fast-forward `~/projects/meta/t3code-v2` to the same commit, `pnpm install`, then restart the service (see gotcha above).
 
 ## Production deployment
 
