@@ -130,7 +130,7 @@ codex exec --dangerously-bypass-approvals-and-sandbox -C <repo> -m gpt-5.6-terra
 
 ## Using Composer 2.5 via the Cursor CLI
 
-`cursor-agent` is installed on this machine (`~/.local/bin/cursor-agent`, also aliased as `agent`) — verified 2026-07-09, version 2026.07.08. **It is not logged in yet**: every model-using command fails with "Authentication required" until you run `cursor-agent login` (browser OAuth) or set `CURSOR_API_KEY`. If a subagent hits that error, stop and surface it to the user — same rule as Codex quota errors.
+`cursor-agent` is installed on this machine (`~/.local/bin/cursor-agent`, also aliased as `agent`, version 2026.07.08) and logged in. Headless invocation with `--model composer-2.5` was smoke-tested end-to-end on 2026-07-09 and works.
 
 Canonical headless one-shot (same prompt-file discipline as Codex):
 
@@ -139,12 +139,15 @@ cursor-agent --print --trust --force --output-format text --model composer-2.5 "
 ```
 
 - `-p/--print` = headless mode (full tool access), `--trust` skips the workspace-trust prompt, `--force`/`--yolo` auto-approves tool calls, `--output-format text|json|stream-json`.
-- Run `cursor-agent models` (requires auth) to confirm the exact model ID before automation — the CLI has been reported to silently fall back to a `-fast` variant on near-miss model strings instead of erroring. The `composer-2.5` ID above is the documented name but was **not verifiable end-to-end here because of the auth block**.
-- Auth check: `cursor-agent status` / `cursor-agent whoami --format json`.
+- `composer-2.5` is the exact model ID (confirmed via `cursor-agent models`). Use exact IDs only — the CLI has been reported to silently fall back to a `-fast` variant on near-miss model strings instead of erroring.
+- If auth ever breaks (`Authentication required`): stop and surface to the user — same rule as Codex quota errors. Check with `cursor-agent status`.
 
 ## Using Grok 4.5
 
-No dedicated CLI. The xAI API is OpenAI-compatible: base URL `https://api.x.ai/v1`, model ID `grok-4.5`, key in `XAI_API_KEY` (docs: https://docs.x.ai/developers/grok-4-5). Use it via `curl`/SDK from a script, or via any agent CLI that supports custom OpenAI-compatible providers. Supports reasoning-effort levels (high is default) and `prompt_cache_key` for long agent loops. Not usable through Codex or the Agent tool — if no wiring exists for the task at hand, prefer composer-2.5 or gpt-5.6-terra instead of improvising.
+Two routes:
+
+1. **Cursor CLI (preferred — already wired and smoke-tested here 2026-07-09):** same headless pattern as composer-2.5 with `--model grok-4.5-xhigh` (or `grok-4.5-fast-xhigh`). These are the exact IDs from `cursor-agent models`.
+2. **Direct xAI API:** OpenAI-compatible, base URL `https://api.x.ai/v1`, model ID `grok-4.5`, key in `XAI_API_KEY` (docs: https://docs.x.ai/developers/grok-4-5). Supports reasoning-effort levels (high default) and `prompt_cache_key` for long agent loops. Only worth wiring if you need xAI-side features the Cursor route doesn't expose.
 
 ## Using Claude Models in Subagents & Workflows
 
