@@ -62,6 +62,9 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │   │   └── SKILL.md         # Break a PRD into tracer-bullet phases
 │   ├── grill-me/
 │   │   └── SKILL.md         # Interview relentlessly about a plan
+│   ├── redeploy/
+│   │   ├── SKILL.md         # Redeploy self-hosted T3 Code prod to origin/main
+│   │   └── redeploy.sh      # Sync deploy dir to origin/main, build, detached restart
 │   ├── forky/
 │   │   └── SKILL.md         # Mark a fork point for later rollback
 │   ├── rollback-with-update/
@@ -130,6 +133,13 @@ Use the plan-reviewer agent to check plan.md
 - **`skills/grill-me`** — Interview you relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree.
   ```
   /grill-me
+  ```
+
+### Ops
+
+- **`skills/redeploy`** — Redeploy the self-hosted T3 Code prod server (`15.204.108.12:7443`) to the latest `origin/main`. Runs `redeploy.sh`: syncs the deploy checkout (`~/projects/meta/t3code-v2`) to a detached copy of `origin/main`, `pnpm install` + `pnpm build`, then fires a **detached** `systemctl --user restart t3code.service` and writes a health report to `/tmp/t3-redeploy-status.log`. Only runs on the T3 deploy host (guards on the deploy dir + user service). Note: the invoking chat lives inside `t3code.service`, so **its own session drops on restart** — that's expected; reconnect and read the log.
+  ```
+  /redeploy
   ```
 
 ### Diagrams
