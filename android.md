@@ -9,7 +9,7 @@ System-wide canonical reference for shipping Android apps from any project on th
 
 ## Testing / prototype deployment
 
-This is the current default for native-Kotlin Android apps on this machine. Source-of-truth project: **DanCode** (`~/projects/meta/DanCode/android/`). When porting to a new project, mirror this structure unless there's a deliberate reason to diverge — then document the divergence.
+This is the current default for native-Kotlin Android apps on this machine. The structure below originated in **DanCode** (`~/projects/meta/DanCode/android/`), which remains the historical pattern source — but **DanCode is dormant; never target it for new work.** New projects should adopt the **android-framework** (`~/projects/android-framework`, see "Automated testing" section below); its `testapp/android/` is the current reference implementation of this layout (same `bootstrap-toolchain.sh` + gradlew-header conventions, plus the test layers). When porting to a new project, mirror this structure unless there's a deliberate reason to diverge — then document the divergence.
 
 **Divergent branch:** T3 Code is an Expo/React Native app and deploys differently — see the "T3 Code (Expo/React Native)" section below.
 
@@ -106,7 +106,7 @@ The private key is gitignored; the cert is committed for reproducible tests.
 
 ### Manual smoke tests
 
-Gated tests are headless (`./gradlew test`). The on-phone path is not gated — every phase ships with a manual smoke checklist in the project's `android/README.md` (DanCode example: "Manual smoke" sections per phase). When porting, write a smoke checklist for each user-visible slice.
+Manual checklists are now the **fallback, not the default** — the android-framework's emulator layers (see "Automated testing" below) cover UI flows, screenshots, and instrumented behavior automatically. New user-visible slices ship a Maestro flow or instrumented test *first*; a manual-checklist entry in the project's `android/README.md` is reserved for what the emulator genuinely can't cover (real TLS-pin behavior against production Caddy, camera, OEM installer prompts), and each such entry should name why it can't be automated. A *thin* release-candidate phone checklist remains forever.
 
 ### Key paths (DanCode reference layout)
 
@@ -127,6 +127,49 @@ Gated tests are headless (`./gradlew test`). The on-phone path is not gated — 
         ├── sync-pin.sh
         └── publish-apk.sh
 ```
+
+## Automated testing (android-framework emulator layer) — canonical
+
+**Framework repo: `~/projects/android-framework`.** This is the canonical testing/emulator layer for all Android work on this machine (adopted as canonical 2026-07-13, end of its Phase 5). Any project doing Android testing MUST use it rather than inventing its own emulator/test tooling. The agent guide is **`~/projects/android-framework/docs/agent-driving.md`** — read it before driving the emulator; it is the contract (exact commands, guardrails, multi-AVD use).
+
+### Emulator lifecycle — `scripts/emu.sh`
+
+```bash
+cd ~/projects/android-framework
+scripts/emu.sh start test35      # idempotent; quickboot snapshot, ~9 s warm start
+scripts/emu.sh wait test35
+scripts/emu.sh status test35
+scripts/emu.sh restart test35    # recovery verb (also: --no-snapshot for pristine runs)
+scripts/emu.sh stop test35       # graceful (adb emu kill → snapshot save), verified-PID fallback
+```
+
+- Headless official emulator on native KVM; machine-level SDK at `~/Android/Sdk` with `google_apis` (not `playstore`) x86_64 images. One-time provisioning: `WITH_EMULATOR=1 scripts/bootstrap-toolchain.sh`.
+- **Multi-AVD:** start any installed AVD by name; console/adb port pairs are allocated automatically (5554/5555, 5556/5557, …). Guardrails: 4096 MiB / 4 cores per AVD, refuses below 16 GiB host `MemAvailable`, 3–4 concurrent AVDs max.
+- **Serial resolution — never hardcode `emulator-5554`.** Each AVD's state lives at `/tmp/android-framework/<avd>.state`; resolve the serial from it:
+
+  ```bash
+  serial=$(awk -F= '$1 == "SERIAL" {print $2}' /tmp/android-framework/test35.state)
+  adb -s "$serial" install -r app/build/outputs/apk/debug/app-debug.apk
+  ```
+
+  Framework scripts (`flow.sh`, `screenshot.sh`, `run-all-tests.sh`) do this themselves; set `ANDROID_AVD=<name>` to target a non-default AVD.
+- Agents use these scripts only — never raw `emulator` commands.
+
+### Test layers (cheapest-first; put each test at the cheapest layer that catches the bug)
+
+1. **JVM unit tests** — `./gradlew test`. Unchanged from the deployment sections above.
+2. **Roborazzi screenshot tests** — Robolectric-based, run on the JVM, no emulator. `recordRoborazziDebug` writes baselines, `verifyRoborazziDebug` diffs against them. **Baseline PNGs are committed as fixtures** (e.g. `app/src/test/.../__screenshots__/`); treat re-records as reviewed diffs.
+3. **Espresso connected tests** — `./gradlew connectedDebugAndroidTest` against the running emulator. **Gotcha: `connectedDebugAndroidTest` uninstalls the app under test when it finishes**; the framework's `testapp/run-all-tests.sh` reinstalls the debug APK afterward so the emulator stays usable for Maestro/manual driving — mirror that in project test runners.
+4. **Maestro flows** — black-box UI flows, committed at `<project>/android/maestro/*.yaml`, run via **`scripts/flow.sh <flow>`** (boots/waits for the AVD, resolves the recorded serial; exit 0 = all assertions passed). Artifacts (screenshots, diagnostics) land under **`artifacts/maestro/`**, with `artifacts/maestro/LATEST` pointing at the newest run.
+
+Visual verification: `scripts/screenshot.sh out.png [avd]` — the agent Reads the PNG and evaluates it (Android analogue of `~/.claude/playwright.md`).
+
+### Adopting projects
+
+- **testapp** (`~/projects/android-framework/testapp/`) — the reference guinea-pig app; all four layers green via `testapp/run-all-tests.sh`.
+- **abba-bank** (`~/projects/abba-bank/android/`) — first real adopter: a framework-based **TWA** (Trusted Web Activity wrapping the existing Next.js PWA, per `plans/abba-android.md`), built on the framework from day one on branch `android-framework-adoption`. Uses the framework toolchain/gradlew conventions and targets the framework emulator + `flow.sh` for its smoke flow. As of 2026-07-13: `android/` scaffold in place (`app/`, `gradle/`, `gradlew`, `scripts/bootstrap-toolchain.sh`, `maestro/`), debug APK builds (`app-debug.apk`, appId `com.abbabank.twa`), and `android/maestro/smoke.yaml` exists but is **entry-state-only** (asserts the "Abba Bank" / "Email address" / "Send magic link" entry screen + screenshot) — the full magic-link sign-in → balance flow was not automated in the first pass. The adoption run's final commit was still completing when this was written — check the branch for final state.
+- **DanCode** — dormant; historical pattern source only. Do not adopt the framework into it.
+- Expo/RN projects (T3 Code): emulator + Maestro layers apply as-is; Roborazzi does not (use Maestro screenshots for visual regression). Note x86_64 emulator images need an x86_64/universal build variant, not arm64-only.
 
 ## T3 Code (Expo/React Native) — divergent branch
 

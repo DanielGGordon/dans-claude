@@ -35,7 +35,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── CODING_AGENTS.md         # Coding agent rules (symlinked to ~/.claude/CODING_AGENTS.md)
 ├── settings.partial.json    # Hook and statusline config (merged into settings.json)
 ├── plan-requirements.md     # Requirements the plan reviewer enforces
-├── android.md               # System-wide Android deployment reference (symlinked to ~/.claude/android.md)
+├── android.md               # System-wide Android deployment + automated-testing reference — canonical emulator/test layer is the android-framework repo (symlinked to ~/.claude/android.md)
 ├── models.md                # Model strategy & delegation reference — raw `codex exec` wrapper pattern (gpt-5.5/5.6), Cursor CLI for composer-2.5, grok-4.5 via OpenAI-compatible API, + native Claude model routing for subagents/workflows (symlinked to ~/.claude/models.md)
 ├── playwright.md            # Playwright visual web-testing reference — screenshot toolkit + how agents visually evaluate UIs, used only when the user asks to "test visually" (symlinked to ~/.claude/playwright.md)
 ├── agents/
