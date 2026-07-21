@@ -1,4 +1,4 @@
-> Design produced 2026-07-21 by a 6-agent workflow (3 designers x drift/contract/ops angles, 2 judges, 1 synthesis). Not yet implemented.
+> Design produced 2026-07-21 by a 6-agent workflow. STATUS: the lean core (auth checks + live nonce smokes per route) is IMPLEMENTED as tests/routecheck.sh — this doc is the blueprint for the remaining tiers (manifest, lints, hooks, scheduling) if ever needed.
 
 # Model-Routing Test Suite (`routecheck`)
 

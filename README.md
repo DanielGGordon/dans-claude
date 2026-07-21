@@ -81,7 +81,8 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │       ├── refactoring.md   # Refactoring checklist
 │       └── tests.md         # Test examples
 ├── tests/
-│   └── test_ralph_v2.py     # Tests for ralph-v2
+│   ├── test_ralph_v2.py     # Tests for ralph-v2
+│   └── routecheck.sh        # Live-verifies every model route in model-usage.md/model-selection.md (nonce smoke per route + CLI auth checks, ~100 tok/route; alias `routecheck`)
 ├── aliases.sh               # Shell aliases sourced from ~/.bash_aliases
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md

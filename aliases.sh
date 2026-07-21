@@ -4,4 +4,5 @@
 alias cc='claude --dangerously-skip-permissions'
 alias cr='claude --resume'
 alias test-ralph='cd ~/projects/ralph-test && ./test-ralph.sh'
+alias routecheck='bash ~/dotfiles/claude/tests/routecheck.sh'
 hey-ralph() { echo "$*" >> .ralph-inbox && echo "📬 Queued for next task: $*"; }

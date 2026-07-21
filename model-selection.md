@@ -25,7 +25,6 @@ Artificial Analysis, Coding Agent Index, LMArena/Design Arena, and vendor pricin
 | grok-4.5     | 10              | 7            | 4     | 3           |
 | glm-5.2      | 9               | 7            | 7     | 6*          |
 | gpt-5.6-terra| 8               | 7            | 6     | 7           |
-| kimi-k3      | 7               | 8            | 8     | 6*          |
 | gpt-5.6-sol  | 7               | 9            | 6     | 5           |
 | gpt-5.5      | 6               | 7            | 5     | 7           |
 | opus-4.8     | 5               | 7            | 8     | 9           |
@@ -58,10 +57,6 @@ Notes (evidence-backed, 2026-07-21):
   2026-08-31, then $3/$15).
 - **opus-4.8** — $5/$25; cheaper per task than sonnet-5 on agentic work.
 - **fable-5** — $10/$50; AA #1 (59.9), LMArena text #1. The quality ceiling.
-- **kimi-k3** (Moonshot, released 2026-07-16) — AA 57.1 (above opus-4.8), $3/$15,
-  **#1 Arena WebDev** (ahead of fable-5); open weights, on OpenRouter. Very new —
-  verify outputs until a track record accumulates. (The `kimi-k2.7-code` in
-  Cursor's catalog is the older cheaper sibling, $0.95/$4 on Foundry.)
 - **glm-5.2** (Z.ai, early July 2026) — $1.40/$4.40, MIT weights; beats gpt-5.5
   on SWE-bench Pro (62.1 vs 58.6) at ~1/6 cost; leads Design Arena Website —
   real taste signal for a budget model. Available in Cursor's catalog
@@ -93,8 +88,6 @@ multi-file agentic edits; avoid terminal-heavy tasks) and **grok-4.5**
 
 Use Taste ≥ 7: **fable-5**, **opus-4.8** (also **sonnet-5** for lighter work).
 For UI, copy, API design, product design — anything where polish matters.
-**kimi-k3** is worth trialing on web UI work given its Arena WebDev standing,
-but review its output like the new model it is.
 
 ### Reviews & Planning
 
@@ -122,10 +115,9 @@ Caveats, applied strictly:
 - Its edge is specifically the **X stream and cheap tokens for search-heavy
   loops**. For ordinary web recency, Claude's native WebSearch is fine — don't
   route to grok just because a question mentions a date.
-- Via Cursor CLI (`cursor-grok-4.5-high`) for general recent-info prompts; the
-  direct xAI Responses API (see model-usage.md) only when you specifically need
-  `x_search` or search-parameter control. (The old Live Search API is dead —
-  HTTP 410.)
+- Via Cursor CLI (`cursor-grok-4.5-high`) for general recent-info prompts. The
+  direct xAI Responses API (`x_search` etc.) is **unwired on this machine** —
+  see model-usage.md; don't attempt it without the user wiring `XAI_API_KEY`.
 
 ### Avoid
 
@@ -149,10 +141,14 @@ the designated one errors — stop and surface (see model-usage.md).
 
 ## Keeping This File Honest
 
-The table above is a snapshot; model catalogs and pricing drift. The
-model-routing testing suite (see `plans/model-routing-test-suite.md` in the
-dotfiles repo) checks that the ids referenced here and in model-usage.md still
-exist. When a benchmark or price claim matters to a decision, re-verify it —
-grok-4.5 with citations is the cheap way to do that.
+The table above is a snapshot; model catalogs and pricing drift. Every routable
+model documented here and in model-usage.md is live-verified by
+`bash ~/dotfiles/claude/tests/routecheck.sh` (alias `routecheck`) — it invokes
+each route with a nonce prompt and fails loudly on any broken id, syntax, or
+auth (last run 2026-07-21: ALL ROUTES OK). If a route fails, fix the id/syntax
+or remove the model from these files — never leave a documented route broken.
+Models with no runnable route on this machine do not get table rows. When a
+benchmark or price claim matters to a decision, re-verify it — grok-4.5 with
+citations is the cheap way to do that.
 
 Follow these rules strictly unless the user explicitly says otherwise.

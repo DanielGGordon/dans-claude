@@ -4,6 +4,11 @@ This file is the mechanics reference: once you already know which model you want
 (see `~/.claude/model-selection.md` for choosing), this is how you drive it.
 Follow these invocations exactly unless the user explicitly says otherwise.
 
+**Every invocation below is live-verified**: `bash ~/dotfiles/claude/tests/routecheck.sh`
+(alias `routecheck`) runs each documented route with a nonce prompt (last run
+2026-07-21: ALL ROUTES OK). Don't improvise variations — copy the commands as
+written. If one fails for you, run `routecheck`, then fix or remove the entry.
+
 ## Universal Rules
 
 - **Prompt files, never inline.** Write the task prompt to a scratch file and pass
@@ -93,7 +98,11 @@ Behavior and flags:
 > and possible consumption billing vs the already-paid seat. Re-evaluate only if
 > the CLI loses capabilities or the SDK gains subscription-seat auth.
 
-## Direct xAI API (grok-4.5)
+## Direct xAI API (grok-4.5) — UNWIRED, do not use
+
+**Status: not set up on this machine (`XAI_API_KEY` is not set). Do not attempt
+this route — use the Cursor CLI route for grok instead.** Kept only as wiring
+notes for if the user ever asks for it:
 
 Only worth wiring when you need xAI-side features the Cursor route doesn't
 expose — chiefly the live-search agent tools: OpenAI-compatible, base URL
