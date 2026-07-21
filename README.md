@@ -10,7 +10,7 @@ bash ~/dotfiles/claude/install.sh
 ```
 
 The install script:
-1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, `android.md`, `models.md`, `playwright.md`, and `statusline-command.sh` into `~/.claude/`
+1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, `android.md`, `models.md`, `model-selection.md`, `model-usage.md`, `playwright.md`, and `statusline-command.sh` into `~/.claude/`
 2. Deep-merges `settings.partial.json` into your existing `~/.claude/settings.json` (preserves CC-managed keys like model, permissions, plugins)
 3. Registers user-scoped MCP servers via `claude mcp add` (idempotent; skipped if the server binary isn't on this machine)
 4. Adds `source ~/dotfiles/claude/aliases.sh` to `~/.bash_aliases` (creates the file if needed)
@@ -36,8 +36,12 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── settings.partial.json    # Hook and statusline config (merged into settings.json)
 ├── plan-requirements.md     # Requirements the plan reviewer enforces
 ├── android.md               # System-wide Android deployment + automated-testing reference — canonical emulator/test layer is the android-framework repo (symlinked to ~/.claude/android.md)
-├── models.md                # Model strategy & delegation reference — raw `codex exec` wrapper pattern (gpt-5.5/5.6), Cursor CLI for composer-2.5, grok-4.5 via OpenAI-compatible API, + native Claude model routing for subagents/workflows (symlinked to ~/.claude/models.md)
+├── model-selection.md       # WHICH model to use WHEN — rankings table, task-type guidance, subagent/workflow model assignment (symlinked to ~/.claude/model-selection.md)
+├── model-usage.md           # HOW to invoke a chosen model — `codex exec` + `cursor-agent` wrapper patterns, native Claude routing, current model ids, auth/error rules (symlinked to ~/.claude/model-usage.md)
+├── models.md                # Deprecated stub pointing at model-selection.md + model-usage.md (split 2026-07-21; symlink kept for old references)
 ├── playwright.md            # Playwright visual web-testing reference — screenshot toolkit + how agents visually evaluate UIs, used only when the user asks to "test visually" (symlinked to ~/.claude/playwright.md)
+├── plans/                   # Design docs for this repo's own tooling (not symlinked)
+│   └── model-routing-test-suite.md  # `routecheck` design: manifest-driven drift/auth/contract tests for the model-routing policy (designed 2026-07-21, not yet implemented)
 ├── agents/
 │   └── plan-reviewer.md     # Reusable named agent for plan review
 ├── hooks/
@@ -96,6 +100,8 @@ After install, `~/.claude/` looks like:
 ├── plan-requirements.md → ~/dotfiles/claude/plan-requirements.md
 ├── android.md → ~/dotfiles/claude/android.md
 ├── models.md → ~/dotfiles/claude/models.md
+├── model-selection.md → ~/dotfiles/claude/model-selection.md
+├── model-usage.md → ~/dotfiles/claude/model-usage.md
 ├── playwright.md → ~/dotfiles/claude/playwright.md
 ├── statusline-command.sh → ~/dotfiles/claude/statusline-command.sh
 ├── projects/                  ← CC runtime (untouched)
