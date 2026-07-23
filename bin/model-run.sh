@@ -49,7 +49,9 @@ run_cursor() {
 OUTPUT=$("run_$BACKEND"); STATUS=$?
 printf '%s\n' "$OUTPUT"
 
-if printf '%s' "$OUTPUT" | grep -qiE 'authentication required|not logged in|insufficient_quota|rate limit exceeded|billing hard limit'; then
+# Auth/quota classification is gated on a nonzero exit: model output legitimately
+# QUOTING these phrases (e.g. a task about this script) must not trip the detector.
+if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ] && printf '%s' "$OUTPUT" | grep -qiE 'authentication required|not logged in|insufficient_quota|rate limit exceeded|billing hard limit'; then
   echo "model-run: AUTH/QUOTA ERROR on backend '$BACKEND' — STOP and surface this to the user verbatim. Do NOT substitute another model. Fix: ${BACKEND} login ($([ "$BACKEND" = cursor ] && echo cursor-agent login || echo codex login))" >&2
   exit 75
 fi
