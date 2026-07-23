@@ -64,19 +64,16 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │   │   ├── prompt.py        # Prompt building
 │   │   ├── models.py        # Shared dataclasses/constants
 │   │   └── tui.py           # Textual TUI (live progress + guidance input)
-│   ├── review-plan/
-│   │   └── SKILL.md         # On-demand plan review and auto-fix
-│   ├── write-a-prd/
-│   │   └── SKILL.md         # Create a PRD through interview and design
-│   ├── prd-to-plan/
-│   │   └── SKILL.md         # Break a PRD into tracer-bullet phases
 │   ├── grill-me/
 │   │   └── SKILL.md         # Interview relentlessly about a plan
-│   ├── forky/
-│   │   └── SKILL.md         # Mark a fork point for later rollback
-│   ├── rollback-with-update/
-│   │   └── SKILL.md         # Commit, summarize, and rewind to fork point
-│   ├── excalidraw-diagram/  # Excalidraw diagram generation (cloned from GitHub)
+│   ├── nou/
+│   │   └── SKILL.md         # "No, YOU do it" — execute the just-suggested manual steps
+│   ├── to-spec/             # Vendored from mattpocock/skills (see Vendored skills)
+│   │   └── SKILL.md         # Turn the current conversation into a spec/PRD
+│   ├── to-tickets/          # Vendored from mattpocock/skills
+│   │   └── SKILL.md         # Break a plan/spec into tracer-bullet tickets
+│   ├── setup-matt-pocock-skills/  # Vendored from mattpocock/skills — one-time tracker/label config
+│   ├── excalidraw-diagram/  # Vendored from coleam00/excalidraw-diagram-skill (local patches; see Vendored skills)
 │   │   ├── SKILL.md         # Diagram design methodology + workflow
 │   │   └── references/      # Renderer, templates, color palette
 │   └── tdd/
@@ -168,14 +165,14 @@ Use the plan-reviewer agent to check plan.md
 
 ### Planning & Design
 
-- **`skills/write-a-prd`** — Create a PRD through user interview, codebase exploration, and module design, then submit as a GitHub issue.
+- **`skills/to-spec`** — Turn the current conversation into a spec (a PRD) — no interview, just synthesis of what was already discussed — and publish it to the configured issue tracker. Vendored from mattpocock/skills.
   ```
-  /write-a-prd
+  /to-spec
   ```
 
-- **`skills/prd-to-plan`** — Break a PRD into a phased implementation plan using vertical slices (tracer bullets), saved as a Markdown file in `./plans/`. After writing, automatically validates the plan via the `plan-reviewer` agent and revises it (up to 2 rounds) before returning control to the user.
+- **`skills/to-tickets`** — Break a plan, spec, or the current conversation into tracer-bullet tickets, each declaring its blocking edges, published to the configured tracker. Vendored from mattpocock/skills. Both skills expect `/setup-matt-pocock-skills` to have been run once per repo to configure the tracker and label vocabulary.
   ```
-  /prd-to-plan
+  /to-tickets
   ```
 
 - **`skills/grill-me`** — Interview you relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree.
@@ -185,7 +182,7 @@ Use the plan-reviewer agent to check plan.md
 
 ### Diagrams
 
-- **`skills/excalidraw-diagram`** — Generate Excalidraw diagrams as `.excalidraw` JSON files and render them to PNG using headless Chromium. Cloned from [coleam00/excalidraw-diagram-skill](https://github.com/coleam00/excalidraw-diagram-skill). Requires `uv` and Playwright+Chromium (installed automatically by `install.sh` if `uv` is present).
+- **`skills/excalidraw-diagram`** — Generate Excalidraw diagrams as `.excalidraw` JSON files and render them to PNG using headless Chromium. Vendored from [coleam00/excalidraw-diagram-skill](https://github.com/coleam00/excalidraw-diagram-skill) (see Vendored skills). Requires `uv` and Playwright+Chromium (installed automatically by `install.sh` if `uv` is present).
   ```
   /excalidraw-diagram
   ```
@@ -199,29 +196,14 @@ Use the plan-reviewer agent to check plan.md
 
 ### Workflow
 
-- **`skills/forky`** — Mark a fork point in the conversation by writing a breadcrumb file (`.claude/fork-point.json`). Pair with `/rollback-with-update` to rewind later.
+- **`skills/nou`** — "No, YOU do it": when Claude just suggested commands or steps for you to run manually, this makes it execute them itself instead.
   ```
-  /forky
+  /nou
   ```
-
-- **`skills/rollback-with-update`** — Commit and push current work, generate a handoff summary, then rewind the conversation to the fork point set by `/forky`. Returns the session to the pre-feature baseline with context about what was done.
-  ```
-  /rollback-with-update
-  ```
-  **Workflow:**
-  1. Run `/forky` before starting a feature — marks the conversation fork point
-  2. Do your work
-  3. Run `/rollback-with-update` — commits, pushes, writes `.claude/handoff-summary.md`, then guides you through `/rewind` back to the fork point with the summary injected
-
-  **Files:**
-  | File | Purpose | Committed? |
-  |------|---------|------------|
-  | `.claude/fork-point.json` | Breadcrumb written by `/forky`, read and deleted by `/rollback-with-update` | No |
-  | `.claude/handoff-summary.md` | Handoff summary for the next agent | Yes |
 
 ### Execution & Review
 
-- **`skills/ralph-v2`** — Ralph v2: a phase-level build/evaluate harness. Unlike the old task-by-task loop, each **phase** gets one generator invocation (implements the whole phase) followed by an evaluator that tests the output against the phase's acceptance criteria, retrying up to `--max-eval-rounds` times. A rescue agent recovers phases that stall past `--task-timeout`. The plan file and a learnings file are the shared state across phases. Plans produced by `prd-to-plan` are written in exactly this format (`## Phase N` + `**Delivers**` + `**Acceptance criteria**`); v2 also parses old `- [ ]` checkbox plans for backward compatibility.
+- **`skills/ralph-v2`** — Ralph v2: a phase-level build/evaluate harness. Unlike the old task-by-task loop, each **phase** gets one generator invocation (implements the whole phase) followed by an evaluator that tests the output against the phase's acceptance criteria, retrying up to `--max-eval-rounds` times. A rescue agent recovers phases that stall past `--task-timeout`. The plan file and a learnings file are the shared state across phases. The expected plan format is `## Phase N` + `**Delivers**` + `**Acceptance criteria**` (documented in `plan-requirements.md`); v2 also parses old `- [ ]` checkbox plans for backward compatibility.
   ```
   python3 ~/dotfiles/claude/skills/ralph-v2/ralph.py            # auto-finds plan.md or ~/.claude/plans/
   python3 ~/dotfiles/claude/skills/ralph-v2/ralph.py plan.md    # explicit plan path
@@ -237,23 +219,20 @@ Use the plan-reviewer agent to check plan.md
 
   > Note: ralph-v2 currently ships as Python modules with **no `SKILL.md`**, so there is no `/ralph-v2` slash command yet — invoke it via `python3` as shown above.
 
-- **`skills/review-plan`** — Plan Review & Auto-Fix: on-demand plan review that finds the active plan, runs the `plan-reviewer` agent against `plan-requirements.md`, and automatically edits the plan to fix any issues.
-  ```
-  /review-plan                    # auto-finds plan in ~/.claude/plans/ or CWD
-  ```
-  **What it does:**
-  1. Finds the active plan file (most recent in `~/.claude/plans/*.md`, or `plan.md`/`PLAN.md` in CWD)
-  2. Launches the `plan-reviewer` agent to validate against requirements
-  3. If the plan passes, reports success and stops
-  4. If the plan fails, reads the reviewer feedback and edits the plan to address every issue
-  5. Re-runs the reviewer to confirm fixes landed
-  6. If still failing, makes one more revision pass (max 2 rounds), then reports any remaining issues
+### Vendored skills
 
-  **When to use it:** Any time you want to validate a plan — mid-planning or before execution. Plan review is on-demand only (via this skill or the `plan-reviewer` agent); nothing runs automatically.
+Third-party skills are vendored as plain committed files in `skills/` — no submodules, no clone-at-install — managed with the [`skills` CLI](https://github.com/vercel-labs/skills):
+
+- **[mattpocock/skills](https://github.com/mattpocock/skills)** (`to-spec`, `to-tickets`, `setup-matt-pocock-skills`) — add more of Matt's skills with:
+  ```
+  npx skills add mattpocock/skills --skill <name> -a claude-code -g -y
+  ```
+  `-g` writes to `~/.claude/skills`, which is this repo's `skills/` via the symlink — so the files land in the repo; commit them. Update later with `npx skills update <name>` and review/commit the diff.
+- **[coleam00/excalidraw-diagram-skill](https://github.com/coleam00/excalidraw-diagram-skill)** (`excalidraw-diagram`) — pinned at upstream `8646fcc` with local patches: absolute renderer paths (`~/.claude/skills/...` instead of the upstream project-relative `cd .claude/...`), a sharpened trigger description, and `render_template.html` pinned to `@excalidraw/excalidraw@0.18.0` on esm.sh (the unpinned import 404s on a transitive dep). If you re-vendor from upstream, re-apply the patches (`git diff` against the vendoring commit shows them).
 
 ### Adding a new skill
 
-Create a subdirectory in `skills/` with a `SKILL.md` file containing `user_invocable: true` in frontmatter (e.g., `skills/my-skill/SKILL.md`).
+Create a subdirectory in `skills/` with a `SKILL.md` whose frontmatter has `name` and `description`. No `install.sh` change is needed — the whole `skills/` directory is symlinked, so new subdirectories load on the next session restart. Add an entry to this README's Skills section (nothing enforces the two staying in sync).
 
 ### Adding a new agent
 

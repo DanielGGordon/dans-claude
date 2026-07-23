@@ -1,5 +1,5 @@
-# Cloned third-party skills (managed by install.sh)
-skills/excalidraw-diagram/
+# Excalidraw renderer virtualenv (skill itself is vendored/tracked)
+skills/excalidraw-diagram/references/.venv/
 
 # Python bytecode
 __pycache__/
