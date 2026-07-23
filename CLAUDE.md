@@ -9,23 +9,32 @@ Before making any changes to hooks, skills, agents, or Claude settings:
 1. Read `~/dotfiles/claude/README.md` for the full repo structure, conventions, and how install works.
 2. Make all edits in `~/dotfiles/claude/` (not `~/.claude/`).
 3. Update `~/dotfiles/claude/README.md` if the change adds, removes, or alters any documented feature.
-4. Commit the changes and push to GitHub.
+4. Commit on a feature branch (`claude/<topic>`) and open a PR against `master`
+   with `gh pr create` — never push directly to `master`. Leave the local
+   checkout on the branch so symlinked config keeps working during review;
+   after the user merges, switch back to `master` and pull.
 5. Run `bash ~/dotfiles/claude/install.sh` so symlinks and merged settings take effect.
 6. Remind the user to restart Claude Code if settings changed.
 
 ## Model Strategy & Delegation
 
-**Any time you are about to use a subagent (Agent tool) or a workflow (Workflow
-tool), read `~/.claude/models.md` FIRST — before launching anything — and pick
-each agent's model according to it.** This applies to every delegation, not just
-big ones: single Explore agents, review panels, workflow fan-outs, all of it.
+Model routing is documented in two files — selection (when/why) and usage (how):
 
-`~/.claude/models.md` is also the canonical reference for model selection
-generally and for using Codex (`gpt-5.5`) inside Claude Code: which model to use
-per task type (bulk/mechanical vs. user-facing vs. review/planning), the
-intelligence > taste > cost-efficiency priority for anything that ships, and the
-canonical `codex exec` CLI wrapper pattern. Follow it strictly unless the user
-explicitly says otherwise.
+1. **`~/.claude/model-selection.md` — WHICH model, WHEN.** Any time you are
+   about to use a subagent (Agent tool) or a workflow (Workflow tool), read it
+   FIRST — before launching anything — and pick each agent's model according to
+   it. This applies to every delegation, not just big ones: single Explore
+   agents, review panels, workflow fan-outs, all of it. It covers the rankings
+   table, per-task-type guidance (bulk/mechanical vs. user-facing vs.
+   review/planning vs. recent-info research), and the
+   intelligence > taste > cost-efficiency priority for anything that ships.
+2. **`~/.claude/model-usage.md` — HOW to invoke the chosen model.** Canonical
+   `codex exec` and `cursor-agent` wrapper patterns, native Claude model routing
+   for subagents/workflows, exact current model ids, and the auth/quota
+   stop-and-surface rules.
+
+Follow both strictly unless the user explicitly says otherwise. (`~/.claude/models.md`
+is a deprecated stub pointing at these two.)
 
 ## Visual Web Testing (Playwright)
 
