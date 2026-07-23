@@ -10,6 +10,7 @@
 # Prints the model's output to stdout. Exit codes:
 #   0   success
 #   64  usage error (bad model id / task type, missing prompt file)
+#   73  transport error persisting after one automatic retry — retry later
 #   75  auth/quota error — STOP and surface to the user; never substitute a model
 #   124 timeout
 # Claude models (sonnet/opus/haiku/fable) are NOT served here — use the Agent
@@ -68,7 +69,24 @@ run_cursor() {
     --output-format text --model "$MODEL" "$(cat "$PROMPTFILE")" 2>&1)
 }
 
-OUTPUT=$("run_$BACKEND"); STATUS=$?
+# Transient transport failures (connection drops, gateway errors) get ONE
+# automatic retry after a short backoff — provider degradations are common
+# enough that a single blip shouldn't hard-fail a delegation. Persistent
+# transport failure exits 73 (distinct from auth 75: retrying later may help,
+# switching models won't fix the network).
+is_transport() {
+  printf '%s' "$1" | grep -qiE 'connection (reset|refused|closed|lost|error)|ECONNRESET|ETIMEDOUT|ENETUNREACH|stream (error|disconnected)|network error|50[234] (bad gateway|service unavailable|gateway timeout)|TLS handshake|temporary failure in name resolution'
+}
+
+ATTEMPT=1
+while :; do
+  OUTPUT=$("run_$BACKEND"); STATUS=$?
+  if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ] && [ "$ATTEMPT" -eq 1 ] && is_transport "$OUTPUT"; then
+    echo "model-run: transport error on $BACKEND/$MODEL — retrying once in ${MODEL_RUN_RETRY_DELAY:-5}s" >&2
+    sleep "${MODEL_RUN_RETRY_DELAY:-5}"; ATTEMPT=2; continue
+  fi
+  break
+done
 printf '%s\n' "$OUTPUT"
 
 # Auth/quota classification is gated on a nonzero exit: model output legitimately
@@ -76,6 +94,10 @@ printf '%s\n' "$OUTPUT"
 if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ] && printf '%s' "$OUTPUT" | grep -qiE 'authentication required|not logged in|insufficient_quota|rate limit exceeded|billing hard limit'; then
   echo "model-run: AUTH/QUOTA ERROR on backend '$BACKEND' — STOP and surface this to the user verbatim. Do NOT substitute another model. Fix: $([ "$BACKEND" = cursor ] && echo cursor-agent login || echo codex login)" >&2
   exit 75
+fi
+if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ] && is_transport "$OUTPUT"; then
+  echo "model-run: TRANSPORT ERROR on $BACKEND/$MODEL persisted after retry — likely provider/network degradation. Retry later; do NOT substitute another model without asking the user." >&2
+  exit 73
 fi
 if [ "$STATUS" -eq 124 ]; then
   echo "model-run: TIMEOUT after ${TIMEOUT}s on $BACKEND/$MODEL (override with MODEL_RUN_TIMEOUT=<secs>)" >&2

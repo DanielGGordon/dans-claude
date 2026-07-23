@@ -33,6 +33,8 @@ bash ~/dotfiles/claude/bin/model-run.sh --task-type bulk|cheap|recency|second-re
 - Prompts are ALWAYS passed via file — the script rejects missing/empty files.
 - Timeout 600s (override: `MODEL_RUN_TIMEOUT=<secs>`).
 - Exit codes: `0` success · `64` usage/bad-id (the error lists valid ids) ·
+  `73` transport error persisting after the script's one automatic retry
+  (provider/network degradation — retry later, don't switch models unasked) ·
   `75` **auth/quota — STOP and surface to the user, never substitute a model** ·
   `124` timeout.
 

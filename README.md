@@ -43,7 +43,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── plans/                   # Design docs for this repo's own tooling (not symlinked)
 │   └── model-routing-test-suite.md  # `routecheck` design: manifest-driven drift/auth/contract tests for the model-routing policy (designed 2026-07-21, not yet implemented)
 ├── bin/
-│   ├── model-run.sh         # THE single entrypoint for non-Claude model calls: canonical flags, timeouts, distinct exit codes (64 bad-id / 75 auth-quota / 124 timeout); accepts <model-id> or --task-type bulk|cheap|recency|second-review
+│   ├── model-run.sh         # THE single entrypoint for non-Claude model calls: canonical flags, timeouts, one auto-retry on transient transport errors, distinct exit codes (64 bad-id / 73 transport-after-retry / 75 auth-quota / 124 timeout); accepts <model-id> or --task-type bulk|cheap|recency|second-review
 │   └── routes.tsv           # Single source of truth: model ids, id→backend, retired-id successors, task-type→id mappings (drives model-run.sh + routecheck)
 ├── agents/
 │   ├── model-runner.md      # Named agent wrapping bin/model-run.sh — verbatim-output contract, never substitutes models
@@ -88,7 +88,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │       └── tests.md         # Test examples
 ├── tests/
 │   ├── test_ralph_v2.py     # Tests for ralph-v2
-│   └── routecheck.sh        # Verifies the whole routing layer: route-guard hook unit tests (deny/allow cases incl. bypass regressions), zero-token model-run/table checks, then a live nonce smoke of EVERY bin/routes.tsv row (~100 tok/route; alias `routecheck`)
+│   └── routecheck.sh        # Verifies the whole routing layer: route-guard hook unit tests, mock-backend error-taxonomy tests (fake codex/cursor via PATH shim), zero-token model-run/table checks, live nonce smoke of EVERY bin/routes.tsv row, and an artifact (file-write) smoke per backend (alias `routecheck`; `--no-live` = free tiers only)
 ├── aliases.sh               # Shell aliases sourced from ~/.bash_aliases
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md
@@ -136,7 +136,7 @@ codex CLI / cursor-agent    subscription-seat CLIs (never invoked raw)
 ```
 
 - **Policy** — `model-selection.md` (WHICH model WHEN: rankings, task-type guidance) and `model-usage.md` (HOW to invoke). Global `CLAUDE.md` requires reading model-selection.md before any subagent/workflow delegation.
-- **`bin/model-run.sh`** — the only way models get invoked. Takes `<model-id>` or `--task-type bulk|cheap|recency|second-review` (the table resolves the id — the LLM only picks a class), plus a prompt **file** (never inline) and optional workdir. Distinct exit codes: `64` bad/retired id · `75` auth/quota (agents must stop and surface, never substitute a model) · `124` timeout.
+- **`bin/model-run.sh`** — the only way models get invoked. Takes `<model-id>` or `--task-type bulk|cheap|recency|second-review` (the table resolves the id — the LLM only picks a class), plus a prompt **file** (never inline) and optional workdir. Transient transport errors get one automatic retry with backoff. Distinct exit codes: `64` bad/retired id · `73` transport error persisting after retry · `75` auth/quota (agents must stop and surface, never substitute a model) · `124` timeout.
 - **`bin/routes.tsv`** — edit THIS when the model catalog changes; script errors, docs, and tests all derive from it. Then run `routecheck`.
 - **`agents/model-runner.md`** — the sonnet wrapper subagent (tools: Bash + Write only). Give it a model id or task type + prompt; it runs the script and returns output verbatim (`MODEL: <id>` prefix). Preferred over direct Bash for delegations because it appears as a named agent in the progress UI rather than an opaque background process.
 - **Enforcement (hooks)** — `route-guard.sh` (PreToolUse on Bash) denies raw `codex exec` / headless `cursor-agent` calls and retired model ids with a structured reason pointing at the blessed path; command-position matching with quoted-prose exemption, `bash -c` smuggling covered. Applies to subagents too. `route-health-banner.sh` (SessionStart) surfaces cached routecheck failures/staleness at session start without running anything.
@@ -144,7 +144,7 @@ codex CLI / cursor-agent    subscription-seat CLIs (never invoked raw)
 
 ### Verifying (`routecheck`)
 
-`tests/routecheck.sh` (alias `routecheck`) verifies the whole layer: Tier 0 hook unit tests (deny/allow cases incl. bypass regressions), zero-token table/auth/arg-parsing checks, then a live nonce smoke of **every** routes.tsv row through model-run.sh — the tested path is byte-identical to the used path (~100 tokens/route). `--no-live` runs just the free tiers. Full runs write `~/.claude/route-health.txt` for the SessionStart banner. Rule: a FAILing route means the policy files are wrong — fix the id/syntax or remove the model; never leave a documented route broken.
+`tests/routecheck.sh` (alias `routecheck`) verifies the whole layer: Tier 0 hook unit tests (deny/allow cases incl. bypass regressions), a mock-backend tier (PATH-shimmed fake codex/cursor-agent proving the error taxonomy deterministically — auth→75, transport→73 after retry, transient→recovers, quoted-prose→no false positive), zero-token table/auth/arg-parsing checks, then live smokes: a nonce echo for **every** routes.tsv row through model-run.sh (tested path = used path, ~100 tokens/route) plus one **artifact smoke per backend** — the model must actually write a file, catching tool-execution/sandbox breakage that text round-trips can't see. `--no-live` runs just the free tiers. Full runs write `~/.claude/route-health.txt` for the SessionStart banner. Rule: a FAILing route means the policy files are wrong — fix the id/syntax or remove the model; never leave a documented route broken.
 
 ### Maintenance
 
