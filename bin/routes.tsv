@@ -1,0 +1,25 @@
+# Single source of truth for non-Claude model routing. Tab-separated.
+#   model	<id>	<backend>          — routable model id
+#   retired	<old-id>	<successor>    — rejected with pointer to successor
+#   task	<task-type>	<model-id>     — --task-type resolution
+# Consumed by bin/model-run.sh (routing + errors) and tests/routecheck.sh
+# (test matrix). model-usage.md/model-selection.md point here; don't let the
+# markdown grow its own id lists.
+model	gpt-5.5	codex
+model	gpt-5.6-sol	codex
+model	gpt-5.6-terra	codex
+model	gpt-5.6-luna	codex
+model	composer-2.5	cursor
+model	composer-2.5-fast	cursor
+model	cursor-grok-4.5-high	cursor
+model	cursor-grok-4.5-high-fast	cursor
+model	cursor-grok-4.5-medium	cursor
+model	cursor-grok-4.5-low	cursor
+model	glm-5.2-high	cursor
+model	glm-5.2-max	cursor
+retired	grok-4.5-xhigh	cursor-grok-4.5-high
+retired	grok-4.5-fast-xhigh	cursor-grok-4.5-high-fast
+task	bulk	gpt-5.6-terra
+task	cheap	composer-2.5
+task	recency	cursor-grok-4.5-high
+task	second-review	gpt-5.6-sol
