@@ -116,7 +116,45 @@ After install, `~/.claude/` looks like:
 └── ...
 ```
 
+## Model Routing & Orchestration
+
+How Claude Code sessions on this machine reach non-Anthropic models (gpt-5.5/5.6 via the Codex CLI, composer-2.5 / grok-4.5 / glm-5.2 via the Cursor CLI — both on subscription-seat auth, no API keys), and how that stays deterministic.
+
+### The layers
+
+```
+model-selection.md          WHICH model / task type (policy the LLM reads)
+        │
+model-runner agent          delegation vehicle (visible as a named agent in
+  — or direct Bash —        the workflow/agent UI; direct Bash for one-offs)
+        │
+bin/model-run.sh            THE entrypoint: flags, timeouts, error codes
+        │
+bin/routes.tsv              single source of truth: ids → backends,
+        │                   retired-id successors, task-type → id mappings
+codex CLI / cursor-agent    subscription-seat CLIs (never invoked raw)
+```
+
+- **Policy** — `model-selection.md` (WHICH model WHEN: rankings, task-type guidance) and `model-usage.md` (HOW to invoke). Global `CLAUDE.md` requires reading model-selection.md before any subagent/workflow delegation.
+- **`bin/model-run.sh`** — the only way models get invoked. Takes `<model-id>` or `--task-type bulk|cheap|recency|second-review` (the table resolves the id — the LLM only picks a class), plus a prompt **file** (never inline) and optional workdir. Distinct exit codes: `64` bad/retired id · `75` auth/quota (agents must stop and surface, never substitute a model) · `124` timeout.
+- **`bin/routes.tsv`** — edit THIS when the model catalog changes; script errors, docs, and tests all derive from it. Then run `routecheck`.
+- **`agents/model-runner.md`** — the sonnet wrapper subagent (tools: Bash + Write only). Give it a model id or task type + prompt; it runs the script and returns output verbatim (`MODEL: <id>` prefix). Preferred over direct Bash for delegations because it appears as a named agent in the progress UI rather than an opaque background process.
+- **Enforcement (hooks)** — `route-guard.sh` (PreToolUse on Bash) denies raw `codex exec` / headless `cursor-agent` calls and retired model ids with a structured reason pointing at the blessed path; command-position matching with quoted-prose exemption, `bash -c` smuggling covered. Applies to subagents too. `route-health-banner.sh` (SessionStart) surfaces cached routecheck failures/staleness at session start without running anything.
+- **Claude models are NOT routed through any of this** — subagents use the Agent tool's `model` param (`sonnet`/`opus`/`haiku`/`fable`); workflow scripts use `agent(prompt, {model, effort})`. model-run.sh rejects Claude model ids with a pointer.
+
+### Verifying (`routecheck`)
+
+`tests/routecheck.sh` (alias `routecheck`) verifies the whole layer: Tier 0 hook unit tests (deny/allow cases incl. bypass regressions), zero-token table/auth/arg-parsing checks, then a live nonce smoke of **every** routes.tsv row through model-run.sh — the tested path is byte-identical to the used path (~100 tokens/route). `--no-live` runs just the free tiers. Full runs write `~/.claude/route-health.txt` for the SessionStart banner. Rule: a FAILing route means the policy files are wrong — fix the id/syntax or remove the model; never leave a documented route broken.
+
+### Maintenance
+
+Catalog drift (new/retired ids): edit `bin/routes.tsv`, run `routecheck`, PR. Auth rot: `codex login` / `cursor-agent login` (routecheck's Tier 1 catches it). Policy changes (rankings, task-type mappings): `model-selection.md` + routes.tsv `task` rows. History of why it's shaped this way (Cursor SDK rejected, MCP deferred, subagent kept for UI visibility): PRs #3–#6.
+
 ## Named Agents
+
+### `agents/model-runner.md`
+
+The model-routing wrapper described above — spawn it with a model id or task type + a prompt (file); it returns the model's output verbatim. Sonnet, tools stripped to Bash + Write, never substitutes models on error.
 
 ### `agents/plan-reviewer.md`
 
