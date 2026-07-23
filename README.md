@@ -42,9 +42,14 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── playwright.md            # Playwright visual web-testing reference — screenshot toolkit + how agents visually evaluate UIs, used only when the user asks to "test visually" (symlinked to ~/.claude/playwright.md)
 ├── plans/                   # Design docs for this repo's own tooling (not symlinked)
 │   └── model-routing-test-suite.md  # `routecheck` design: manifest-driven drift/auth/contract tests for the model-routing policy (designed 2026-07-21, not yet implemented)
+├── bin/
+│   └── model-run.sh         # THE single entrypoint for non-Claude model calls: routing table (id→backend), canonical flags, timeouts, distinct exit codes (64 bad-id / 75 auth-quota / 124 timeout)
 ├── agents/
+│   ├── model-runner.md      # Named agent wrapping bin/model-run.sh — verbatim-output contract, never substitutes models
 │   └── plan-reviewer.md     # Reusable named agent for plan review
 ├── hooks/
+│   ├── route-guard.sh       # PreToolUse(Bash): blocks raw codex/cursor-agent invocations + retired model ids, redirects to bin/model-run.sh
+│   ├── route-health-banner.sh  # SessionStart: warns (from cached ~/.claude/route-health.txt) when routecheck last failed or is >14d stale — never runs tests itself
 │   └── second-brain-ingest-session-end.sh  # SessionEnd → second-brain quick ingest
 ├── skills/
 │   ├── ralph-v2/

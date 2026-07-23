@@ -127,8 +127,10 @@ the designated one errors — stop and surface (see model-usage.md).
 ## Subagent & Workflow Guidelines
 
 - Main orchestrator: **fable-5** or **opus-4.8** at high effort.
-- Thin CLI wrapper agents (the delegation vehicle for Codex/Cursor models):
-  **sonnet, low effort** — their only job is run-command-return-stdout.
+- Delegations to non-Claude models go through the **`model-runner`** named
+  agent (a sonnet wrapper installed from this repo) — give it the model id +
+  prompt file; it invokes `bin/model-run.sh` and returns output verbatim.
+  Don't hand-roll codex/cursor-agent commands; a hook blocks them.
 - Workflow stages: mechanical fan-out stages → `{ model: 'sonnet', effort:
   'low' }`; judge, verify, and taste-sensitive stages → session model (fable-5 /
   opus-4.8) at high effort. Prefer effort `'high'` for fable-5; avoid `'xhigh'`
