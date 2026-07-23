@@ -14,32 +14,33 @@ There is exactly ONE way to invoke a non-Claude model. Do not hand-roll `codex`
 or `cursor-agent` commands — a PreToolUse hook (`route-guard`) blocks them.
 
 **Delegating (the normal case):** spawn the **`model-runner`** agent (a named
-agent installed from this repo). Tell it the model id, the prompt (or prompt
-file path), and optionally a workdir. It runs the script below and returns the
-model's output verbatim, with all error rules baked in.
+agent installed from this repo). Tell it the model id — or just a task type —
+plus the prompt (or prompt file path), and optionally a workdir. It runs the
+script below and returns the model's output verbatim, with all error rules
+baked in. Preferred over direct Bash for delegations because it appears as a
+named agent in the workflow/agent progress UI instead of an opaque background
+process.
 
-**Direct call (from a script or when you are already a wrapper):**
+**Direct call (quick inline one-offs, scripts, or when you ARE the wrapper):**
 
 ```bash
 bash ~/dotfiles/claude/bin/model-run.sh <model-id> <promptfile> [workdir]
+bash ~/dotfiles/claude/bin/model-run.sh --task-type bulk|cheap|recency|second-review <promptfile> [workdir]
 ```
 
+- `--task-type` resolves the model id deterministically from the table — prefer
+  it when the task fits a class; pass an explicit id only when overriding.
 - Prompts are ALWAYS passed via file — the script rejects missing/empty files.
 - Timeout 600s (override: `MODEL_RUN_TIMEOUT=<secs>`).
 - Exit codes: `0` success · `64` usage/bad-id (the error lists valid ids) ·
   `75` **auth/quota — STOP and surface to the user, never substitute a model** ·
   `124` timeout.
-- The script owns the routing table (model id → backend), all CLI flags, and
-  retired-id rejection. When the model catalog changes, update the table in
-  `bin/model-run.sh` + the ids here and in model-selection.md, then run
-  `routecheck`.
 
-Valid ids (routecheck-verified 2026-07-21):
-
-| Backend | Model ids |
-| ------- | --------- |
-| Codex   | `gpt-5.5` (CLI default), `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` |
-| Cursor  | `composer-2.5`[`-fast`], `cursor-grok-4.5-high`[`-fast`], `cursor-grok-4.5-medium`, `cursor-grok-4.5-low`, `glm-5.2-high`, `glm-5.2-max` |
+**`bin/routes.tsv` is the single source of truth** for model ids, id→backend
+routing, retired-id successors, and task-type mappings. The script, its error
+messages, and routecheck's test matrix all derive from it. When the catalog
+changes, edit routes.tsv (only), then run `routecheck`. Current ids: run
+`bash ~/dotfiles/claude/bin/model-run.sh` with no args, or read the tsv.
 
 ## Claude Models (sonnet / opus / haiku / fable)
 

@@ -43,12 +43,13 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── plans/                   # Design docs for this repo's own tooling (not symlinked)
 │   └── model-routing-test-suite.md  # `routecheck` design: manifest-driven drift/auth/contract tests for the model-routing policy (designed 2026-07-21, not yet implemented)
 ├── bin/
-│   └── model-run.sh         # THE single entrypoint for non-Claude model calls: routing table (id→backend), canonical flags, timeouts, distinct exit codes (64 bad-id / 75 auth-quota / 124 timeout)
+│   ├── model-run.sh         # THE single entrypoint for non-Claude model calls: canonical flags, timeouts, distinct exit codes (64 bad-id / 75 auth-quota / 124 timeout); accepts <model-id> or --task-type bulk|cheap|recency|second-review
+│   └── routes.tsv           # Single source of truth: model ids, id→backend, retired-id successors, task-type→id mappings (drives model-run.sh + routecheck)
 ├── agents/
 │   ├── model-runner.md      # Named agent wrapping bin/model-run.sh — verbatim-output contract, never substitutes models
 │   └── plan-reviewer.md     # Reusable named agent for plan review
 ├── hooks/
-│   ├── route-guard.sh       # PreToolUse(Bash): blocks raw codex/cursor-agent invocations + retired model ids, redirects to bin/model-run.sh
+│   ├── route-guard.sh       # PreToolUse(Bash): denies raw codex/cursor-agent invocations + retired model ids (structured permissionDecision JSON, command-position matching — chained/env-prefixed bypasses covered), redirects to bin/model-run.sh
 │   ├── route-health-banner.sh  # SessionStart: warns (from cached ~/.claude/route-health.txt) when routecheck last failed or is >14d stale — never runs tests itself
 │   └── second-brain-ingest-session-end.sh  # SessionEnd → second-brain quick ingest
 ├── skills/
@@ -87,7 +88,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │       └── tests.md         # Test examples
 ├── tests/
 │   ├── test_ralph_v2.py     # Tests for ralph-v2
-│   └── routecheck.sh        # Live-verifies every model route in model-usage.md/model-selection.md (nonce smoke per route + CLI auth checks, ~100 tok/route; alias `routecheck`)
+│   └── routecheck.sh        # Verifies the whole routing layer: route-guard hook unit tests (deny/allow cases incl. bypass regressions), zero-token model-run/table checks, then a live nonce smoke of EVERY bin/routes.tsv row (~100 tok/route; alias `routecheck`)
 ├── aliases.sh               # Shell aliases sourced from ~/.bash_aliases
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md

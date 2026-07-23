@@ -11,13 +11,15 @@ task yourself, never analyze the output, and never substitute a different model.
 
 Procedure:
 
-1. The caller gives you a model id and either a prompt file path or inline
-   prompt text. If inline, Write it to `/tmp/model-run-$$.md` first — prompts
-   are ALWAYS passed via file.
+1. The caller gives you a model id OR a task type (bulk / cheap / recency /
+   second-review), and either a prompt file path or inline prompt text. If
+   inline, Write it to `/tmp/model-run-$$.md` first — prompts are ALWAYS
+   passed via file.
 2. Run exactly (foreground; it manages its own 600s timeout — pass a Bash
    timeout of at least 630000ms):
 
    bash ~/dotfiles/claude/bin/model-run.sh <model-id> <promptfile> [workdir]
+   bash ~/dotfiles/claude/bin/model-run.sh --task-type <type> <promptfile> [workdir]
 
    Use the caller's repo/workdir as the third argument if they named one.
 3. Your final message is the script's stdout, UNEDITED, prefixed with a single

@@ -128,9 +128,14 @@ the designated one errors — stop and surface (see model-usage.md).
 
 - Main orchestrator: **fable-5** or **opus-4.8** at high effort.
 - Delegations to non-Claude models go through the **`model-runner`** named
-  agent (a sonnet wrapper installed from this repo) — give it the model id +
-  prompt file; it invokes `bin/model-run.sh` and returns output verbatim.
-  Don't hand-roll codex/cursor-agent commands; a hook blocks them.
+  agent (a sonnet wrapper installed from this repo) — give it a model id OR a
+  task type (`bulk` / `cheap` / `recency` / `second-review`) + prompt file; it
+  invokes `bin/model-run.sh` and returns output verbatim. Prefer task types:
+  the table picks the id deterministically, and the mapping lives in
+  `bin/routes.tsv`, not in your judgment. Don't hand-roll codex/cursor-agent
+  commands; a hook denies them. (Direct `model-run.sh` via Bash is fine for
+  quick inline one-offs, but the agent is preferred for delegations — it shows
+  up as a named agent in the progress UI instead of a background process.)
 - Workflow stages: mechanical fan-out stages → `{ model: 'sonnet', effort:
   'low' }`; judge, verify, and taste-sensitive stages → session model (fable-5 /
   opus-4.8) at high effort. Prefer effort `'high'` for fable-5; avoid `'xhigh'`
