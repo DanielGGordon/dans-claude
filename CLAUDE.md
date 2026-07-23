@@ -13,6 +13,10 @@ Before making any changes to hooks, skills, agents, or Claude settings:
    with `gh pr create` — never push directly to `master`. Leave the local
    checkout on the branch so symlinked config keeps working during review;
    after the user merges, switch back to `master` and pull.
+   **Before pushing additional commits to an existing PR branch, check the PR
+   is still open** (`gh pr view <branch> --json state`) — the user merges
+   quickly, and commits pushed after the merge are silently orphaned. If it
+   merged, branch afresh from your commit and open a new PR.
 5. Run `bash ~/dotfiles/claude/install.sh` so symlinks and merged settings take effect.
 6. Remind the user to restart Claude Code if settings changed.
 
