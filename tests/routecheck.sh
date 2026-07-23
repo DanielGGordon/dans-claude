@@ -58,6 +58,17 @@ while IFS=$'\t' read -r _ tt mid; do
   awk -F'\t' -v m="$mid" '$1=="model" && $2==m {found=1} END {exit !found}' "$TABLE" \
     && ok "table:task-$tt->$mid" || bad "table:task-$tt->$mid" "resolves to unknown model"
 done < <(awk -F'\t' '$1=="task"' "$TABLE")
+# POSITIVE --task-type arg parsing, zero-token: with a nonexistent prompt file
+# the script must fail on "prompt file missing" (proving promptfile/workdir are
+# read from the right positions), NOT fall through to the usage error.
+# Regression for the shift-2 positional bug (2026-07-23, found by another agent).
+while IFS=$'\t' read -r _ tt _; do
+  err=$("$RUN" --task-type "$tt" /nonexistent/routecheck-probe.md 2>&1)
+  case "$err" in
+    *"prompt file missing"*) ok "args:task-type-$tt" ;;
+    *) bad "args:task-type-$tt" "expected prompt-file error, got: $(printf '%s' "$err" | head -1)" ;;
+  esac
+done < <(awk -F'\t' '$1=="task"' "$TABLE")
 
 # ---------- Tier 2: nonce smokes for EVERY model row ----------
 if [ "${1:-}" = "--no-live" ]; then
@@ -70,12 +81,16 @@ for m in "${MODELS[@]}"; do
   "$RUN" "$m" "$PROMPTFILE" "$WORK" >"$OUT/$m.txt" 2>&1 &
 done
 timeout 300 claude -p --model haiku "$(cat "$PROMPTFILE")" >"$OUT/claude-haiku.txt" 2>&1 &
+# One live smoke THROUGH --task-type (cheapest mapping) so the resolution path
+# is exercised end-to-end, not just at the arg-parsing layer.
+"$RUN" --task-type cheap "$PROMPTFILE" "$WORK" >"$OUT/task-cheap.txt" 2>&1 &
 wait
 
 for m in "${MODELS[@]}"; do
   grep -q "$NONCE" "$OUT/$m.txt" 2>/dev/null && ok "route:$m" || { bad "route:$m"; tail -c 300 "$OUT/$m.txt" 2>/dev/null | sed 's/^/      /'; }
 done
 grep -q "$NONCE" "$OUT/claude-haiku.txt" 2>/dev/null && ok "route:claude-haiku(native)" || bad "route:claude-haiku(native)"
+grep -q "$NONCE" "$OUT/task-cheap.txt" 2>/dev/null && ok "route:--task-type-cheap(e2e)" || { bad "route:--task-type-cheap(e2e)"; tail -c 300 "$OUT/task-cheap.txt" 2>/dev/null | sed 's/^/      /'; }
 
 rm -rf "$WORK"
 if [ "${#FAILURES[@]}" -eq 0 ]; then
