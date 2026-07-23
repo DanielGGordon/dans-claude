@@ -76,18 +76,12 @@ link "$REPO_DIR/statusline-command.sh" "$CLAUDE_DIR/statusline-command.sh"
 link "$REPO_DIR/CODING_AGENTS.md"    "$CLAUDE_DIR/CODING_AGENTS.md"
 link "$REPO_DIR/hooks"               "$CLAUDE_DIR/hooks"
 
-# --- Install excalidraw-diagram-skill ---
+# --- Excalidraw renderer setup ---
+# skills/excalidraw-diagram is vendored in this repo (upstream:
+# https://github.com/coleam00/excalidraw-diagram-skill, pinned at 8646fcc with
+# local patches — see README "Vendored skills"). No clone step needed.
 
-EXCALIDRAW_REPO="https://github.com/coleam00/excalidraw-diagram-skill.git"
 EXCALIDRAW_DIR="$REPO_DIR/skills/excalidraw-diagram"
-
-if [ -d "$EXCALIDRAW_DIR/.git" ]; then
-  echo "  Updating excalidraw-diagram-skill..."
-  git -C "$EXCALIDRAW_DIR" pull --ff-only
-else
-  echo "  Cloning excalidraw-diagram-skill..."
-  git clone "$EXCALIDRAW_REPO" "$EXCALIDRAW_DIR"
-fi
 
 # Install Python deps for the renderer if uv is available
 if command -v uv >/dev/null 2>&1; then
