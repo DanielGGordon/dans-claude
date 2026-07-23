@@ -43,7 +43,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── plans/                   # Design docs for this repo's own tooling (not symlinked)
 │   └── model-routing-test-suite.md  # `routecheck` design: manifest-driven drift/auth/contract tests for the model-routing policy (designed 2026-07-21, not yet implemented)
 ├── bin/
-│   ├── model-run.sh         # THE single entrypoint for non-Claude model calls: canonical flags, timeouts, distinct exit codes (64 bad-id / 75 auth-quota / 124 timeout); accepts <model-id> or --task-type bulk|cheap|recency|second-review
+│   ├── model-run.sh         # THE single entrypoint for non-Claude model calls: canonical flags, timeouts, one auto-retry on transient transport errors, distinct exit codes (64 bad-id / 73 transport-after-retry / 75 auth-quota / 124 timeout); accepts <model-id> or --task-type bulk|cheap|recency|second-review
 │   └── routes.tsv           # Single source of truth: model ids, id→backend, retired-id successors, task-type→id mappings (drives model-run.sh + routecheck)
 ├── agents/
 │   ├── model-runner.md      # Named agent wrapping bin/model-run.sh — verbatim-output contract, never substitutes models
@@ -88,7 +88,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │       └── tests.md         # Test examples
 ├── tests/
 │   ├── test_ralph_v2.py     # Tests for ralph-v2
-│   └── routecheck.sh        # Verifies the whole routing layer: route-guard hook unit tests (deny/allow cases incl. bypass regressions), zero-token model-run/table checks, then a live nonce smoke of EVERY bin/routes.tsv row (~100 tok/route; alias `routecheck`)
+│   └── routecheck.sh        # Verifies the whole routing layer: route-guard hook unit tests, mock-backend error-taxonomy tests (fake codex/cursor via PATH shim), zero-token model-run/table checks, live nonce smoke of EVERY bin/routes.tsv row, and an artifact (file-write) smoke per backend (alias `routecheck`; `--no-live` = free tiers only)
 ├── aliases.sh               # Shell aliases sourced from ~/.bash_aliases
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md
