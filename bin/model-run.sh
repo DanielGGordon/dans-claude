@@ -28,13 +28,17 @@ usage() {
   exit 64
 }
 
+# Consume the model/task-type args, then read promptfile/workdir positionally —
+# both invocation forms leave $1=promptfile, $2=workdir after the shifts.
 MODEL="${1:-}"
 if [ "$MODEL" = "--task-type" ]; then
   TT="${2:-}"; shift 2 2>/dev/null || usage
   MODEL=$(lookup task "$TT")
   [ -n "$MODEL" ] || { echo "model-run: unknown task type '$TT'. Task types: $(list task)" >&2; exit 64; }
+else
+  shift 1 2>/dev/null || usage
 fi
-PROMPTFILE="${2:-}"; WORKDIR="${3:-$PWD}"
+PROMPTFILE="${1:-}"; WORKDIR="${2:-$PWD}"
 [ -n "$MODEL" ] && [ -n "$PROMPTFILE" ] || usage
 [ -s "$PROMPTFILE" ] || { echo "model-run: prompt file missing or empty: $PROMPTFILE (always pass prompts via file, never inline)" >&2; exit 64; }
 [ -d "$WORKDIR" ] || { echo "model-run: workdir does not exist: $WORKDIR" >&2; exit 64; }
