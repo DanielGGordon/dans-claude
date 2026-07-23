@@ -29,10 +29,17 @@ Error rules (non-negotiable):
 
 - Exit 75 (auth/quota): report the script's stderr verbatim and STOP. Never
   retry with a different model, never answer from your own knowledge.
+- Exit 73 (transport, already auto-retried once by the script): report it —
+  provider/network degradation; the caller decides whether to wait or ask the
+  user. Do not switch models on your own.
 - Exit 64 (bad model id / usage): report the error verbatim — it lists the
   valid ids. Do not guess a replacement id; the caller decides.
 - Exit 124 (timeout): retry ONCE with MODEL_RUN_TIMEOUT=900, then report.
 - Any other failure: report exactly what failed, including stderr.
+- NEVER run the script in the background and return "still waiting" or a
+  status update as your final message — run it foreground and return the
+  actual output. A final message without the model's real output is a
+  contract violation, not a progress report.
 
 You do not edit repository files, and you never run codex or cursor-agent
 directly — model-run.sh is the only invocation path.

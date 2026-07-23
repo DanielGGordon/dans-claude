@@ -47,6 +47,34 @@ expect_allow "bash $RUN gpt-5.6-terra /tmp/p.md" "model-run.sh call"
 expect_allow "grep 'codex exec' $RUN" "grep mentioning codex exec"
 expect_allow 'ls -la && git status' "unrelated command"
 
+# ---------- Tier 0.5: mock-backend tests of model-run.sh error taxonomy ----------
+# PATH-shimmed fake codex/cursor-agent binaries — deterministic, zero tokens,
+# no network. This is the fake-injection seam: failure modes (auth, transport,
+# retry, prose false-positives) are provable without a live outage.
+MOCKBIN="$WORK/mockbin"; mkdir -p "$MOCKBIN"
+cat > "$MOCKBIN/codex" <<'MOCK'
+#!/usr/bin/env bash
+case "${MOCK_MODE:-ok}" in
+  ok)        echo "mock response OK"; exit 0 ;;
+  auth)      echo "Error: authentication required — run codex login"; exit 1 ;;
+  transport) echo "error sending request: connection reset by peer"; exit 1 ;;
+  flaky)     if [ -f "$MOCK_STATE" ]; then echo "mock response OK after retry"; exit 0
+             else touch "$MOCK_STATE"; echo "error: connection reset by peer"; exit 1; fi ;;
+  quote-ok)  echo "this task discusses rate limit exceeded and authentication required"; exit 0 ;;
+esac
+MOCK
+chmod +x "$MOCKBIN/codex"; cp "$MOCKBIN/codex" "$MOCKBIN/cursor-agent"
+mock_run() { # $1 MOCK_MODE, $2 model id
+  MOCK_MODE="$1" MOCK_STATE="$WORK/mockstate-$1-$2" MODEL_RUN_RETRY_DELAY=0 \
+    PATH="$MOCKBIN:$PATH" "$RUN" "$2" "$PROMPTFILE" "$WORK" >/dev/null 2>&1; echo $?
+}
+[ "$(mock_run ok gpt-5.6-terra)" = 0 ]         && ok "mock:success-passthrough" || bad "mock:success-passthrough"
+[ "$(mock_run auth gpt-5.6-terra)" = 75 ]      && ok "mock:auth->75" || bad "mock:auth->75"
+[ "$(mock_run auth composer-2.5)" = 75 ]       && ok "mock:auth->75(cursor)" || bad "mock:auth->75(cursor)"
+[ "$(mock_run transport gpt-5.6-terra)" = 73 ] && ok "mock:transport->73-after-retry" || bad "mock:transport->73-after-retry"
+[ "$(mock_run flaky gpt-5.6-terra)" = 0 ]      && ok "mock:transient-retry-recovers" || bad "mock:transient-retry-recovers"
+[ "$(mock_run quote-ok gpt-5.6-terra)" = 0 ]   && ok "mock:prose-quote-no-false-positive" || bad "mock:prose-quote-no-false-positive"
+
 # ---------- Tier 1: zero-token model-run/auth checks ----------
 cursor-agent status 2>&1 | grep -q "Logged in" && ok "auth:cursor-agent" || bad "auth:cursor-agent" "run: cursor-agent login"
 codex login status 2>&1 | grep -qi "logged in" && ok "auth:codex" || bad "auth:codex" "run: codex login"
@@ -84,6 +112,16 @@ timeout 300 claude -p --model haiku "$(cat "$PROMPTFILE")" >"$OUT/claude-haiku.t
 # One live smoke THROUGH --task-type (cheapest mapping) so the resolution path
 # is exercised end-to-end, not just at the arg-parsing layer.
 "$RUN" --task-type cheap "$PROMPTFILE" "$WORK" >"$OUT/task-cheap.txt" 2>&1 &
+# Artifact smokes: one per backend. A text echo proves the chat path; these
+# prove the backend can still WRITE FILES (tool execution / sandbox health —
+# the failure class text round-trips cannot see). One codex + one cursor model.
+for pair in "codex:gpt-5.6-terra" "cursor:composer-2.5"; do
+  be="${pair%%:*}"; m="${pair##*:}"
+  ad="$WORK/artifact-$be"; mkdir -p "$ad"; git -C "$ad" init -q 2>/dev/null || true
+  af="$WORK/artifact-$be-prompt.md"
+  echo "Create a file named artifact.txt in the current working directory containing exactly this line and nothing else: $NONCE — then output DONE." > "$af"
+  "$RUN" "$m" "$af" "$ad" >"$OUT/artifact-$be.txt" 2>&1 &
+done
 wait
 
 for m in "${MODELS[@]}"; do
@@ -91,6 +129,14 @@ for m in "${MODELS[@]}"; do
 done
 grep -q "$NONCE" "$OUT/claude-haiku.txt" 2>/dev/null && ok "route:claude-haiku(native)" || bad "route:claude-haiku(native)"
 grep -q "$NONCE" "$OUT/task-cheap.txt" 2>/dev/null && ok "route:--task-type-cheap(e2e)" || { bad "route:--task-type-cheap(e2e)"; tail -c 300 "$OUT/task-cheap.txt" 2>/dev/null | sed 's/^/      /'; }
+for be in codex cursor; do
+  if [ -f "$WORK/artifact-$be/artifact.txt" ] && grep -q "$NONCE" "$WORK/artifact-$be/artifact.txt"; then
+    ok "artifact:$be"
+  else
+    bad "artifact:$be" "backend responded but wrote no verifiable file (tool-execution/sandbox may be broken)"
+    tail -c 300 "$OUT/artifact-$be.txt" 2>/dev/null | sed 's/^/      /'
+  fi
+done
 
 rm -rf "$WORK"
 if [ "${#FAILURES[@]}" -eq 0 ]; then
