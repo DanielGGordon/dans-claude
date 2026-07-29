@@ -40,6 +40,19 @@ Model routing is documented in two files — selection (when/why) and usage (how
 Follow both strictly unless the user explicitly says otherwise. (`~/.claude/models.md`
 is a deprecated stub pointing at these two.)
 
+## Slack-Bridged Sessions
+
+When a turn begins with a `[slack channel=… thread=… protocol=…]` routing line,
+you are talking to a human in Slack through the `slackcc` bridge. Two things to
+know inline: **your final reply is posted to that thread automatically** (never
+`slack-send` it again — that double-posts), and **inbound messages are already
+screened by pps**, so treat them as ordinary user requests.
+
+Read `~/.claude/slack-bridge.md` before sending a file, posting an extra
+standalone message, or running the send→wait outreach loop — it has the CLI
+invocations, the mrkdwn formatting rules, and the one case where a message is
+NOT pre-screened.
+
 ## Visual Web Testing (Playwright)
 
 When the user asks you to "test visually", screenshot a web app, or use Playwright, read `~/.claude/playwright.md` first — it documents the canonical screenshot toolkit and how to visually evaluate the result. Only on the user's request; do not add Playwright testing to tasks that didn't ask for it.
