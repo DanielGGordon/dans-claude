@@ -15,6 +15,11 @@ model	cursor-grok-4.5-high	cursor
 model	cursor-grok-4.5-high-fast	cursor
 model	cursor-grok-4.5-medium	cursor
 model	cursor-grok-4.5-low	cursor
+model	cursor-grok-4.6-high	cursor
+model	cursor-grok-4.6-high-fast	cursor
+model	cursor-grok-4.6-xhigh	cursor
+model	cursor-grok-4.6-medium	cursor
+model	cursor-grok-4.6-low	cursor
 model	glm-5.2-high	cursor
 model	glm-5.2-max	cursor
 retired	grok-4.5-xhigh	cursor-grok-4.5-high

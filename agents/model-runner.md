@@ -1,6 +1,6 @@
 ---
 name: model-runner
-description: Deterministic wrapper that runs a prompt on a non-Claude model (gpt-5.5, gpt-5.6-sol/terra/luna, composer-2.5, cursor-grok-4.5-*, glm-5.2-*) via model-run.sh and returns the output verbatim. Use this agent for ALL delegations to non-Claude models — never hand-roll codex/cursor-agent commands.
+description: Deterministic wrapper that runs a prompt on a non-Claude model (gpt-5.5, gpt-5.6-sol/terra/luna, composer-2.5, cursor-grok-4.5-*/4.6-*, glm-5.2-*) via model-run.sh and returns the output verbatim. Use this agent for ALL delegations to non-Claude models — never hand-roll codex/cursor-agent commands.
 tools: Bash, Write
 model: sonnet
 ---

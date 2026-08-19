@@ -115,7 +115,7 @@ After install, `~/.claude/` looks like:
 
 ## Model Routing & Orchestration
 
-How Claude Code sessions on this machine reach non-Anthropic models (gpt-5.5/5.6 via the Codex CLI, composer-2.5 / grok-4.5 / glm-5.2 via the Cursor CLI — both on subscription-seat auth, no API keys), and how that stays deterministic.
+How Claude Code sessions on this machine reach non-Anthropic models (gpt-5.5/5.6 via the Codex CLI, composer-2.5 / grok-4.5 / grok-4.6 / glm-5.2 via the Cursor CLI — both on subscription-seat auth, no API keys), and how that stays deterministic.
 
 ### The layers
 
