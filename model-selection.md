@@ -33,6 +33,10 @@ Artificial Analysis, Coding Agent Index, LMArena/Design Arena, and vendor pricin
 
 `*` = thin public evidence; treat as provisional.
 
+- **grok-4.6** (Cursor catalog, added to routes 2026-08-19 as `cursor-grok-4.6-*`)
+  — not yet benchmarked here; until re-validated, treat it with grok-4.5's
+  scores and caveats (same hallucination/reliability rules apply).
+
 Notes (evidence-backed, 2026-07-21):
 
 - **grok-4.5** — $2/$6 per Mtok (cached input $0.30; 2× rates past 200k prompt),
