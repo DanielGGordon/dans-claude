@@ -7,6 +7,9 @@
 #   bash ~/dotfiles/claude/tests/routecheck.sh --no-live  # free tiers only; does not update route-health.txt
 #
 # A route passes only if the model echoes a nonce back. ~100 tokens per route.
+# Also runs bin/catalog-drift.sh (zero tokens): a routed id missing from its
+# live catalog is a FAIL; a NEWER version of a routed family (e.g. cursor-grok-4.7
+# when routes.tsv stops at 4.6) is a WARN — nothing is broken, but update routes.tsv.
 # Writes ~/.claude/route-health.txt for the SessionStart banner hook.
 # If a route FAILs, fix bin/routes.tsv / the docs or remove the model — never
 # leave a documented route broken.
@@ -14,6 +17,7 @@ set -u
 
 DIR="$HOME/dotfiles/claude"
 RUN="$DIR/bin/model-run.sh"
+DRIFT="$DIR/bin/catalog-drift.sh"
 TABLE="$DIR/bin/routes.tsv"
 GUARD="$DIR/hooks/route-guard.sh"
 NONCE="ROUTE-OK-$RANDOM$RANDOM"
@@ -25,9 +29,11 @@ echo "Output exactly this line and nothing else: $NONCE" > "$PROMPTFILE"
 HEALTH="$HOME/.claude/route-health.txt"
 TODAY=$(date +%F)
 declare -a FAILURES=()
+declare -a WARNINGS=()
 
 ok()   { echo "PASS  $1"; }
 bad()  { echo "FAIL  $1${2:+ — $2}"; FAILURES+=("$1"); }
+warn() { echo "WARN  $1${2:+ — $2}"; WARNINGS+=("$1"); }   # advisory: never fails the suite
 
 # ---------- Tier 0: hook unit tests (free) ----------
 guard() { printf '{"tool_input":{"command":%s}}' "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$1")" | bash "$GUARD"; }
@@ -43,6 +49,8 @@ expect_allow 'git commit -m "quotes chained: true model-run.sh; codex exec -C /t
 expect_allow 'cursor-agent status' "cursor status"
 expect_allow 'cursor-agent --list-models' "list-models"
 expect_allow 'codex login status' "codex login status"
+expect_allow 'codex debug models' "codex debug models (catalog read)"
+expect_allow "bash $DRIFT --cached" "catalog-drift.sh call"
 expect_allow "bash $RUN gpt-5.6-terra /tmp/p.md" "model-run.sh call"
 expect_allow "grep 'codex exec' $RUN" "grep mentioning codex exec"
 expect_allow 'ls -la && git status' "unrelated command"
@@ -54,6 +62,20 @@ expect_allow 'ls -la && git status' "unrelated command"
 MOCKBIN="$WORK/mockbin"; mkdir -p "$MOCKBIN"
 cat > "$MOCKBIN/codex" <<'MOCK'
 #!/usr/bin/env bash
+# Catalog reads (used by the catalog-drift unit tests): a fake future catalog —
+# grok 4.7 / gpt-5.7 exist, cursor-grok-4.5-low is gone. MOCK_MODE=catalog-down
+# simulates a logged-out/broken CLI for the fail-open test.
+[ "${MOCK_MODE:-ok}" = catalog-down ] && { echo "Not logged in"; exit 1; }
+if [ "${1:-}" = "--list-models" ]; then
+  printf 'Available models\n\nauto - Auto (default)\n'
+  for id in cursor-grok-4.7-high cursor-grok-4.7-xhigh cursor-grok-4.6-high cursor-grok-4.6-high-fast \
+            cursor-grok-4.6-xhigh cursor-grok-4.6-medium cursor-grok-4.6-low cursor-grok-4.5-high \
+            cursor-grok-4.5-high-fast cursor-grok-4.5-medium composer-2.5 composer-2.5-fast glm-5.2-high glm-5.2-max; do
+    echo "$id - Mock"; done; exit 0
+fi
+if [ "${1:-}" = "debug" ]; then
+  echo '{"models":[{"slug":"gpt-5.7-sol","visibility":"list"},{"slug":"gpt-5.6-sol","visibility":"list"},{"slug":"gpt-5.6-terra","visibility":"list"},{"slug":"gpt-5.6-luna","visibility":"list"},{"slug":"gpt-5.5","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}'; exit 0
+fi
 case "${MOCK_MODE:-ok}" in
   ok)        echo "mock response OK"; exit 0 ;;
   auth)      echo "Error: authentication required — run codex login"; exit 1 ;;
@@ -74,6 +96,19 @@ mock_run() { # $1 MOCK_MODE, $2 model id
 [ "$(mock_run transport gpt-5.6-terra)" = 73 ] && ok "mock:transport->73-after-retry" || bad "mock:transport->73-after-retry"
 [ "$(mock_run flaky gpt-5.6-terra)" = 0 ]      && ok "mock:transient-retry-recovers" || bad "mock:transient-retry-recovers"
 [ "$(mock_run quote-ok gpt-5.6-terra)" = 0 ]   && ok "mock:prose-quote-no-false-positive" || bad "mock:prose-quote-no-false-positive"
+# catalog-drift detector against the fake future catalog above (zero tokens, no network)
+mock_drift=$(CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_drift_st=$?
+[ "$mock_drift_st" = 1 ] \
+  && grep -q $'^newer\t.*cursor-grok-4.7-\*.*stops at cursor-grok-4.6' <<<"$mock_drift" \
+  && grep -q $'^newer\t.*gpt-5.7-\*.*stops at gpt-5.6' <<<"$mock_drift" \
+  && grep -q $'^vanished\t.*cursor-grok-4.5-low' <<<"$mock_drift" \
+  && ! grep -q 'glm\|composer' <<<"$mock_drift" \
+  && ok "mock:catalog-drift-detects-newer+vanished" \
+  || bad "mock:catalog-drift-detects-newer+vanished" "exit $mock_drift_st: $(printf '%s' "$mock_drift" | tr '\n' '|')"
+mock_nodrift=$(MOCK_MODE=catalog-down CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache2" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_nodrift_st=$?
+[ "$mock_nodrift_st" = 2 ] && grep -q $'^unavailable\t' <<<"$mock_nodrift" && ! grep -q $'^newer\|^vanished' <<<"$mock_nodrift" \
+  && ok "mock:catalog-drift-fail-open-when-catalogs-down" \
+  || bad "mock:catalog-drift-fail-open-when-catalogs-down" "exit $mock_nodrift_st: $(printf '%s' "$mock_nodrift" | tr '\n' '|')"
 
 # ---------- Tier 1: zero-token model-run/auth checks ----------
 cursor-agent status 2>&1 | grep -q "Logged in" && ok "auth:cursor-agent" || bad "auth:cursor-agent" "run: cursor-agent login"
@@ -98,9 +133,33 @@ while IFS=$'\t' read -r _ tt _; do
   esac
 done < <(awk -F'\t' '$1=="task"' "$TABLE")
 
+# ---------- Tier 1.5: live catalog drift (zero tokens) ----------
+# bin/catalog-drift.sh: Cursor --list-models + Codex debug models vs routes.tsv.
+#   vanished id  -> FAIL (the route will hard-error or silently remap)
+#   newer family -> WARN (e.g. cursor-grok-4.7-* appeared; routes.tsv stops at 4.6 —
+#                   nothing is broken, but add the rows + update the docs)
+#   unavailable  -> WARN (fail-open; auth tier above already flags login rot)
+drift_out=$(bash "$DRIFT" 2>&1); drift_st=$?
+drift_found=0
+while IFS=$'\t' read -r kind msg; do
+  case "$kind" in
+    vanished)    bad  "drift:vanished" "$msg"; drift_found=1 ;;
+    newer)       warn "drift:newer" "$msg (add rows to bin/routes.tsv, update model-selection.md/model-usage.md, rerun routecheck)"; drift_found=1 ;;
+    stale)       warn "drift:stale-catalog" "$msg" ;;
+    unavailable) warn "drift:unavailable" "$msg" ;;
+    "") ;;
+    *)           warn "drift:unexpected-output" "$kind $msg" ;;
+  esac
+done <<<"$drift_out"
+if [ "$drift_st" -eq 0 ]; then ok "drift:routes.tsv-matches-live-catalogs"
+elif [ "$drift_st" -eq 2 ]; then warn "drift:no-catalog-readable" "drift check skipped entirely"
+elif [ "$drift_found" -eq 0 ]; then bad "drift:script-error" "exit $drift_st: $(printf '%s' "$drift_out" | tr '\n' '|' | tail -c 300)"
+fi
+
 # ---------- Tier 2: nonce smokes for EVERY model row ----------
 if [ "${1:-}" = "--no-live" ]; then
   rm -rf "$WORK"
+  [ "${#WARNINGS[@]}" -gt 0 ] && echo "WARNINGS (advisory, not failures): ${WARNINGS[*]}"
   [ "${#FAILURES[@]}" -eq 0 ] && { echo "FREE TIERS OK (live smokes skipped; route-health.txt untouched)"; exit 0; }
   echo "FAILURES (free tiers): ${FAILURES[*]}"; exit 1
 fi
@@ -139,6 +198,7 @@ for be in codex cursor; do
 done
 
 rm -rf "$WORK"
+[ "${#WARNINGS[@]}" -gt 0 ] && echo "WARNINGS (advisory, not failures): ${WARNINGS[*]}"
 if [ "${#FAILURES[@]}" -eq 0 ]; then
   echo "$TODAY ok" > "$HEALTH"
   echo "ALL ROUTES OK"

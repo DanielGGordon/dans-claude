@@ -5,8 +5,11 @@ This file is the mechanics reference: once you already know which model you want
 
 **Every route below is live-verified** by `bash ~/dotfiles/claude/tests/routecheck.sh`
 (alias `routecheck`), which smokes each model through the same entrypoint you
-use. A SessionStart hook warns when routing is broken or the last check is
-stale. If a route fails for you, run `routecheck`, then fix or remove the entry.
+use. A SessionStart hook warns when routing is broken, the last check is stale,
+or the live Cursor/Codex catalogs have drifted from `bin/routes.tsv` (a newer
+`cursor-grok-*` / `composer-*` / `glm-*` / `gpt-*` version, or a routed id that
+vanished — `bin/catalog-drift.sh`). If a route fails for you, run `routecheck`,
+then fix or remove the entry.
 
 ## The Canonical Path (non-Claude models)
 
@@ -40,9 +43,11 @@ bash ~/dotfiles/claude/bin/model-run.sh --task-type bulk|cheap|recency|second-re
 
 **`bin/routes.tsv` is the single source of truth** for model ids, id→backend
 routing, retired-id successors, and task-type mappings. The script, its error
-messages, and routecheck's test matrix all derive from it. When the catalog
-changes, edit routes.tsv (only), then run `routecheck`. Current ids: run
-`bash ~/dotfiles/claude/bin/model-run.sh` with no args, or read the tsv.
+messages, routecheck's test matrix and the catalog-drift check all derive from
+it. When the catalog changes, edit routes.tsv (only), then run `routecheck`.
+Current ids: run `bash ~/dotfiles/claude/bin/model-run.sh` with no args, or
+read the tsv. Grok: `cursor-grok-4.6-*` is the default (`--task-type recency`
+→ `cursor-grok-4.6-high`); `cursor-grok-4.5-*` is legacy but still routable.
 
 ## Claude Models (sonnet / opus / haiku / fable)
 
@@ -74,8 +79,10 @@ raw invocation can be reconstructed *with the user's explicit approval*:
   silently remap to a successor (e.g. `composer-2` → 2.5); model-run.sh and
   routecheck exist precisely to catch that class. Check auth with
   `cursor-agent status`; list ids with `cursor-agent --list-models` (both
-  allowed by the guard). The Cursor catalog also exposes OpenAI/Anthropic/
-  Google models — route those through their native paths instead.
+  allowed by the guard, as is `codex debug models`, the Codex catalog read).
+  `bash ~/dotfiles/claude/bin/catalog-drift.sh` diffs those catalogs against
+  routes.tsv. The Cursor catalog also exposes OpenAI/Anthropic/Google models —
+  route those through their native paths instead.
 - **Reviews via Codex:** same path — prompt asks for findings with **severity**,
   **file:line**, a **concrete failing scenario**, and a **SHIP / FIX-FIRST**
   verdict.
@@ -90,12 +97,13 @@ raw invocation can be reconstructed *with the user's explicit approval*:
 > **codex-plugin-cc**: evaluated and removed 2026-07-07 — hardcoded per-turn
 > sandbox modes incompatible with nested bwrap here.
 
-## Direct xAI API (grok-4.5) — UNWIRED, do not use
+## Direct xAI API (grok) — UNWIRED, do not use
 
 **Status: not set up on this machine (`XAI_API_KEY` is not set). Do not attempt
-this route — use `cursor-grok-4.5-high` via model-run.sh instead.** Kept only as
-wiring notes for if the user ever asks for it: OpenAI-compatible, base URL
-`https://api.x.ai/v1`, model id `grok-4.5`, key in `XAI_API_KEY` (docs:
+this route — use `cursor-grok-4.6-high` (or `--task-type recency`) via
+model-run.sh instead.** Kept only as wiring notes for if the user ever asks for
+it (written against grok-4.5; re-check ids/pricing for 4.6): OpenAI-compatible,
+base URL `https://api.x.ai/v1`, model id `grok-4.5`, key in `XAI_API_KEY` (docs:
 https://docs.x.ai/developers/grok-4-5). Live search = Agent Tools (`web_search`,
 `x_search`) on the Responses API, $5 per 1k successful invocations (the old
 Live Search `search_parameters` API is dead — HTTP 410). $2/$6 per Mtok, cached

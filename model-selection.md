@@ -22,6 +22,7 @@ Artificial Analysis, Coding Agent Index, LMArena/Design Arena, and vendor pricin
 | Model        | Cost Efficiency | Intelligence | Taste | Reliability |
 | ------------ | --------------- | ------------ | ----- | ----------- |
 | composer-2.5 | 10              | 6            | 4*    | 5*          |
+| grok-4.6*    | 10*             | 7*           | 4*    | 3*          |
 | grok-4.5     | 10              | 7            | 4     | 3           |
 | glm-5.2      | 9               | 7            | 7     | 6*          |
 | gpt-5.6-terra| 8               | 7            | 6     | 7           |
@@ -33,9 +34,18 @@ Artificial Analysis, Coding Agent Index, LMArena/Design Arena, and vendor pricin
 
 `*` = thin public evidence; treat as provisional.
 
-- **grok-4.6** (Cursor catalog, added to routes 2026-08-19 as `cursor-grok-4.6-*`)
-  — not yet benchmarked here; until re-validated, treat it with grok-4.5's
-  scores and caveats (same hallucination/reliability rules apply).
+- **grok-4.6** is the grok row that matters now: it is the **default grok**
+  (`--task-type recency` → `cursor-grok-4.6-high`; routed 2026-08-19 as
+  `cursor-grok-4.6-{high,high-fast,xhigh,medium,low}`). Its row is **entirely
+  provisional** — no benchmark or pricing data has been gathered for it here;
+  every score is a copy of grok-4.5's, and grok-4.5's caveats (54%
+  AA-Omniscience hallucination, never unsupervised on high-stakes changes,
+  never a review model) apply unchanged until someone re-benchmarks it and
+  updates this table. **grok-4.5** (`cursor-grok-4.5-*`) is now **legacy**:
+  still routable while the Cursor catalog lists it, but not the default.
+  `bin/catalog-drift.sh` (via `routecheck` and the SessionStart hook) warns
+  when a newer grok/composer/glm/gpt version shows up in a catalog so the next
+  bump is surfaced at session start, not mid-task.
 
 Notes (evidence-backed, 2026-07-21):
 
@@ -75,8 +85,8 @@ work. For anything that ships:
 **Intelligence > Taste > Cost Efficiency**
 
 And the new axis's rule: **only models with Reliability ≥ 7 run unsupervised.**
-Anything lower (grok-4.5, composer-2.5, gpt-5.6-sol) needs its output judged by
-you or a high-reliability model before it lands.
+Anything lower (grok-4.6/4.5, composer-2.5, gpt-5.6-sol) needs its output judged
+by you or a high-reliability model before it lands.
 
 ## Selection by Task Type
 
@@ -84,8 +94,9 @@ you or a high-reliability model before it lands.
 
 **gpt-5.6-terra via Codex** is the default (gpt-5.5 quality at half price).
 Cheaper still, with closer output review required: **composer-2.5** (fast
-multi-file agentic edits; avoid terminal-heavy tasks) and **grok-4.5**
-(well-specified tasks where token efficiency pays; hallucinates confidently).
+multi-file agentic edits; avoid terminal-heavy tasks) and **grok-4.6**
+(well-specified tasks where token efficiency pays; hallucinates confidently —
+scores inherited from grok-4.5, see the rankings note).
 **glm-5.2** is a promising budget alternative via the Cursor catalog.
 
 ### User-Facing / High-Taste Work
@@ -97,31 +108,36 @@ For UI, copy, API design, product design — anything where polish matters.
 
 **fable-5** or **opus-4.8**. For higher confidence add **gpt-5.6-sol** or
 **gpt-5.5** as a second opinion (ask for severity, file:line, concrete failing
-scenario, SHIP / FIX-FIRST verdict). **Never grok-4.5 or composer-2.5 as review
+scenario, SHIP / FIX-FIRST verdict). **Never grok (4.6 or 4.5) or composer-2.5 as review
 models** — reviews need low hallucination and strong reasoning, exactly where
 they trade down. Treat sol's verdicts with its METR caveat in mind: judge the
 findings, not its confidence.
 
 ### Recent Information / Research
 
-**grok-4.5 is the default for anything time-sensitive**: xAI's server-side
-`web_search` and `x_search` agent tools give it live web plus real-time X-stream
-access no other API model has ($5 per 1k successful tool calls on top of $2/$6
-tokens). Use it for breaking news, social sentiment, "what happened this week"
-research, and cross-checking another agent's claims about recent releases.
+**grok is the default for anything time-sensitive — grok-4.6 via
+`cursor-grok-4.6-high` (`--task-type recency`)**: xAI's server-side
+`web_search` and `x_search` agent tools give grok live web plus real-time
+X-stream access no other API model has ($5 per 1k successful tool calls on top
+of $2/$6 tokens, grok-4.5 pricing; 4.6's is unverified). Use it for breaking
+news, social sentiment, "what happened this week" research, and cross-checking
+another agent's claims about recent releases. `cursor-grok-4.5-*` remains
+routable as legacy if you need to reproduce an earlier result.
 
 Caveats, applied strictly:
 
-- **Do not trust its unsourced recall** — 54% AA-Omniscience hallucination rate.
-  Require citations with dates in the prompt; treat uncited recent "facts" as
-  unverified. Its training cutoff is 2026-02-01; freshness comes from the search
-  tools, not the model.
+- **Do not trust its unsourced recall** — 54% AA-Omniscience hallucination rate
+  (measured on 4.5; assume the same for 4.6 until re-benchmarked). Require
+  citations with dates in the prompt; treat uncited recent "facts" as
+  unverified. grok-4.5's training cutoff is 2026-02-01 (4.6's not verified
+  here); freshness comes from the search tools, not the model.
 - Its edge is specifically the **X stream and cheap tokens for search-heavy
   loops**. For ordinary web recency, Claude's native WebSearch is fine — don't
   route to grok just because a question mentions a date.
-- Via Cursor CLI (`cursor-grok-4.5-high`) for general recent-info prompts. The
-  direct xAI Responses API (`x_search` etc.) is **unwired on this machine** —
-  see model-usage.md; don't attempt it without the user wiring `XAI_API_KEY`.
+- Via Cursor CLI (`cursor-grok-4.6-high`, or just `--task-type recency`) for
+  general recent-info prompts. The direct xAI Responses API (`x_search` etc.)
+  is **unwired on this machine** — see model-usage.md; don't attempt it
+  without the user wiring `XAI_API_KEY`.
 
 ### Avoid
 
@@ -156,10 +172,13 @@ The table above is a snapshot; model catalogs and pricing drift. Every routable
 model documented here and in model-usage.md is live-verified by
 `bash ~/dotfiles/claude/tests/routecheck.sh` (alias `routecheck`) — it invokes
 each route with a nonce prompt and fails loudly on any broken id, syntax, or
-auth (last run 2026-07-21: ALL ROUTES OK). If a route fails, fix the id/syntax
+auth (last run 2026-08-19: ALL ROUTES OK). If a route fails, fix the id/syntax
 or remove the model from these files — never leave a documented route broken.
-Models with no runnable route on this machine do not get table rows. When a
-benchmark or price claim matters to a decision, re-verify it — grok-4.5 with
-citations is the cheap way to do that.
+Models with no runnable route on this machine do not get table rows. Catalog
+drift (a newer grok/composer/glm/gpt version, or a routed id disappearing) is
+detected by `bin/catalog-drift.sh` — `routecheck` runs it live and the
+SessionStart hook runs it from a 24h cache — so a new version is surfaced
+before anyone asks for it. When a benchmark or price claim matters to a
+decision, re-verify it — grok with citations is the cheap way to do that.
 
 Follow these rules strictly unless the user explicitly says otherwise.

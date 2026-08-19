@@ -44,13 +44,14 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │   └── model-routing-test-suite.md  # `routecheck` design: manifest-driven drift/auth/contract tests for the model-routing policy (designed 2026-07-21, not yet implemented)
 ├── bin/
 │   ├── model-run.sh         # THE single entrypoint for non-Claude model calls: canonical flags, timeouts, one auto-retry on transient transport errors, distinct exit codes (64 bad-id / 73 transport-after-retry / 75 auth-quota / 124 timeout); accepts <model-id> or --task-type bulk|cheap|recency|second-review
-│   └── routes.tsv           # Single source of truth: model ids, id→backend, retired-id successors, task-type→id mappings (drives model-run.sh + routecheck)
+│   ├── catalog-drift.sh     # Zero-token drift detector: diffs the live Cursor (`cursor-agent --list-models`) + Codex (`codex debug models`) catalogs against routes.tsv — reports a NEWER version of a routed family (e.g. cursor-grok-4.7-* when routes stop at 4.6) and routed ids that VANISHED; `--cached` (hook mode) reuses ~/.claude/catalog-<backend>.txt for 24h; fail-open
+│   └── routes.tsv           # Single source of truth: model ids, id→backend, retired-id successors, task-type→id mappings (drives model-run.sh + routecheck + catalog-drift.sh)
 ├── agents/
 │   ├── model-runner.md      # Named agent wrapping bin/model-run.sh — verbatim-output contract, never substitutes models
 │   └── plan-reviewer.md     # Reusable named agent for plan review
 ├── hooks/
 │   ├── route-guard.sh       # PreToolUse(Bash): denies raw codex/cursor-agent invocations + retired model ids (structured permissionDecision JSON, command-position matching — chained/env-prefixed bypasses covered), redirects to bin/model-run.sh
-│   ├── route-health-banner.sh  # SessionStart: warns (from cached ~/.claude/route-health.txt) when routecheck last failed or is >14d stale — never runs tests itself
+│   ├── route-health-banner.sh  # SessionStart: warns (from cached ~/.claude/route-health.txt) when routecheck last failed or is >14d stale — never runs tests itself; also runs catalog-drift.sh --cached and prints one line when a catalog has a newer grok/composer/glm/gpt than routes.tsv (or a routed id vanished)
 │   └── second-brain-ingest-session-end.sh  # SessionEnd → second-brain quick ingest
 ├── skills/
 │   ├── ralph-v2/
@@ -85,7 +86,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │       └── tests.md         # Test examples
 ├── tests/
 │   ├── test_ralph_v2.py     # Tests for ralph-v2
-│   └── routecheck.sh        # Verifies the whole routing layer: route-guard hook unit tests, mock-backend error-taxonomy tests (fake codex/cursor via PATH shim), zero-token model-run/table checks, live nonce smoke of EVERY bin/routes.tsv row, and an artifact (file-write) smoke per backend (alias `routecheck`; `--no-live` = free tiers only)
+│   └── routecheck.sh        # Verifies the whole routing layer: route-guard hook unit tests, mock-backend error-taxonomy tests (fake codex/cursor via PATH shim), zero-token model-run/table checks, live catalog-drift check (vanished id = FAIL, newer version = WARN), live nonce smoke of EVERY bin/routes.tsv row, and an artifact (file-write) smoke per backend (alias `routecheck`; `--no-live` = free tiers only)
 ├── aliases.sh               # Shell aliases sourced from ~/.bash_aliases
 ├── statusline-command.sh    # Color status bar: dir | model | context + tokens | cost
 └── README.md
@@ -115,7 +116,7 @@ After install, `~/.claude/` looks like:
 
 ## Model Routing & Orchestration
 
-How Claude Code sessions on this machine reach non-Anthropic models (gpt-5.5/5.6 via the Codex CLI, composer-2.5 / grok-4.5 / grok-4.6 / glm-5.2 via the Cursor CLI — both on subscription-seat auth, no API keys), and how that stays deterministic.
+How Claude Code sessions on this machine reach non-Anthropic models (gpt-5.5/5.6 via the Codex CLI, composer-2.5 / grok-4.6 (default grok; 4.5 legacy) / glm-5.2 via the Cursor CLI — both on subscription-seat auth, no API keys), and how that stays deterministic.
 
 ### The layers
 
@@ -136,16 +137,37 @@ codex CLI / cursor-agent    subscription-seat CLIs (never invoked raw)
 - **`bin/model-run.sh`** — the only way models get invoked. Takes `<model-id>` or `--task-type bulk|cheap|recency|second-review` (the table resolves the id — the LLM only picks a class), plus a prompt **file** (never inline) and optional workdir. Transient transport errors get one automatic retry with backoff. Distinct exit codes: `64` bad/retired id · `73` transport error persisting after retry · `75` auth/quota (agents must stop and surface, never substitute a model) · `124` timeout.
 - **`bin/routes.tsv`** — edit THIS when the model catalog changes; script errors, docs, and tests all derive from it. Then run `routecheck`.
 - **`agents/model-runner.md`** — the sonnet wrapper subagent (tools: Bash + Write only). Give it a model id or task type + prompt; it runs the script and returns output verbatim (`MODEL: <id>` prefix). Preferred over direct Bash for delegations because it appears as a named agent in the progress UI rather than an opaque background process.
-- **Enforcement (hooks)** — `route-guard.sh` (PreToolUse on Bash) denies raw `codex exec` / headless `cursor-agent` calls and retired model ids with a structured reason pointing at the blessed path; command-position matching with quoted-prose exemption, `bash -c` smuggling covered. Applies to subagents too. `route-health-banner.sh` (SessionStart) surfaces cached routecheck failures/staleness at session start without running anything.
+- **Enforcement (hooks)** — `route-guard.sh` (PreToolUse on Bash) denies raw `codex exec` / headless `cursor-agent` calls and retired model ids with a structured reason pointing at the blessed path; command-position matching with quoted-prose exemption, `bash -c` smuggling covered. Applies to subagents too. `route-health-banner.sh` (SessionStart) surfaces cached routecheck failures/staleness at session start without running tests, and runs the catalog-drift check (below) from a 24h cache.
+- **`bin/catalog-drift.sh`** — the zero-token drift detector that keeps routes.tsv honest against the live catalogs (see "Catalog drift detection" below).
 - **Claude models are NOT routed through any of this** — subagents use the Agent tool's `model` param (`sonnet`/`opus`/`haiku`/`fable`); workflow scripts use `agent(prompt, {model, effort})`. model-run.sh rejects Claude model ids with a pointer.
 
 ### Verifying (`routecheck`)
 
-`tests/routecheck.sh` (alias `routecheck`) verifies the whole layer: Tier 0 hook unit tests (deny/allow cases incl. bypass regressions), a mock-backend tier (PATH-shimmed fake codex/cursor-agent proving the error taxonomy deterministically — auth→75, transport→73 after retry, transient→recovers, quoted-prose→no false positive), zero-token table/auth/arg-parsing checks, then live smokes: a nonce echo for **every** routes.tsv row through model-run.sh (tested path = used path, ~100 tokens/route) plus one **artifact smoke per backend** — the model must actually write a file, catching tool-execution/sandbox breakage that text round-trips can't see. `--no-live` runs just the free tiers. Full runs write `~/.claude/route-health.txt` for the SessionStart banner. Rule: a FAILing route means the policy files are wrong — fix the id/syntax or remove the model; never leave a documented route broken.
+`tests/routecheck.sh` (alias `routecheck`) verifies the whole layer: Tier 0 hook unit tests (deny/allow cases incl. bypass regressions), a mock-backend tier (PATH-shimmed fake codex/cursor-agent proving the error taxonomy deterministically — auth→75, transport→73 after retry, transient→recovers, quoted-prose→no false positive — plus the catalog-drift detector against a fake future catalog), zero-token table/auth/arg-parsing checks, the live catalog-drift check (vanished id FAIL / newer version WARN), then live smokes: a nonce echo for **every** routes.tsv row through model-run.sh (tested path = used path, ~100 tokens/route) plus one **artifact smoke per backend** — the model must actually write a file, catching tool-execution/sandbox breakage that text round-trips can't see. `--no-live` runs just the free tiers. Full runs write `~/.claude/route-health.txt` for the SessionStart banner. Rule: a FAILing route means the policy files are wrong — fix the id/syntax or remove the model; never leave a documented route broken.
+
+### Catalog drift detection (`bin/catalog-drift.sh`)
+
+Why: on 2026-08-19 a task asked for "Grok 4.6" while routes.tsv only knew `cursor-grok-4.5-*`, so model-run.sh rejected it (exit 64) mid-task. The detector makes the NEXT bump (4.7, composer-3, gpt-5.7, ...) show up at session start instead.
+
+What it does (zero tokens, no model calls): reads the live catalogs — Cursor via `cursor-agent --list-models`, Codex via `codex debug models` (a local-cache read of `~/.codex/models_cache.json`, which Codex refreshes itself; both commands are allowed by route-guard) — parses each id into family + version (strip a leading `cursor-`, then `<family>-<N.N>[-variant]`: `cursor-grok-4.6-high-fast` → grok 4.6, `gpt-5.6-sol` → gpt 5.6, `composer-2.5` → composer 2.5) and compares against `bin/routes.tsv`:
+
+- **newer** — a family routed in routes.tsv has a higher version in its catalog than any routed row (`Cursor catalog has cursor-grok-4.7-* (7 ids) but routes.tsv stops at cursor-grok-4.6`). New *variants* of an already-routed version (e.g. `-xhigh-fast`) are deliberately not drift.
+- **vanished** — a routes.tsv id is no longer listed by its backend (`routes.tsv id cursor-grok-4.5-low is gone from the Cursor catalog`) — that route will hard-error or silently remap, fix it now.
+- **unavailable / stale** — a CLI is missing, times out, or isn't logged in: that backend is skipped (or served from a stale cache) and said so in one line. Never fatal, never blocks.
+
+Output is `<kind>\t<message>` lines; exit `0` no drift · `1` drift · `2` no catalog readable. `--cached` (what the hook uses) reuses `~/.claude/catalog-cursor.txt` / `catalog-codex.txt` when younger than 24h and remembers a failed fetch for 1h (`catalog-<backend>.failed`) so a broken CLI costs one timeout per hour, not per session. Env knobs: `CATALOG_DRIFT_CACHE_DIR`, `CATALOG_DRIFT_MAX_AGE`, `CATALOG_DRIFT_TIMEOUT`, `CATALOG_DRIFT_FAIL_TTL`.
+
+Where it runs:
+- **`routecheck`** (Tier 1.5, live fetch, refreshes the caches): a vanished id is a **FAIL**; a newer version is a **WARN** — advisory, listed in a `WARNINGS (advisory, not failures):` line, and the suite still ends `ALL ROUTES OK` because nothing is actually broken. The detector itself is unit-tested in the mock tier against a fake future catalog (grok 4.7 / gpt-5.7 present, `cursor-grok-4.5-low` gone) and a logged-out CLI (fail-open).
+- **SessionStart** (`hooks/route-health-banner.sh`, `--cached`): prints one line like `[route-health] Cursor catalog has cursor-grok-4.7-* (7 ids) but routes.tsv stops at cursor-grok-4.6 — run 'routecheck' / update bin/routes.tsv (then model-selection.md + model-usage.md).` or `[route-health] catalog drift check skipped — Cursor catalog unavailable (...)`. Silent when in sync.
+
+How to fix a drift warning: add the new ids as `model` rows in `bin/routes.tsv` (and move the default — e.g. `task recency` — if the new version should be the default), update the rankings/notes in `model-selection.md` (honestly: mark the row provisional until benchmarked) and any id mentions in `model-usage.md` / `agents/model-runner.md`, run `routecheck` (the live nonce smoke proves the new ids work), PR. For a vanished id: remove the row or convert it to a `retired <old> <successor>` row.
+
+Codex caveat: there is no `codex --list-models`; `codex debug models` reads the cache Codex itself maintains, so Codex drift is detected after the next Codex run refreshes that cache — good enough, and free.
 
 ### Maintenance
 
-Catalog drift (new/retired ids): edit `bin/routes.tsv`, run `routecheck`, PR. Auth rot: `codex login` / `cursor-agent login` (routecheck's Tier 1 catches it). Policy changes (rankings, task-type mappings): `model-selection.md` + routes.tsv `task` rows. History of why it's shaped this way (Cursor SDK rejected, MCP deferred, subagent kept for UI visibility): PRs #3–#6.
+Catalog drift (new/retired ids): the SessionStart hook / `routecheck` tell you (see above); then edit `bin/routes.tsv`, run `routecheck`, PR. Auth rot: `codex login` / `cursor-agent login` (routecheck's Tier 1 catches it). Policy changes (rankings, task-type mappings): `model-selection.md` + routes.tsv `task` rows. History of why it's shaped this way (Cursor SDK rejected, MCP deferred, subagent kept for UI visibility): PRs #3–#6.
 
 ## Named Agents
 
