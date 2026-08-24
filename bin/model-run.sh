@@ -36,6 +36,8 @@ if [ "$MODEL" = "--task-type" ]; then
   TT="${2:-}"; shift 2 2>/dev/null || usage
   MODEL=$(lookup task "$TT")
   [ -n "$MODEL" ] || { echo "model-run: unknown task type '$TT'. Task types: $(list task)" >&2; exit 64; }
+  # Tell the caller (e.g. the model-runner agent's MODEL: line) which concrete id ran.
+  echo "model-run: --task-type $TT -> $MODEL" >&2
 else
   shift 1 2>/dev/null || usage
 fi
