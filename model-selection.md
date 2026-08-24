@@ -172,7 +172,7 @@ The table above is a snapshot; model catalogs and pricing drift. Every routable
 model documented here and in model-usage.md is live-verified by
 `bash ~/dotfiles/claude/tests/routecheck.sh` (alias `routecheck`) — it invokes
 each route with a nonce prompt and fails loudly on any broken id, syntax, or
-auth (last run 2026-08-19: ALL ROUTES OK). If a route fails, fix the id/syntax
+auth (last run 2026-08-24: ALL ROUTES OK). If a route fails, fix the id/syntax
 or remove the model from these files — never leave a documented route broken.
 Models with no runnable route on this machine do not get table rows. Catalog
 drift (a newer grok/composer/glm/gpt version, or a routed id disappearing) is

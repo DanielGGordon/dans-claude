@@ -15,11 +15,15 @@
 # leave a documented route broken.
 set -u
 
-DIR="$HOME/dotfiles/claude"
+# Resolve the repo from this script's location (not ~/dotfiles/claude) so a
+# worktree/branch checkout tests ITS copy of the routing layer, not master's.
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 RUN="$DIR/bin/model-run.sh"
 DRIFT="$DIR/bin/catalog-drift.sh"
+FINGERPRINT="$DIR/bin/cli-fingerprint.sh"
 TABLE="$DIR/bin/routes.tsv"
 GUARD="$DIR/hooks/route-guard.sh"
+AGENT_MD="$DIR/agents/model-runner.md"
 NONCE="ROUTE-OK-$RANDOM$RANDOM"
 WORK=$(mktemp -d /tmp/routecheck.XXXXXX)
 OUT="$WORK/out"; mkdir -p "$OUT"
@@ -27,6 +31,7 @@ git -C "$WORK" init -q 2>/dev/null || true
 PROMPTFILE="$WORK/prompt.md"
 echo "Output exactly this line and nothing else: $NONCE" > "$PROMPTFILE"
 HEALTH="$HOME/.claude/route-health.txt"
+TOOLS="${ROUTE_HEALTH_TOOLS:-$HOME/.claude/route-health-tools.txt}"   # CLI versions this run verified against (SessionStart banner diffs them)
 TODAY=$(date +%F)
 declare -a FAILURES=()
 declare -a WARNINGS=()
@@ -54,6 +59,13 @@ expect_allow "bash $DRIFT --cached" "catalog-drift.sh call"
 expect_allow "bash $RUN gpt-5.6-terra /tmp/p.md" "model-run.sh call"
 expect_allow "grep 'codex exec' $RUN" "grep mentioning codex exec"
 expect_allow 'ls -la && git status' "unrelated command"
+# model-runner agent contract lints (free). Regression for 2026-08-24: the agent
+# was told to Write inline prompts to the literal path /tmp/model-run-$$.md —
+# the Write tool does not expand $$, so parallel runners in a workflow fan-out
+# shared ONE prompt file and one runner returned another runner's answer.
+grep -qF 'mktemp' "$AGENT_MD" && ! grep -qE '(Write|write) (it )?to `/tmp/model-run-\$\$' "$AGENT_MD" \
+  && ok "agent-contract:unique-temp-prompt-file" || bad "agent-contract:unique-temp-prompt-file" "model-runner.md must get the prompt path from mktemp, never a literal \$\$ path"
+grep -q -- '--task-type <type> -> <model-id>' "$AGENT_MD" && ok "agent-contract:reports-resolved-id" || bad "agent-contract:reports-resolved-id" "model-runner.md must use the resolved id from model-run's stderr in its MODEL: line"
 
 # ---------- Tier 0.5: mock-backend tests of model-run.sh error taxonomy ----------
 # PATH-shimmed fake codex/cursor-agent binaries — deterministic, zero tokens,
@@ -125,12 +137,14 @@ done < <(awk -F'\t' '$1=="task"' "$TABLE")
 # the script must fail on "prompt file missing" (proving promptfile/workdir are
 # read from the right positions), NOT fall through to the usage error.
 # Regression for the shift-2 positional bug (2026-07-23, found by another agent).
-while IFS=$'\t' read -r _ tt _; do
+while IFS=$'\t' read -r _ tt mid; do
   err=$("$RUN" --task-type "$tt" /nonexistent/routecheck-probe.md 2>&1)
   case "$err" in
     *"prompt file missing"*) ok "args:task-type-$tt" ;;
     *) bad "args:task-type-$tt" "expected prompt-file error, got: $(printf '%s' "$err" | head -1)" ;;
   esac
+  # the resolved id must be announced on stderr — the model-runner agent's MODEL: line reads it
+  grep -qF -- "model-run: --task-type $tt -> $mid" <<<"$err" && ok "args:task-type-$tt-announces-id" || bad "args:task-type-$tt-announces-id" "stderr lacks 'model-run: --task-type $tt -> $mid'"
 done < <(awk -F'\t' '$1=="task"' "$TABLE")
 
 # ---------- Tier 1.5: live catalog drift (zero tokens) ----------
@@ -199,9 +213,14 @@ done
 
 rm -rf "$WORK"
 [ "${#WARNINGS[@]}" -gt 0 ] && echo "WARNINGS (advisory, not failures): ${WARNINGS[*]}"
+# Record which CLI builds this run verified against; the SessionStart banner
+# nags to re-run when claude / codex / cursor-agent changes underneath them.
+bash "$FINGERPRINT" --versions > "$TOOLS" 2>/dev/null || true
 if [ "${#FAILURES[@]}" -eq 0 ]; then
   echo "$TODAY ok" > "$HEALTH"
   echo "ALL ROUTES OK"
+  echo "(verified against: $(awk -F'\t' '{printf "%s %s; ", $1, $3}' "$TOOLS" 2>/dev/null))"
+  echo "Next: from a Claude Code session, run tests/workflows/orchestration-smoke-{claude,model-runner}.js (Workflow scriptPath) to cover the Agent/Workflow layer."
   exit 0
 fi
 echo "$TODAY FAIL ${FAILURES[*]}" > "$HEALTH"

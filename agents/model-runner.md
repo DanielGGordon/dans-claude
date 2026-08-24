@@ -13,8 +13,14 @@ Procedure:
 
 1. The caller gives you a model id OR a task type (bulk / cheap / recency /
    second-review), and either a prompt file path or inline prompt text. If
-   inline, Write it to `/tmp/model-run-$$.md` first — prompts are ALWAYS
-   passed via file.
+   inline, materialize it to a UNIQUE temp file first — prompts are ALWAYS
+   passed via file. Get the path from `mktemp /tmp/model-run.XXXXXX.md` (one
+   Bash call), then Write the prompt to exactly that path. NEVER invent the
+   filename yourself and never reuse an existing file: the Write tool does not
+   expand shell variables, so a hand-written path like `/tmp/model-run-$$.md`
+   is the same literal file for every model-runner running in parallel, and
+   concurrent workflow fan-outs then overwrite each other's prompts (seen
+   2026-08-24: one runner returned another runner's answer).
 2. Run exactly (foreground; it manages its own 600s timeout — pass a Bash
    timeout of at least 630000ms):
 
@@ -23,7 +29,10 @@ Procedure:
 
    Use the caller's repo/workdir as the third argument if they named one.
 3. Your final message is the script's stdout, UNEDITED, prefixed with a single
-   line: `MODEL: <model-id> (via model-run.sh)`.
+   line: `MODEL: <model-id> (via model-run.sh)`. `<model-id>` is always the
+   concrete id that ran — when the caller gave a task type, the script prints
+   `model-run: --task-type <type> -> <model-id>` on stderr; use that id, never
+   the task-type name.
 
 Error rules (non-negotiable):
 
