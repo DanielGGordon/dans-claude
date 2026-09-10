@@ -47,3 +47,10 @@ When the user asks you to "test visually", screenshot a web app, or use Playwrig
 ## Android Deployment
 
 When planning or executing an Android app deployment for any project, consult `~/.claude/android.md` first. It is the system-wide canonical reference for Android signing, build, version bumping, and distribution. If the project's deploy process changes (or a new project deploys Android differently), update `~/.claude/android.md` to reflect the new canonical process — diverging projects must be documented there.
+
+## T3 Code Conversations
+
+Conversations for every project on this machine live in one T3 Code database. If
+the user asks about a T3 conversation or thread — for any project, from any
+project's session — read `~/.claude/t3-conversations.md` first for where it is
+and how to query it.

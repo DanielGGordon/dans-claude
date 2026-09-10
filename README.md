@@ -10,7 +10,7 @@ bash ~/dotfiles/claude/install.sh
 ```
 
 The install script:
-1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, `android.md`, `models.md`, `model-selection.md`, `model-usage.md`, `playwright.md`, and `statusline-command.sh` into `~/.claude/`
+1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, `android.md`, `models.md`, `model-selection.md`, `model-usage.md`, `playwright.md`, `t3-conversations.md`, and `statusline-command.sh` into `~/.claude/`
 2. Deep-merges `settings.partial.json` into your existing `~/.claude/settings.json` (preserves CC-managed keys like model, permissions, plugins)
 3. Registers user-scoped MCP servers via `claude mcp add` (idempotent; skipped if the server binary isn't on this machine)
 4. Adds `source ~/dotfiles/claude/aliases.sh` to `~/.bash_aliases` (creates the file if needed)
@@ -40,6 +40,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── model-usage.md           # HOW to invoke a chosen model — `codex exec` + `cursor-agent` wrapper patterns, native Claude routing, current model ids, auth/error rules (symlinked to ~/.claude/model-usage.md)
 ├── models.md                # Deprecated stub pointing at model-selection.md + model-usage.md (split 2026-07-21; symlink kept for old references)
 ├── playwright.md            # Playwright visual web-testing reference — screenshot toolkit + how agents visually evaluate UIs, used only when the user asks to "test visually" (symlinked to ~/.claude/playwright.md)
+├── t3-conversations.md      # Where T3 Code conversations live (~/.t3/userdata/state.sqlite), the read-only query helper, projection_* tables, and raw transcript paths — read when the user asks about a T3 thread from any project (symlinked to ~/.claude/t3-conversations.md)
 ├── plans/                   # Design docs for this repo's own tooling (not symlinked)
 │   └── model-routing-test-suite.md  # `routecheck` design: manifest-driven drift/auth/contract tests for the model-routing policy (designed 2026-07-21, not yet implemented)
 ├── bin/
@@ -112,6 +113,7 @@ After install, `~/.claude/` looks like:
 ├── model-selection.md → ~/dotfiles/claude/model-selection.md
 ├── model-usage.md → ~/dotfiles/claude/model-usage.md
 ├── playwright.md → ~/dotfiles/claude/playwright.md
+├── t3-conversations.md → ~/dotfiles/claude/t3-conversations.md
 ├── statusline-command.sh → ~/dotfiles/claude/statusline-command.sh
 ├── projects/                  ← CC runtime (untouched)
 ├── sessions/                  ← CC runtime (untouched)
