@@ -50,31 +50,7 @@ When planning or executing an Android app deployment for any project, consult `~
 
 ## T3 Code Conversations
 
-Coding-agent conversations for **every** project on this machine live in one
-place: the self-hosted T3 Code server at `https://15.204.108.12:7443`, backed by
-`~/.t3/userdata/state.sqlite`. If the user asks about a T3 conversation/thread —
-for any project, from a session in any other project — that database is where to
-look. Don't guess from the current repo's git history.
-
-There is no `sqlite3` binary on this box; query read-only with the T3 helper:
-
-```bash
-cd ~/projects/meta/t3code-v2 && node apps/server/scripts/t3-sqlite-state.ts query \
-  --base-dir ~/.t3 --sql "SELECT ..."
-```
-
-Tables that matter (join on `project_id` / `thread_id`, ignore rows with
-`deleted_at` set):
-
-- `projection_projects` — `project_id`, `title`, `workspace_root`
-- `projection_threads` — `thread_id`, `project_id`, `title`, `branch`,
-  `worktree_path`, `created_at`, `updated_at`, `archived_at`
-- `projection_thread_messages` — `thread_id`, `turn_id`, `role`, `text`,
-  `created_at`
-
-For the full raw transcript of a thread (tool calls and all), take its
-`worktree_path` and read the Claude Code JSONL under
-`~/.claude/projects/<worktree_path with / and . replaced by ->/`.
-
-Never run the helper's `exec` (write) mode against `~/.t3` — it is live prod
-state. Read-only `query` is safe while the server is running.
+Conversations for every project on this machine live in one T3 Code database. If
+the user asks about a T3 conversation or thread — for any project, from any
+project's session — read `~/.claude/t3-conversations.md` first for where it is
+and how to query it.
