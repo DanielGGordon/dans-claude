@@ -75,7 +75,11 @@ MOCKBIN="$WORK/mockbin"; mkdir -p "$MOCKBIN"
 cat > "$MOCKBIN/codex" <<'MOCK'
 #!/usr/bin/env bash
 # Catalog reads (used by the catalog-drift unit tests): a fake future catalog —
-# grok 4.7 / gpt-5.7 exist, cursor-grok-4.5-low is gone. MOCK_MODE=catalog-down
+# grok 4.7 / gpt-7-nova exist, cursor-grok-4.5-low is gone. gpt-6-astra is
+# present (so a routed id is NOT vanished); gpt-5.7-sol is deliberately
+# included too but is NOT expected to warn — routed gpt-6 outranks 5.7 under
+# the detector's family-max semantics (known limitation: a future gpt-5.x
+# point release will be silent once a gpt-6+ id is routed). MOCK_MODE=catalog-down
 # simulates a logged-out/broken CLI for the fail-open test.
 [ "${MOCK_MODE:-ok}" = catalog-down ] && { echo "Not logged in"; exit 1; }
 if [ "${1:-}" = "--list-models" ]; then
@@ -86,7 +90,7 @@ if [ "${1:-}" = "--list-models" ]; then
     echo "$id - Mock"; done; exit 0
 fi
 if [ "${1:-}" = "debug" ]; then
-  echo '{"models":[{"slug":"gpt-5.7-sol","visibility":"list"},{"slug":"gpt-5.6-sol","visibility":"list"},{"slug":"gpt-5.6-terra","visibility":"list"},{"slug":"gpt-5.6-luna","visibility":"list"},{"slug":"gpt-5.5","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}'; exit 0
+  echo '{"models":[{"slug":"gpt-7-nova","visibility":"list"},{"slug":"gpt-6-astra","visibility":"list"},{"slug":"gpt-5.7-sol","visibility":"list"},{"slug":"gpt-5.6-sol","visibility":"list"},{"slug":"gpt-5.6-terra","visibility":"list"},{"slug":"gpt-5.6-luna","visibility":"list"},{"slug":"gpt-5.5","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}'; exit 0
 fi
 case "${MOCK_MODE:-ok}" in
   ok)        echo "mock response OK"; exit 0 ;;
@@ -112,8 +116,10 @@ mock_run() { # $1 MOCK_MODE, $2 model id
 mock_drift=$(CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_drift_st=$?
 [ "$mock_drift_st" = 1 ] \
   && grep -q $'^newer\t.*cursor-grok-4.7-\*.*stops at cursor-grok-4.6' <<<"$mock_drift" \
-  && grep -q $'^newer\t.*gpt-5.7-\*.*stops at gpt-5.6' <<<"$mock_drift" \
+  && grep -q $'^newer\t.*gpt-7-\*.*stops at gpt-6' <<<"$mock_drift" \
   && grep -q $'^vanished\t.*cursor-grok-4.5-low' <<<"$mock_drift" \
+  && ! grep -q 'gpt-5.7' <<<"$mock_drift" \
+  && ! grep -q $'^vanished\t.*gpt-6-astra' <<<"$mock_drift" \
   && ! grep -q 'glm\|composer' <<<"$mock_drift" \
   && ok "mock:catalog-drift-detects-newer+vanished" \
   || bad "mock:catalog-drift-detects-newer+vanished" "exit $mock_drift_st: $(printf '%s' "$mock_drift" | tr '\n' '|')"

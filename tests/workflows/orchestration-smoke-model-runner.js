@@ -15,7 +15,7 @@ export const meta = {
   phases: [{ title: 'ById', detail: 'explicit model ids' }, { title: 'ByTask', detail: '--task-type resolution' }],
 }
 const NONCE = (args && args.nonce) || 'ORCH-MR-SMOKE'
-const IDS = ['gpt-5.6-terra', 'gpt-5.6-sol', 'composer-2.5', 'cursor-grok-4.6-high', 'glm-5.2-high']
+const IDS = ['gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-6-astra', 'composer-2.5', 'cursor-grok-4.6-high', 'glm-5.2-high']
 const TASKS = [['bulk', 'gpt-5.6-terra'], ['cheap', 'composer-2.5'], ['recency', 'cursor-grok-4.6-high'], ['second-review', 'gpt-5.6-sol']]
 const prompt = (sel, tag) =>
   `Run this on ${sel}. Inline prompt text (materialize it to a temp file first): "Output exactly this line and nothing else: ${NONCE}-${tag}". Workdir: /tmp.`

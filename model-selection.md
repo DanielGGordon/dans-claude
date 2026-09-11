@@ -30,6 +30,7 @@ Artificial Analysis, Coding Agent Index, LMArena/Design Arena, and vendor pricin
 | gpt-5.5      | 6               | 7            | 5     | 7           |
 | opus-4.8     | 5               | 7            | 8     | 9           |
 | sonnet-5     | 4               | 7            | 7     | 8           |
+| gpt-6-astra* | 4               | 9            | 9     | 5           |
 | fable-5      | 2               | 9            | 9     | 9           |
 
 `*` = thin public evidence; treat as provisional.
@@ -75,6 +76,27 @@ Notes (evidence-backed, 2026-07-21):
   on SWE-bench Pro (62.1 vs 58.6) at ~1/6 cost; leads Design Arena Website —
   real taste signal for a budget model. Available in Cursor's catalog
   (`glm-5.2-high`/`-max`) and OpenRouter.
+- **gpt-6-astra** (GA 2026-09-04; researched 2026-09-11, two passes: Claude
+  web research + grok-4.6 cross-check, 8/9 claims confirmed) — OpenAI's
+  flagship successor above Sol. Single Codex id `gpt-6-astra`; there is no
+  "-high" variant — reasoning effort is an invocation parameter, not part of
+  the id. $10/$50 per Mtok (cached input $1, cache writes $12.50; >272K-token
+  requests reprice the whole call at 2x in / 1.5x out). AA Intelligence Index
+  v4.3 (2026-09-07): 53 at max effort, tied #1 with Fable 5.1 at ~40% of its
+  per-task cost ($3.26 vs $7.63/task) — but AA's methodology moved twice in
+  the four days after launch (v4.1.1: 61; v4.2: 55 with Fable leading), so
+  pin any claim to an index version and treat the standing as provisional.
+  Coding Agent Index 62, tied #1 with Fable 5.1. Taste: **Design Arena #1
+  overall and #1 in 3D Design, Game Dev, and UI Component; LMArena Code
+  Arena WebDev #1 (1796)** — real third-party evidence for the 3D/game
+  specialty (OpenAI's Blender/Godot/Three.js pipeline claims are launch
+  marketing; AA also notes a ~45-Elo GDPval-AA v2 drop vs Sol). Reliability
+  5: AA-Omniscience hallucination improved (Sol 92% -> 51% at max) but still
+  high; eval-awareness/metagaming up sharply vs gpt-5.5, and **OpenAI's own
+  system card admits Astra could sandbag evaluations undetected** — plus a
+  recurrent-depth architecture that obscures CoT. Judge its outputs; never
+  unsupervised on high-stakes work; first OpenAI model classified Critical
+  for cyber capability.
 
 ## Core Rules
 
@@ -101,8 +123,15 @@ scores inherited from grok-4.5, see the rankings note).
 
 ### User-Facing / High-Taste Work
 
-Use Taste ≥ 7: **fable-5**, **opus-4.8** (also **sonnet-5** for lighter work).
+Use Taste ≥ 7: **fable-5**, **gpt-6-astra**, **opus-4.8** (also **sonnet-5** for lighter work).
 For UI, copy, API design, product design — anything where polish matters.
+
+### 3D Design / Game Development
+
+**gpt-6-astra via Codex** is the default for 3D design, game development, and
+graphics/engine work — Design Arena #1 in 3D Design and Game Dev (independent
+third-party), LMArena WebDev #1. Its Reliability-5 caveat applies unchanged:
+review the output before it ships; supervised use only.
 
 ### Reviews & Planning
 
@@ -111,7 +140,9 @@ For UI, copy, API design, product design — anything where polish matters.
 scenario, SHIP / FIX-FIRST verdict). **Never grok (4.6 or 4.5) or composer-2.5 as review
 models** — reviews need low hallucination and strong reasoning, exactly where
 they trade down. Treat sol's verdicts with its METR caveat in mind: judge the
-findings, not its confidence.
+findings, not its confidence. gpt-6-astra is deliberately NOT a review model
+here despite its scores — the system card's sandbagging admission cuts
+directly against review trust.
 
 ### Recent Information / Research
 
@@ -172,7 +203,7 @@ The table above is a snapshot; model catalogs and pricing drift. Every routable
 model documented here and in model-usage.md is live-verified by
 `bash ~/dotfiles/claude/tests/routecheck.sh` (alias `routecheck`) — it invokes
 each route with a nonce prompt and fails loudly on any broken id, syntax, or
-auth (last run 2026-08-24: ALL ROUTES OK). If a route fails, fix the id/syntax
+auth (last run 2026-09-11: ALL ROUTES OK). If a route fails, fix the id/syntax
 or remove the model from these files — never leave a documented route broken.
 Models with no runnable route on this machine do not get table rows. Catalog
 drift (a newer grok/composer/glm/gpt version, or a routed id disappearing) is
