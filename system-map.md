@@ -18,6 +18,7 @@ of every repo, service, port and systemd unit it is wired into on this machine.
 - **State of this file:** units and ports verified 2026-09-16 against
   `systemctl --user list-units --type=service` + `ss -ltn`. Anything marked
   *(planned)* does not exist yet; *(unverified)* means it could not be checked.
+  `todo-service` went live 2026-09-16.
 
 ## The shape
 
@@ -38,7 +39,10 @@ of every repo, service, port and systemd unit it is wired into on this machine.
             v                                  v
         (Postgres)                     brain-actions :8791  --Bearer--> T3 Code
                                                |                       :3773
-   todo :4821 (planned)   web/ Caddy :6443 (planned)   android/ (planned)
+   todo-service :4821     web/ Caddy :6443 (planned)   android/ (planned)
+            ^                                  |
+            |__________ Caddy :6443 https://15.204.108.12:6443 -- /todo/* __|
+                                 (also /actions/* --> brain-actions :8791)
   ============================================================================
             |                                  |
             v                                  v
@@ -68,7 +72,7 @@ units still say `spike-a/` (gateway) and `brain-actions/`. Do not assume a path;
 | `bin/tunnel-watchdog.sh`, `bin/repoint-xai-webhook.sh` | — | `voice-tunnel` | cloudflared **quick** tunnel (URL rotates on every restart — never hard-code it) plus a watchdog that re-registers the new URL as the xAI webhook |
 | `services/brain-actions` | 8791 (127.0.0.1) | `brain-actions` | The **only** holder of the T3 Code bearer token. Verbs: `continue_chat`, `new_project_and_chat`, `kick_off_task`, `summarize_recent`, `todos_*`. Enforces per-caller grants; watches T3 turns and writes `pending_briefings`. `/healthz` |
 | `services/lib` | — | — | Shared modules |
-| `services/todo` | 4821 *(planned)* | *(planned)* | Todo service |
+| `services/todo` | 4821 (127.0.0.1) | `todo-service` | Owns second-brain's widened `todos` table. Node/`node:http`/`pg`. `GET/POST /v1/todos*`, five function tools (`todo_add/list/complete/update/find`) at `GET /v1/tools` + `POST /v1/tools/:name`. `/healthz` |
 | `web/` | 6443 via Caddy *(planned)* | *(planned)* | Desk surface |
 | `android/` | — | — | Native Kotlin app *(planned)*, built on **android-framework** |
 
@@ -79,7 +83,16 @@ units still say `spike-a/` (gateway) and `brain-actions/`. Do not assume a path;
   `sip.voice.x.ai` → xAI Grok realtime → webhook → gateway.
 - **Talks to:** Postgres (direct SQL), brain-actions (loopback HTTP),
   and through brain-actions to T3 Code's orchestration API.
-- **Docs:** `README.md`, `FUTURE-WORK.md`, `CLAUDE.md`,
+- **Public origin:** `https://15.204.108.12:6443` via **Caddy** (system unit
+  `caddy.service`, config `/etc/caddy/Caddyfile`, restart with `systemctl
+  restart caddy` — `reload` does not work, see "Caddy" below). `handle_path`
+  strips the prefix so each service sees `/v1/…` + `/healthz` at its root:
+  `/todo/*` → `todo-service` (127.0.0.1:4821), `/actions/*` → `brain-actions`
+  (127.0.0.1:8791), `/downloads/*` → APK file server, everything else → the
+  static web app (SPA fallback). Device tokens (`api_clients` table) are
+  issued with `~/projects/alfred/bin/alfred-client.mjs issue --label <name>
+  --caller <id>` (shown once, only its SHA-256 is stored).
+- **Docs:** `README.md`, `FUTURE-WORK.md`, `CLAUDE.md`, `docs/CADDY.md`,
   `docs/research/{REPORT.md,UPDATE-2026-09.md,APP-DESIGN.md,APP-IMPLEMENTATION-PLAN.md}`.
 - **Slack channel:** `alfred` (see slackcc below).
 
@@ -118,6 +131,30 @@ The agent UI/runtime every other surface dispatches into.
 - **Also on the box:** `~/projects/meta/t3code` (older checkout) and the test
   pool units `t3-test-7446` / `t3-test-7448` (ports 3776/3778 HTTP, 7446/7448
   HTTPS). Don't point production traffic at those.
+
+### Caddy — the shared public HTTPS front
+
+This box has no domain name (Techloq filters new hostnames), so every public
+surface is a bare-IP HTTPS site with one pinned self-signed cert. Not an Alfred
+component, but Alfred's `:6443` origin is one of its sites, so a Caddyfile edit
+for Alfred can take down T3/DanCode/Abba Bank if done wrong.
+
+- **Unit:** **system** unit `caddy.service` (not `--user`), config
+  `/etc/caddy/Caddyfile` (root-owned, needs `sudo`; passwordless `sudo -n`
+  works for `dgordon`). `auto_https off`, `admin off`.
+- **Restart, not reload:** `systemctl reload caddy` fails on this box (`admin
+  off` breaks Caddy's reload API) — always `sudo -n systemctl restart caddy`
+  after `sudo -n caddy validate --config /etc/caddy/Caddyfile`. A restart is
+  sub-second but drops in-flight connections on **every** site.
+- **Cert:** `/etc/caddy/dancode-server.crt`/`.key`, self-signed, `CN=`/SAN
+  `15.204.108.12`, shared by all sites — the Android app ships it once as its
+  trust anchor.
+- **Sites:** DanCode `:8443`, Abba Bank `:9443`, T3 Code `:7443`, T3
+  test-deploy pool `:7444`-`:7453` (generated by
+  `~/projects/meta/t3code/scripts/test-deploy-caddy.ts`, appended at the file's
+  end — don't touch), Alfred `:6443` (inserted above that generated section;
+  see its route map under "Alfred hub" above).
+- **Docs:** `~/projects/alfred/docs/CADDY.md` (Alfred's block in detail).
 
 ### slackcc — `~/projects/slack`
 
@@ -159,19 +196,25 @@ Deployment rules live in `~/.claude/android.md`.
 | 3773 | 127.0.0.1 | T3 Code (`t3code`) — HTTPS front on 7443 |
 | 3776 / 3778 | * | T3 test pool (`t3-test-7446` / `t3-test-7448`; HTTPS 7446/7448) |
 | 4820 | 127.0.0.1 | second-brain HTTP API |
-| 4821 | — | Alfred todo service *(planned)* |
+| 4821 | 127.0.0.1 | Alfred `todo-service` (`services/todo`), public via Caddy `/todo/*` |
 | 5432 | 127.0.0.1 | Postgres (`second_brain`) |
-| 6443 | — | Alfred web via Caddy *(planned)* |
+| 6443 | — | Caddy — Alfred public origin `https://15.204.108.12:6443` (`/todo/*`, `/actions/*` live; web SPA + `/downloads/*` *(planned)*) |
+| 7443 | — | Caddy — T3 Code public origin |
+| 8443 | — | Caddy — DanCode public origin |
 | 8641 | 127.0.0.1 | llama-guard (pps judge model) |
 | 8642 | 127.0.0.1 | pps |
 | 8790 | 127.0.0.1 | Alfred voice-gateway |
-| 8791 | 127.0.0.1 | Alfred brain-actions |
+| 8791 | 127.0.0.1 | Alfred brain-actions, public via Caddy `/actions/*` |
+| 9443 | — | Caddy — Abba Bank public origin |
 
 Services (`systemctl --user`): `t3code`, `second-brain`, `slackcc`, `pps`,
 `llama-guard`, `voice-gateway`, `voice-tunnel`, `brain-actions`,
-`t3-test-7446`, `t3-test-7448`.
+`todo-service`, `t3-test-7446`, `t3-test-7448`.
 Timers: `second-brain-ingest.timer`, `second-brain-callcards.timer`,
 `t3-claude-import.timer`.
+System (`sudo systemctl`, not `--user`): `caddy` — public HTTPS front for
+`:6443`/`:7443`/`:8443`/`:9443`/`:7444`-`:7453` (see "Caddy" above); `restart`,
+not `reload`.
 (Also on the box, unrelated to Alfred: `abba-bank`, `dancode-server`,
 `dancode-shellhost`.)
 

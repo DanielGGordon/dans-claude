@@ -5,7 +5,7 @@
 # $SYSTEM_MAP_STATE). hooks/system-map-banner.sh only cats that file; this
 # script is the only thing that touches systemd or the network, and it is
 # cheap: `systemctl --user is-active` per unit (no process spawn beyond
-# systemctl) plus two 1s-budget curls.
+# systemctl) plus three 1s-budget curls.
 #
 # Fail-open by construction: every probe failure degrades to a "?" and the
 # script still writes a usable file and exits 0.
@@ -15,9 +15,9 @@ OUT="${SYSTEM_MAP_STATE:-$HOME/.claude/system-map.state}"
 
 # Long-running units Alfred depends on. Add new ones here (see
 # "How to add a component" in system-map.md).
-UNITS="t3code second-brain brain-actions voice-gateway voice-tunnel slackcc second-brain-callcards.timer"
+UNITS="t3code second-brain brain-actions voice-gateway voice-tunnel slackcc second-brain-callcards.timer todo-service"
 # Not installed yet — reported only once their unit file exists.
-UNITS_PLANNED="todo"
+UNITS_PLANNED=""
 
 up=""; down=""; unknown=""
 for u in $UNITS; do
@@ -39,7 +39,7 @@ done
 # endpoints are unauthenticated by design; never put a token in this script).
 health=""
 if command -v curl >/dev/null 2>&1; then
-  for probe in "second-brain=http://127.0.0.1:4820/health" "brain-actions=http://127.0.0.1:8791/healthz"; do
+  for probe in "second-brain=http://127.0.0.1:4820/health" "brain-actions=http://127.0.0.1:8791/healthz" "todo-service=http://127.0.0.1:4821/healthz"; do
     name=${probe%%=*}; url=${probe#*=}
     code=$(curl -s -o /dev/null -m 1 -w '%{http_code}' "$url" 2>/dev/null) || code=""
     case "$code" in

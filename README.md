@@ -48,7 +48,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │   ├── model-run.sh         # THE single entrypoint for non-Claude model calls: canonical flags, timeouts, one auto-retry on transient transport errors, distinct exit codes (64 bad-id / 73 transport-after-retry / 75 auth-quota / 124 timeout); accepts <model-id> or --task-type bulk|cheap|recency|second-review
 │   ├── cli-fingerprint.sh   # Zero-cost identity (resolved path+size+mtime, `--versions` adds `--version`) of claude / codex / cursor-agent — routecheck records it, the SessionStart banner diffs it to nag for a re-test after any CLI update
 │   ├── catalog-drift.sh     # Zero-token drift detector: diffs the live Cursor (`cursor-agent --list-models`) + Codex (`codex debug models`) catalogs against routes.tsv — reports a NEWER version of a routed family (e.g. cursor-grok-4.7-* when routes stop at 4.6) and routed ids that VANISHED; `--cached` (hook mode) reuses ~/.claude/catalog-<backend>.txt for 24h; fail-open
-│   ├── system-map-probe.sh  # Writes the cached [alfred] banner (~/.claude/system-map.state): `systemctl --user is-active` for Alfred's units + 1s health curls of second-brain :4820 and brain-actions :8791; fail-open
+│   ├── system-map-probe.sh  # Writes the cached [alfred] banner (~/.claude/system-map.state): `systemctl --user is-active` for Alfred's units + 1s health curls of second-brain :4820, brain-actions :8791 and todo-service :4821; fail-open
 │   └── routes.tsv           # Single source of truth: model ids, id→backend, retired-id successors, task-type→id mappings (drives model-run.sh + routecheck + catalog-drift.sh)
 ├── agents/
 │   ├── model-runner.md      # Named agent wrapping bin/model-run.sh — verbatim-output contract, never substitutes models
@@ -189,11 +189,12 @@ Catalog drift (new/retired ids): the SessionStart hook / `routecheck` tell you (
 what will I break?" It documents **Alfred** — Dan's multi-surface assistant (phone
 call while driving, Android app, web at his desk) — and every component it touches:
 the Alfred hub (`~/projects/alfred`: voice-gateway :8790, voice-tunnel,
-brain-actions :8791, planned todo/web/android), second-brain
+brain-actions :8791, todo-service :4821, planned web/android), second-brain
 (`~/projects/meta/second-brain`: Postgres `second_brain`, API :4820, MCP `brain`,
 ingest + call-card timers), T3 Code (`~/projects/meta/t3code-v2`, :3773 behind
-:7443), slackcc (`~/projects/slack`, pps :8642 → llama-guard :8641),
-whatsapp-bot, android-framework, and this repo. Each entry lists repo path,
+:7443), Caddy (public HTTPS front for T3/DanCode/Abba Bank/Alfred at
+:7443/:8443/:9443/:6443), slackcc (`~/projects/slack`, pps :8642 → llama-guard
+:8641), whatsapp-bot, android-framework, and this repo. Each entry lists repo path,
 purpose, data store, ports/units, how it talks to the others, and where its docs
 live — plus an ASCII edge diagram, a ports/units table, and a "How to add a
 component" checklist.
@@ -215,14 +216,14 @@ SessionStart banner, same shape as `route-health-banner.sh`: the hook **only pri
 cache** and always exits 0. `bin/system-map-probe.sh` writes that cache
 (`~/.claude/system-map.state`) — `systemctl --user is-active` for `t3code`,
 `second-brain`, `brain-actions`, `voice-gateway`, `voice-tunnel`, `slackcc`,
-`second-brain-callcards.timer` (plus `todo` once its unit exists), then 1s-budget
-curls of `127.0.0.1:4820/health` and `127.0.0.1:8791/healthz`. The hook refreshes it
-at most every 10 minutes (`SYSTEM_MAP_MAX_AGE`, `SYSTEM_MAP_STATE` to override),
-under `timeout 10`, and prints at most 8 lines:
+`second-brain-callcards.timer`, `todo-service`, then 1s-budget curls of
+`127.0.0.1:4820/health`, `127.0.0.1:8791/healthz` and `127.0.0.1:4821/healthz`.
+The hook refreshes it at most every 10 minutes (`SYSTEM_MAP_MAX_AGE`,
+`SYSTEM_MAP_STATE` to override), under `timeout 10`, and prints at most 8 lines:
 
 ```
-[alfred] units: all 7 active (t3code second-brain …) — checked 18:37
-[alfred] health: second-brain ok · brain-actions ok
+[alfred] units: all 8 active (t3code second-brain …) — checked 18:37
+[alfred] health: second-brain ok · brain-actions ok · todo-service ok
 [alfred] system map: ~/.claude/system-map.md — read it before any task spanning more than one component; …
 ```
 
