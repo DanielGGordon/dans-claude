@@ -15,15 +15,16 @@ of every repo, service, port and systemd unit it is wired into on this machine.
 - **No volatile values here.** Tunnel URLs, tokens, ports that get picked at
   runtime, project UUIDs, session ids — keep them OUT; name the config file or
   service that holds them instead.
-- **State of this file:** units and ports verified 2026-09-16 against
-  `systemctl --user list-units --type=service` + `ss -ltn`. Anything marked
-  *(planned)* does not exist yet; *(unverified)* means it could not be checked.
-  `todo-service` went live 2026-09-16.
+- **State of this file:** units, timers and ports re-verified **2026-09-16** against
+  `systemctl --user list-units --type=service`, `systemctl --user list-timers` and
+  `ss -ltn`. Anything marked *(planned)* does not exist yet; *(unverified)* means it
+  could not be checked. **All three Alfred surfaces are live as of 2026-09-16**:
+  voice, the web app on `:6443`, and the Android app (v1.0.0, sideloaded).
 
 ## The shape
 
 ```
-   phone +1 224 300 7842      Android app (planned)      web at the desk (planned)
+   phone +1 224 300 7842    Android app (v1.0.0, live)   web at the desk (live)
             | PSTN                     | HTTPS                   | HTTPS
             v                          v                         v
    Twilio Elastic SIP trunk
@@ -31,7 +32,7 @@ of every repo, service, port and systemd unit it is wired into on this machine.
             v
    xAI Grok realtime  --POST /xai/incoming (HMAC)-->  cloudflared quick tunnel
                                                               |
-  =========================== ~/projects/alfred ==============|================
+  ========================== ~/projects/alfred ===============|================
    voice-tunnel  (cloudflared + watchdog: re-registers the xAI webhook URL)
             v
    voice-gateway :8790  ---- realtime WS (audio + tool calls) ---- xAI
@@ -39,10 +40,10 @@ of every repo, service, port and systemd unit it is wired into on this machine.
             v                                  v
         (Postgres)                     brain-actions :8791  --Bearer--> T3 Code
                                                |                       :3773
-   todo-service :4821     web/ Caddy :6443 (planned)   android/ (planned)
-            ^                                  |
-            |__________ Caddy :6443 https://15.204.108.12:6443 -- /todo/* __|
-                                 (also /actions/* --> brain-actions :8791)
+   todo-service :4821      web/ (static SPA)       android/ (APK downloads)
+            ^                         |                        |
+            |__ Caddy :6443 https://15.204.108.12:6443 --------+--------|
+                 /todo/* | /actions/* | /downloads/* | everything else -> web SPA
   ============================================================================
             |                                  |
             v                                  v
@@ -52,6 +53,8 @@ of every repo, service, port and systemd unit it is wired into on this machine.
   second-brain-callcards.timer  second-brain-ingest.timer  Claude Code SessionEnd
    (5 min: call cards)          (5 min: transcripts)        hook -> /api/ingest
 
+   alive-ping.timer (5 min) -- curls the shim's aggregate /healthz -> journal
+
    Slack --> slackcc --> T3 Code :3773 --> Claude Code sessions in project repos
               (screened by pps :8642 -> llama-guard :8641)
 ```
@@ -60,25 +63,47 @@ of every repo, service, port and systemd unit it is wired into on this machine.
 
 ### Alfred hub — `~/projects/alfred`
 
-The voice surface **and** the integration hub. Monorepo; **being restructured
-right now** (2026-09-16) into `services/{gateway,brain-actions,lib,todo}`,
-`web/`, `android/`, `systemd/`, `bin/`, `docs/research/` — older docs and the
-units still say `spike-a/` (gateway) and `brain-actions/`. Do not assume a path;
-`ls` first.
+The voice surface **and** the integration hub. Monorepo, settled: the restructure
+is done, so these paths are the paths (older docs and the unit *names* still say
+`spike-a/` and "voice-", which is noted under FUTURE-WORK there and is cosmetic).
+
+```
+services/{gateway,brain-actions,lib,todo}   the four server pieces
+web/                                        Vite + Preact SPA (desk surface)
+android/                                    native Kotlin app (com.dgordon.alfred)
+contracts/                                  fixtures + the grouping contract both clients assert against
+caddy/                                      the :6443 site block + an idempotent installer
+bin/                                        tunnel watchdog, xAI repointer, client CLI, pair links, alive-ping
+systemd/                                    unit templates + install.sh
+docs/                                       CADDY.md, COSTS.md, RESTORE.md, migrations/, research/
+```
 
 | Piece | Port | Unit | Purpose |
 |---|---|---|---|
-| `services/gateway` (was `spike-a/`) | 8790 (127.0.0.1) | `voice-gateway` | Verifies the xAI Direct-SIP webhook, opens the realtime WS, injects the precomputed call card + tool defs, proxies tool calls, writes transcripts + `call_sessions` |
+| `services/gateway` | 8790 (127.0.0.1) | `voice-gateway` | Verifies the xAI Direct-SIP webhook, opens the realtime WS, injects the precomputed call card + tool defs, proxies tool calls, writes transcripts + `call_sessions` |
 | `bin/tunnel-watchdog.sh`, `bin/repoint-xai-webhook.sh` | — | `voice-tunnel` | cloudflared **quick** tunnel (URL rotates on every restart — never hard-code it) plus a watchdog that re-registers the new URL as the xAI webhook |
-| `services/brain-actions` | 8791 (127.0.0.1) | `brain-actions` | The **only** holder of the T3 Code bearer token. Verbs: `continue_chat`, `new_project_and_chat`, `kick_off_task`, `summarize_recent`, `todos_*`. Enforces per-caller grants; watches T3 turns and writes `pending_briefings`. `/healthz` |
-| `services/lib` | — | — | Shared modules |
-| `services/todo` | 4821 (127.0.0.1) | `todo-service` | Owns second-brain's widened `todos` table. Node/`node:http`/`pg`. `GET/POST /v1/todos*`, five function tools (`todo_add/list/complete/update/find`) at `GET /v1/tools` + `POST /v1/tools/:name`. `/healthz` |
-| `web/` | 6443 via Caddy *(planned)* | *(planned)* | Desk surface |
-| `android/` | — | — | Native Kotlin app *(planned)*, built on **android-framework** |
+| `services/brain-actions` | 8791 (127.0.0.1) | `brain-actions` | The **only** holder of the T3 Code bearer token, and the app's front door. **Nine** function tools (see below), plus the inbox (`POST /v1/note`) and the notification feed (`GET /v1/briefings`). Enforces per-caller grants; watches T3 turns and writes `pending_briefings`. `/healthz` |
+| `services/lib` | — | — | Shared modules: env, db pool, bearer auth |
+| `services/todo` | 4821 (127.0.0.1) | `todo-service` | Owns second-brain's widened `todos` table. Node/`node:http`/`pg`. `GET/POST /v1/todos*`, the five to-do function tools at `GET /v1/tools` + `POST /v1/tools/:name`, one `gpt-5.6-luna` parse per capture. `/healthz` |
+| `web/` | 6443 via Caddy | (static) | **LIVE** — desk surface, Vite + Preact SPA, built to `web/dist` and deployed to **`/var/lib/alfred-web`** by `web/scripts/deploy.sh`; Caddy serves it as the `:6443` fallback with SPA history routing |
+| `android/` | — | (no unit) | **LIVE** — native Kotlin app `com.dgordon.alfred` on **android-framework**, **v1.0.0 / versionCode 2**, debug-signed, published to `/var/lib/alfred-apk` and sideloaded from `…:6443/downloads/`. Deploy rules: `~/.claude/android.md` ("Alfred") |
+
+- **The tool surface is nine verbs, merged from two files.** The four T3 verbs
+  (`summarize_recent`, `continue_chat`, `kick_off_task`, `new_project_and_chat`)
+  are defined in `services/brain-actions/tools.json` and executed there; the five
+  to-do tools (`todo_add`, `todo_list`, `todo_complete`, `todo_update`,
+  `todo_find`) are defined in `services/todo/tools.json` and executed by
+  todo-service. **Whoever defines a tool executes it**; the shim only forwards the
+  to-do five, keeping the caller/grant check on its own side. Both
+  `services/gateway/tools.mjs` (for the voice model) and brain-actions'
+  `GET /v1/tools` (for the app) merge the same two files, so every surface sees an
+  identical list. Add a tool by editing the owning `tools.json` — nothing else.
 
 - **Data store:** none of its own — everything lives in second-brain's Postgres
   (`second_brain`): `callers`, `caller_identities`, `caller_project_grants`,
   `todos`, `summary_cache`, `call_sessions`, `pending_briefings`.
+- **Own timer:** `alive-ping.timer` → `alive-ping.service` (oneshot,
+  `bin/alive-ping.sh`), every 5 minutes against the shim's aggregate `/healthz`.
 - **Call path:** phone `+1 224 300 7842` → Twilio Elastic SIP trunk →
   `sip.voice.x.ai` → xAI Grok realtime → webhook → gateway.
 - **Talks to:** Postgres (direct SQL), brain-actions (loopback HTTP),
@@ -88,11 +113,25 @@ units still say `spike-a/` (gateway) and `brain-actions/`. Do not assume a path;
   restart caddy` — `reload` does not work, see "Caddy" below). `handle_path`
   strips the prefix so each service sees `/v1/…` + `/healthz` at its root:
   `/todo/*` → `todo-service` (127.0.0.1:4821), `/actions/*` → `brain-actions`
-  (127.0.0.1:8791), `/downloads/*` → APK file server, everything else → the
-  static web app (SPA fallback). Device tokens (`api_clients` table) are
-  issued with `~/projects/alfred/bin/alfred-client.mjs issue --label <name>
-  --caller <id>` (shown once, only its SHA-256 is stored).
-- **Docs:** `README.md`, `FUTURE-WORK.md`, `CLAUDE.md`, `docs/CADDY.md`,
+  (127.0.0.1:8791), `/downloads/*` → `file_server` on `/var/lib/alfred-apk`
+  (the APKs + a generated install page), everything else → the static web app in
+  `/var/lib/alfred-web` (SPA fallback). All four are live.
+- **Pairing a device — one long-lived bearer token each, and three files to know:**
+  - `bin/alfred-client.mjs issue --label <name> --caller <id>` mints the token and
+    writes a row in the spine's **`api_clients`** table. The token is **shown once**
+    and only its SHA-256 is stored, so it cannot be recovered — reissue instead.
+    `bin/alfred-client.mjs list` / `revoke <id>`; a revoke takes effect within 60 s.
+  - `bin/alfred-pair-link.mjs issue --label <name> --caller <id>` does the same and
+    wraps it in a one-tap **`alfred://pair?base=…&token=…&t3=…&phone=…`** deep link,
+    so the token is never typed. `link --token -` wraps a token that already exists;
+    `--bare` prints just the link.
+  - Alfred's own link lives at `~/projects/alfred/.pair-link.txt` (mode 600,
+    gitignored). **The link is exactly as secret as the token** — hand it over on the
+    device, never post it, never print either in a transcript or a Slack message.
+  - `services/lib` verifies the bearer on every request except the `/healthz` probes.
+- **Docs:** `README.md` (status + layout), `FUTURE-WORK.md`, `CLAUDE.md`,
+  `android/README.md` (the app, its four test layers and the manual checklist),
+  `web/README.md`, `docs/{CADDY.md,COSTS.md,RESTORE.md}`,
   `docs/research/{REPORT.md,UPDATE-2026-09.md,APP-DESIGN.md,APP-IMPLEMENTATION-PLAN.md}`.
 - **Slack channel:** `alfred` (see slackcc below).
 
@@ -167,8 +206,10 @@ Bridges Slack threads to T3 Code sessions (a Slack thread == a T3 thread).
   `t3_project_id`, model. The **alfred** channel maps to `~/projects/alfred` and
   T3 project `alfred`.
 - **CLI:** `/home/dgordon/projects/slack/.venv/bin/{slack-send,slack-upload,slack-wait-reply}`.
-- **Direction:** Slack is being **retired as Alfred's notification path** in
-  favour of the Android app; don't build new Alfred notification features on it.
+- **Direction:** Slack is **retired as Alfred's notification path** — the Android
+  app shipped (v1.0.0, 2026-09-16) and `pending_briefings` + local notifications
+  are the channel now. Don't build new Alfred notification features on Slack.
+  slackcc itself is unaffected; it still bridges Slack threads to T3 sessions.
 
 ### whatsapp-bot — `~/projects/whatsapp-bot`
 
@@ -186,8 +227,12 @@ the route-health and `[alfred]` banners. See `README.md` there.
 ### android-framework — `~/projects/android-framework`
 
 Native-Kotlin app framework + emulator/test layer; the canonical base for new
-Android apps on this machine, and what Alfred's Android app will be built on.
-Deployment rules live in `~/.claude/android.md`.
+Android apps on this machine, and what **Alfred's Android app is built on** — it is
+the framework's first adopter to reach a real phone. Deployment rules live in
+`~/.claude/android.md` (see its "Alfred" section). The emulator layer is
+machine-level: SDK at `~/Android/Sdk`, AVD `test35`, driven only through
+`scripts/emu.sh` / `flow.sh`; adopting repos own no emulator tooling. One runner per
+AVD — the cross-agent lock convention is `mkdir /tmp/alfred-emu.lock`.
 
 ## Ports & units at a glance
 
@@ -198,7 +243,7 @@ Deployment rules live in `~/.claude/android.md`.
 | 4820 | 127.0.0.1 | second-brain HTTP API |
 | 4821 | 127.0.0.1 | Alfred `todo-service` (`services/todo`), public via Caddy `/todo/*` |
 | 5432 | 127.0.0.1 | Postgres (`second_brain`) |
-| 6443 | — | Caddy — Alfred public origin `https://15.204.108.12:6443` (`/todo/*`, `/actions/*` live; web SPA + `/downloads/*` *(planned)*) |
+| 6443 | — | Caddy — Alfred public origin `https://15.204.108.12:6443`: `/todo/*`, `/actions/*`, `/downloads/*` (APKs) and the web SPA — **all live** |
 | 7443 | — | Caddy — T3 Code public origin |
 | 8443 | — | Caddy — DanCode public origin |
 | 8641 | 127.0.0.1 | llama-guard (pps judge model) |
@@ -211,7 +256,9 @@ Services (`systemctl --user`): `t3code`, `second-brain`, `slackcc`, `pps`,
 `llama-guard`, `voice-gateway`, `voice-tunnel`, `brain-actions`,
 `todo-service`, `t3-test-7446`, `t3-test-7448`.
 Timers: `second-brain-ingest.timer`, `second-brain-callcards.timer`,
-`t3-claude-import.timer`.
+**`alive-ping.timer`** (Alfred's own, every 5 min: curls the shim's aggregate
+`/healthz` and logs a journald WARNING when it is not ok — `bin/alive-ping.sh`
+also pings `HEALTHCHECKS_URL` when that lands), `t3-claude-import.timer`.
 System (`sudo systemctl`, not `--user`): `caddy` — public HTTPS front for
 `:6443`/`:7443`/`:8443`/`:9443`/`:7444`-`:7453` (see "Caddy" above); `restart`,
 not `reload`.

@@ -35,7 +35,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── CODING_AGENTS.md         # Coding agent rules (symlinked to ~/.claude/CODING_AGENTS.md)
 ├── settings.partial.json    # Hook and statusline config (merged into settings.json)
 ├── plan-requirements.md     # Requirements the plan reviewer enforces
-├── android.md               # System-wide Android deployment + automated-testing reference — canonical emulator/test layer is the android-framework repo (symlinked to ~/.claude/android.md)
+├── android.md               # System-wide Android deployment + automated-testing reference — canonical emulator/test layer is the android-framework repo; per-project divergent branches (T3 Code, Alfred) documented inline (symlinked to ~/.claude/android.md)
 ├── model-selection.md       # WHICH model to use WHEN — rankings table, task-type guidance, subagent/workflow model assignment (symlinked to ~/.claude/model-selection.md)
 ├── model-usage.md           # HOW to invoke a chosen model — `codex exec` + `cursor-agent` wrapper patterns, native Claude routing, current model ids, auth/error rules (symlinked to ~/.claude/model-usage.md)
 ├── models.md                # Deprecated stub pointing at model-selection.md + model-usage.md (split 2026-07-21; symlink kept for old references)
@@ -189,7 +189,8 @@ Catalog drift (new/retired ids): the SessionStart hook / `routecheck` tell you (
 what will I break?" It documents **Alfred** — Dan's multi-surface assistant (phone
 call while driving, Android app, web at his desk) — and every component it touches:
 the Alfred hub (`~/projects/alfred`: voice-gateway :8790, voice-tunnel,
-brain-actions :8791, todo-service :4821, planned web/android), second-brain
+brain-actions :8791, todo-service :4821, `alive-ping.timer`, and the two client
+surfaces that are now live — the Preact web app and the Android app), second-brain
 (`~/projects/meta/second-brain`: Postgres `second_brain`, API :4820, MCP `brain`,
 ingest + call-card timers), T3 Code (`~/projects/meta/t3code-v2`, :3773 behind
 :7443), Caddy (public HTTPS front for T3/DanCode/Abba Bank/Alfred at
@@ -216,13 +217,13 @@ SessionStart banner, same shape as `route-health-banner.sh`: the hook **only pri
 cache** and always exits 0. `bin/system-map-probe.sh` writes that cache
 (`~/.claude/system-map.state`) — `systemctl --user is-active` for `t3code`,
 `second-brain`, `brain-actions`, `voice-gateway`, `voice-tunnel`, `slackcc`,
-`second-brain-callcards.timer`, `todo-service`, then 1s-budget curls of
+`second-brain-callcards.timer`, `alive-ping.timer`, `todo-service`, then 1s-budget curls of
 `127.0.0.1:4820/health`, `127.0.0.1:8791/healthz` and `127.0.0.1:4821/healthz`.
 The hook refreshes it at most every 10 minutes (`SYSTEM_MAP_MAX_AGE`,
 `SYSTEM_MAP_STATE` to override), under `timeout 10`, and prints at most 8 lines:
 
 ```
-[alfred] units: all 8 active (t3code second-brain …) — checked 18:37
+[alfred] units: all 9 active (t3code second-brain …) — checked 18:37
 [alfred] health: second-brain ok · brain-actions ok · todo-service ok
 [alfred] system map: ~/.claude/system-map.md — read it before any task spanning more than one component; …
 ```
