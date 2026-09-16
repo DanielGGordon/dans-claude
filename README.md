@@ -10,7 +10,7 @@ bash ~/dotfiles/claude/install.sh
 ```
 
 The install script:
-1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, `android.md`, `models.md`, `model-selection.md`, `model-usage.md`, `playwright.md`, `t3-conversations.md`, and `statusline-command.sh` into `~/.claude/`
+1. Symlinks `CLAUDE.md`, `CODING_AGENTS.md`, `agents/`, `hooks/`, `skills/`, `plan-requirements.md`, `android.md`, `models.md`, `model-selection.md`, `model-usage.md`, `playwright.md`, `t3-conversations.md`, `system-map.md`, and `statusline-command.sh` into `~/.claude/`
 2. Deep-merges `settings.partial.json` into your existing `~/.claude/settings.json` (preserves CC-managed keys like model, permissions, plugins)
 3. Registers user-scoped MCP servers via `claude mcp add` (idempotent; skipped if the server binary isn't on this machine)
 4. Adds `source ~/dotfiles/claude/aliases.sh` to `~/.bash_aliases` (creates the file if needed)
@@ -40,6 +40,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── model-usage.md           # HOW to invoke a chosen model — `codex exec` + `cursor-agent` wrapper patterns, native Claude routing, current model ids, auth/error rules (symlinked to ~/.claude/model-usage.md)
 ├── models.md                # Deprecated stub pointing at model-selection.md + model-usage.md (split 2026-07-21; symlink kept for old references)
 ├── playwright.md            # Playwright visual web-testing reference — screenshot toolkit + how agents visually evaluate UIs, used only when the user asks to "test visually" (symlinked to ~/.claude/playwright.md)
+├── system-map.md            # THE map of Alfred (Dan's multi-surface assistant) + every repo/service/port/systemd unit/channel on this box — read before any multi-component task, updated in the same commit as any service/port/unit/repo/channel change (symlinked to ~/.claude/system-map.md)
 ├── t3-conversations.md      # Where T3 Code conversations live (~/.t3/userdata/state.sqlite), the read-only query helper, projection_* tables, and raw transcript paths — read when the user asks about a T3 thread from any project (symlinked to ~/.claude/t3-conversations.md)
 ├── plans/                   # Design docs for this repo's own tooling (not symlinked)
 │   └── model-routing-test-suite.md  # `routecheck` design: manifest-driven drift/auth/contract tests for the model-routing policy (designed 2026-07-21, not yet implemented)
@@ -47,6 +48,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 │   ├── model-run.sh         # THE single entrypoint for non-Claude model calls: canonical flags, timeouts, one auto-retry on transient transport errors, distinct exit codes (64 bad-id / 73 transport-after-retry / 75 auth-quota / 124 timeout); accepts <model-id> or --task-type bulk|cheap|recency|second-review
 │   ├── cli-fingerprint.sh   # Zero-cost identity (resolved path+size+mtime, `--versions` adds `--version`) of claude / codex / cursor-agent — routecheck records it, the SessionStart banner diffs it to nag for a re-test after any CLI update
 │   ├── catalog-drift.sh     # Zero-token drift detector: diffs the live Cursor (`cursor-agent --list-models`) + Codex (`codex debug models`) catalogs against routes.tsv — reports a NEWER version of a routed family (e.g. cursor-grok-4.7-* when routes stop at 4.6) and routed ids that VANISHED; `--cached` (hook mode) reuses ~/.claude/catalog-<backend>.txt for 24h; fail-open
+│   ├── system-map-probe.sh  # Writes the cached [alfred] banner (~/.claude/system-map.state): `systemctl --user is-active` for Alfred's units + 1s health curls of second-brain :4820 and brain-actions :8791; fail-open
 │   └── routes.tsv           # Single source of truth: model ids, id→backend, retired-id successors, task-type→id mappings (drives model-run.sh + routecheck + catalog-drift.sh)
 ├── agents/
 │   ├── model-runner.md      # Named agent wrapping bin/model-run.sh — verbatim-output contract, never substitutes models
@@ -54,6 +56,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── hooks/
 │   ├── route-guard.sh       # PreToolUse(Bash): denies raw codex/cursor-agent invocations + retired model ids (structured permissionDecision JSON, command-position matching — chained/env-prefixed bypasses covered), redirects to bin/model-run.sh
 │   ├── route-health-banner.sh  # SessionStart: warns (from cached ~/.claude/route-health.txt) when routecheck last failed or is >14d stale — never runs tests itself; warns when claude/codex/cursor-agent changed since the last routecheck (cli-fingerprint.sh vs ~/.claude/route-health-tools.txt); also runs catalog-drift.sh --cached and prints one line when a catalog has a newer grok/composer/glm/gpt than routes.tsv (or a routed id vanished)
+│   ├── system-map-banner.sh    # SessionStart: prints the cached [alfred] block (units up/down, health, pointer at ~/.claude/system-map.md); refreshes the cache via bin/system-map-probe.sh at most every 10 min
 │   └── second-brain-ingest-session-end.sh  # SessionEnd → second-brain quick ingest
 ├── skills/
 │   ├── ralph-v2/
@@ -114,6 +117,7 @@ After install, `~/.claude/` looks like:
 ├── model-usage.md → ~/dotfiles/claude/model-usage.md
 ├── playwright.md → ~/dotfiles/claude/playwright.md
 ├── t3-conversations.md → ~/dotfiles/claude/t3-conversations.md
+├── system-map.md → ~/dotfiles/claude/system-map.md
 ├── statusline-command.sh → ~/dotfiles/claude/statusline-command.sh
 ├── projects/                  ← CC runtime (untouched)
 ├── sessions/                  ← CC runtime (untouched)
@@ -178,6 +182,56 @@ Codex caveat: there is no `codex --list-models`; `codex debug models` reads the 
 ### Maintenance
 
 Catalog drift (new/retired ids): the SessionStart hook / `routecheck` tell you (see above); then edit `bin/routes.tsv`, run `routecheck`, PR. CLI updates (Claude Code, `codex`, `cursor-agent update`): the SessionStart hook says which tool changed; run `routecheck` + the `tests/workflows/` smokes. Auth rot: `codex login` / `cursor-agent login` (routecheck's Tier 1 catches it). Policy changes (rankings, task-type mappings): `model-selection.md` + routes.tsv `task` rows. History of why it's shaped this way (Cursor SDK rejected, MCP deferred, subagent kept for UI visibility): PRs #3–#6.
+
+## System map (`system-map.md`)
+
+`system-map.md` is the system-wide answer to "what else is running on this box, and
+what will I break?" It documents **Alfred** — Dan's multi-surface assistant (phone
+call while driving, Android app, web at his desk) — and every component it touches:
+the Alfred hub (`~/projects/alfred`: voice-gateway :8790, voice-tunnel,
+brain-actions :8791, planned todo/web/android), second-brain
+(`~/projects/meta/second-brain`: Postgres `second_brain`, API :4820, MCP `brain`,
+ingest + call-card timers), T3 Code (`~/projects/meta/t3code-v2`, :3773 behind
+:7443), slackcc (`~/projects/slack`, pps :8642 → llama-guard :8641),
+whatsapp-bot, android-framework, and this repo. Each entry lists repo path,
+purpose, data store, ports/units, how it talks to the others, and where its docs
+live — plus an ASCII edge diagram, a ports/units table, and a "How to add a
+component" checklist.
+
+Two meta-rules (modelled on `android.md`) make it stay true:
+
+- **Consult first** — any task touching more than one component, or adding/moving a
+  service, port, unit, repo or channel, reads it before planning.
+- **Update on change** — the agent making that change updates this file in the same
+  PR/commit. Volatile values (tunnel URLs, tokens, ids) stay out; the file names the
+  config that holds them instead.
+
+Global `CLAUDE.md` carries the short "The System (Alfred)" stanza pointing here, and
+the SessionStart banner below keeps it visible.
+
+### `hooks/system-map-banner.sh` + `bin/system-map-probe.sh`
+
+SessionStart banner, same shape as `route-health-banner.sh`: the hook **only prints a
+cache** and always exits 0. `bin/system-map-probe.sh` writes that cache
+(`~/.claude/system-map.state`) — `systemctl --user is-active` for `t3code`,
+`second-brain`, `brain-actions`, `voice-gateway`, `voice-tunnel`, `slackcc`,
+`second-brain-callcards.timer` (plus `todo` once its unit exists), then 1s-budget
+curls of `127.0.0.1:4820/health` and `127.0.0.1:8791/healthz`. The hook refreshes it
+at most every 10 minutes (`SYSTEM_MAP_MAX_AGE`, `SYSTEM_MAP_STATE` to override),
+under `timeout 10`, and prints at most 8 lines:
+
+```
+[alfred] units: all 7 active (t3code second-brain …) — checked 18:37
+[alfred] health: second-brain ok · brain-actions ok
+[alfred] system map: ~/.claude/system-map.md — read it before any task spanning more than one component; …
+```
+
+When something is down the first line becomes `units up (N): …` plus a
+`[alfred] NOT RUNNING: voice-gateway:inactive — 'systemctl --user status <unit>' …`
+line. Missing `systemctl`/`curl`, an unreadable cache dir, a nonexistent unit: all
+degrade to a `?`/"unknown" line, never a failure. **Adding a service to the box
+means adding it to `UNITS` in `bin/system-map-probe.sh`** as well as to
+`system-map.md`.
 
 ## Named Agents
 
@@ -282,6 +336,10 @@ System prompt here.
 ```
 
 ## Hooks
+
+### `hooks/system-map-banner.sh`
+
+SessionStart `[alfred]` banner — see "System map" above.
 
 ### `hooks/second-brain-ingest-session-end.sh`
 

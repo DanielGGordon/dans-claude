@@ -7,6 +7,10 @@
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/route-health-banner.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/system-map-banner.sh"
           }
         ]
       }
