@@ -284,11 +284,14 @@ as written **except** the points below. Project doc: `~/projects/alfred/android/
 ### Divergences from the reference layout
 
 1. **No `android/reverse-proxy/`.** Alfred does not own a Caddy config. Its `:6443`
-   site lives in the machine's single `/etc/caddy/Caddyfile` (documented in
-   `~/projects/alfred/docs/CADDY.md`, and in `system-map.md` under "Caddy"), which is
-   shared with T3 Code, DanCode and Abba Bank — a careless edit there takes all of them
-   down. The publish script therefore lives at **`android/scripts/publish-apk.sh`**,
-   not `android/reverse-proxy/scripts/publish-apk.sh`, and there is no `install.sh`,
+   site, plus a `/alfred/*` mirror spliced into T3 Code's `:7443` site (Dan's
+   phone content filter allows `:7443`, not `:6443` — that mirror is now the
+   app's **primary** origin), live in the machine's single
+   `/etc/caddy/Caddyfile` (documented in `~/projects/alfred/docs/CADDY.md`, and
+   in `system-map.md` under "Caddy"), which is shared with T3 Code, DanCode and
+   Abba Bank — a careless edit there takes all of them down. The publish script
+   therefore lives at **`android/scripts/publish-apk.sh`**, not
+   `android/reverse-proxy/scripts/publish-apk.sh`, and there is no `install.sh`,
    no `generate-cert.sh` and no `sync-pin.sh` in this project.
 2. **`minSdk 33`** (the framework default is 26). Two reasons, both hard: Dan's phone is
    a Galaxy S23 on Android 13, and 33 is the floor for `POST_NOTIFICATIONS`, which the
@@ -316,15 +319,21 @@ bash ~/projects/alfred/android/scripts/publish-apk.sh    # builds assembleDebug,
   | `alfred-previous.apk` | the previous `alfred-latest.apk` — rollback by re-sideloading it |
   | `index.html` | generated install page: version, versionCode, size, SHA-256, build time, the sideload steps, and the upgrade-in-place note |
 
-- **Sideload URLs:** page `https://15.204.108.12:6443/downloads/index.html`, APK
-  `https://15.204.108.12:6443/downloads/alfred-latest.apk`. The site sets `index off`,
-  so bare `/downloads/` lists files rather than serving the page — link the explicit
-  `index.html`.
+- **Server base URL (pairing):** `https://15.204.108.12:7443/alfred` — also the
+  default for `bin/alfred-pair-link.mjs --base`, for the same phone-content-filter
+  reason as the sideload URLs below.
+- **Sideload URLs (primary):** page
+  `https://15.204.108.12:7443/alfred/downloads/index.html`, APK
+  `https://15.204.108.12:7443/alfred/downloads/alfred-latest.apk` — use these;
+  Dan's phone content filter allows `:7443`, not `:6443`. The unchanged mirror
+  at `https://15.204.108.12:6443/downloads/{index.html,alfred-latest.apk}` is
+  still live. Both sites set `index off`, so bare `/downloads/` lists files
+  rather than serving the page — link the explicit `index.html`.
 - Verify after publishing:
 
   ```bash
-  curl -skI https://15.204.108.12:6443/downloads/alfred-latest.apk   # 200
-  sha256sum /var/lib/alfred-apk/alfred-latest.apk                    # matches the page
+  curl -skI https://15.204.108.12:7443/alfred/downloads/alfred-latest.apk   # 200 (primary)
+  sha256sum /var/lib/alfred-apk/alfred-latest.apk                           # matches the page
   ```
 
 ### Signing and upgrades

@@ -19,7 +19,9 @@ of every repo, service, port and systemd unit it is wired into on this machine.
   `systemctl --user list-units --type=service`, `systemctl --user list-timers` and
   `ss -ltn`. Anything marked *(planned)* does not exist yet; *(unverified)* means it
   could not be checked. **All three Alfred surfaces are live as of 2026-09-16**:
-  voice, the web app on `:6443`, and the Android app (v1.0.0, sideloaded).
+  voice, the web app (**primary origin now `https://15.204.108.12:7443/alfred/`**,
+  mirrored unchanged at `:6443` — see "Public origin" below), and the Android app
+  (v1.0.0, sideloaded).
 
 ## The shape
 
@@ -43,6 +45,9 @@ of every repo, service, port and systemd unit it is wired into on this machine.
    todo-service :4821      web/ (static SPA)       android/ (APK downloads)
             ^                         |                        |
             |__ Caddy :6443 https://15.204.108.12:6443 --------+--------|
+            |__ Caddy :7443 mirrors the same routes under /alfred/* -----|
+            |     (PRIMARY: https://15.204.108.12:7443/alfred/ -- Dan's phone
+            |      content filter allows :7443, not :6443)
                  /todo/* | /actions/* | /downloads/* | everything else -> web SPA
   ============================================================================
             |                                  |
@@ -85,8 +90,8 @@ docs/                                       CADDY.md, COSTS.md, RESTORE.md, migr
 | `services/brain-actions` | 8791 (127.0.0.1) | `brain-actions` | The **only** holder of the T3 Code bearer token, and the app's front door. **Nine** function tools (see below), plus the inbox (`POST /v1/note`) and the notification feed (`GET /v1/briefings`). Enforces per-caller grants; watches T3 turns and writes `pending_briefings`. `/healthz` |
 | `services/lib` | — | — | Shared modules: env, db pool, bearer auth |
 | `services/todo` | 4821 (127.0.0.1) | `todo-service` | Owns second-brain's widened `todos` table. Node/`node:http`/`pg`. `GET/POST /v1/todos*`, the five to-do function tools at `GET /v1/tools` + `POST /v1/tools/:name`, one `gpt-5.6-luna` parse per capture. `/healthz` |
-| `web/` | 6443 via Caddy | (static) | **LIVE** — desk surface, Vite + Preact SPA, built to `web/dist` and deployed to **`/var/lib/alfred-web`** by `web/scripts/deploy.sh`; Caddy serves it as the `:6443` fallback with SPA history routing |
-| `android/` | — | (no unit) | **LIVE** — native Kotlin app `com.dgordon.alfred` on **android-framework**, **v1.0.0 / versionCode 2**, debug-signed, published to `/var/lib/alfred-apk` and sideloaded from `…:6443/downloads/`. Deploy rules: `~/.claude/android.md` ("Alfred") |
+| `web/` | 7443/alfred (primary) + 6443 via Caddy | (static) | **LIVE** — desk surface, Vite + Preact SPA, built to `web/dist` and deployed to **`/var/lib/alfred-web`** by `web/scripts/deploy.sh`; Caddy serves it as the SPA fallback at both `https://15.204.108.12:7443/alfred/` (**primary** — Dan's phone content filter allows `:7443`, not `:6443`) and unchanged at `:6443` |
+| `android/` | — | (no unit) | **LIVE** — native Kotlin app `com.dgordon.alfred` on **android-framework**, **v1.0.0 / versionCode 2**, debug-signed, published to `/var/lib/alfred-apk` and sideloaded from `…:7443/alfred/downloads/` (primary; `…:6443/downloads/` still live). Deploy rules: `~/.claude/android.md` ("Alfred") |
 
 - **The tool surface is nine verbs, merged from two files.** The four T3 verbs
   (`summarize_recent`, `continue_chat`, `kick_off_task`, `new_project_and_chat`)
@@ -108,14 +113,27 @@ docs/                                       CADDY.md, COSTS.md, RESTORE.md, migr
   `sip.voice.x.ai` → xAI Grok realtime → webhook → gateway.
 - **Talks to:** Postgres (direct SQL), brain-actions (loopback HTTP),
   and through brain-actions to T3 Code's orchestration API.
-- **Public origin:** `https://15.204.108.12:6443` via **Caddy** (system unit
+- **Public origin — PRIMARY `https://15.204.108.12:7443/alfred/`,** mirrored
+  unchanged at `https://15.204.108.12:6443/`, both via **Caddy** (system unit
   `caddy.service`, config `/etc/caddy/Caddyfile`, restart with `systemctl
-  restart caddy` — `reload` does not work, see "Caddy" below). `handle_path`
-  strips the prefix so each service sees `/v1/…` + `/healthz` at its root:
-  `/todo/*` → `todo-service` (127.0.0.1:4821), `/actions/*` → `brain-actions`
-  (127.0.0.1:8791), `/downloads/*` → `file_server` on `/var/lib/alfred-apk`
-  (the APKs + a generated install page), everything else → the static web app in
-  `/var/lib/alfred-web` (SPA fallback). All four are live.
+  restart caddy` — `reload` does not work, see "Caddy" below). Dan's phone
+  content filter resets connections to any host:port he has not individually
+  allowed; `:7443` is allowed and `:6443` is not, so the whole origin is
+  mirrored inside the T3 Code `:7443` site under `/alfred/*`, between the
+  `# --- BEGIN alfred-on-7443` / `# --- END alfred-on-7443 ---` markers in
+  `/etc/caddy/Caddyfile` (managed by `~/projects/alfred/caddy/install.sh`,
+  which also manages the top-level `# --- BEGIN alfred` `:6443` site). Both
+  sites route the same way — `handle_path` strips the prefix (`/alfred` on
+  `:7443`, none on `:6443`) so each service sees `/v1/…` + `/healthz` at its
+  root: `/todo/*` → `todo-service` (127.0.0.1:4821), `/actions/*` →
+  `brain-actions` (127.0.0.1:8791), `/downloads/*` → `file_server` on
+  `/var/lib/alfred-apk` (the APKs + a generated install page), everything else
+  → the static web app in `/var/lib/alfred-web` (SPA fallback). All routes are
+  live on both origins. `/var/lib/alfred-web/p/` (short-lived pairing pages
+  handed to a phone out of band) is a human-owned area inside that web root,
+  excluded from `web/scripts/deploy.sh`'s `rsync --delete`. Anyone editing the
+  `:7443` site (e.g. T3 redeploy tooling) must leave both markers intact and
+  keep the Alfred handlers above that site's catch-all `handle`.
 - **Pairing a device — one long-lived bearer token each, and three files to know:**
   - `bin/alfred-client.mjs issue --label <name> --caller <id>` mints the token and
     writes a row in the spine's **`api_clients`** table. The token is **shown once**
@@ -175,8 +193,11 @@ The agent UI/runtime every other surface dispatches into.
 
 This box has no domain name (Techloq filters new hostnames), so every public
 surface is a bare-IP HTTPS site with one pinned self-signed cert. Not an Alfred
-component, but Alfred's `:6443` origin is one of its sites, so a Caddyfile edit
-for Alfred can take down T3/DanCode/Abba Bank if done wrong.
+component, but Alfred's `:6443` origin is one of its sites, and Alfred is now
+also mirrored **inside** the T3 Code `:7443` site under `/alfred/*` (Dan's
+phone content filter allows `:7443`, not `:6443` — see "Public origin" under
+"Alfred hub" above), so a Caddyfile edit for Alfred, or for T3 Code's `:7443`
+site, can take down T3/DanCode/Abba Bank/Alfred if done wrong.
 
 - **Unit:** **system** unit `caddy.service` (not `--user`), config
   `/etc/caddy/Caddyfile` (root-owned, needs `sudo`; passwordless `sudo -n`
@@ -188,11 +209,16 @@ for Alfred can take down T3/DanCode/Abba Bank if done wrong.
 - **Cert:** `/etc/caddy/dancode-server.crt`/`.key`, self-signed, `CN=`/SAN
   `15.204.108.12`, shared by all sites — the Android app ships it once as its
   trust anchor.
-- **Sites:** DanCode `:8443`, Abba Bank `:9443`, T3 Code `:7443`, T3
+- **Sites:** DanCode `:8443`, Abba Bank `:9443`, T3 Code `:7443` — which now
+  also carries Alfred's `/alfred/*` mirror between the `# --- BEGIN
+  alfred-on-7443` / `# --- END alfred-on-7443 ---` markers, spliced above the
+  site's catch-all `handle` and never touching the rest of the T3 block — T3
   test-deploy pool `:7444`-`:7453` (generated by
   `~/projects/meta/t3code/scripts/test-deploy-caddy.ts`, appended at the file's
-  end — don't touch), Alfred `:6443` (inserted above that generated section;
-  see its route map under "Alfred hub" above).
+  end — don't touch), Alfred `:6443` (its own top-level site, marked `# ---
+  BEGIN alfred` / `# --- END alfred`, inserted above that generated section;
+  see its route map under "Alfred hub" above). Both Alfred regions are managed
+  idempotently by `~/projects/alfred/caddy/install.sh`.
 - **Docs:** `~/projects/alfred/docs/CADDY.md` (Alfred's block in detail).
 
 ### slackcc — `~/projects/slack`
@@ -243,8 +269,8 @@ AVD — the cross-agent lock convention is `mkdir /tmp/alfred-emu.lock`.
 | 4820 | 127.0.0.1 | second-brain HTTP API |
 | 4821 | 127.0.0.1 | Alfred `todo-service` (`services/todo`), public via Caddy `/todo/*` |
 | 5432 | 127.0.0.1 | Postgres (`second_brain`) |
-| 6443 | — | Caddy — Alfred public origin `https://15.204.108.12:6443`: `/todo/*`, `/actions/*`, `/downloads/*` (APKs) and the web SPA — **all live** |
-| 7443 | — | Caddy — T3 Code public origin |
+| 6443 | — | Caddy — Alfred public origin (mirror) `https://15.204.108.12:6443`: `/todo/*`, `/actions/*`, `/downloads/*` (APKs) and the web SPA — **all live** |
+| 7443 | — | Caddy — T3 Code public origin, **and Alfred's PRIMARY public origin** under `/alfred/*` (same three routes + web SPA; see "Public origin" under "Alfred hub") |
 | 8443 | — | Caddy — DanCode public origin |
 | 8641 | 127.0.0.1 | llama-guard (pps judge model) |
 | 8642 | 127.0.0.1 | pps |
