@@ -54,3 +54,20 @@ Conversations for every project on this machine live in one T3 Code database. If
 the user asks about a T3 conversation or thread — for any project, from any
 project's session — read `~/.claude/t3-conversations.md` first for where it is
 and how to query it.
+
+## The System (Alfred)
+
+`~/.claude/system-map.md` is the canonical map of **Alfred** — Dan's
+multi-surface assistant (phone while driving, Android app, web at the desk) —
+and of every repo, service, port, systemd unit and channel it is wired into on
+this machine: the Alfred hub, second-brain, T3 Code, slackcc, this config repo,
+android-framework.
+
+- **Read it first** for any task that touches more than one of those components,
+  or that adds or moves a service, port, systemd unit, repo, or Slack channel.
+- **Update it in the same PR/commit** when you make such a change (edit
+  `~/dotfiles/claude/system-map.md`, never the symlink). Keep volatile values —
+  tunnel URLs, tokens, ids — out of it; point at the config that holds them.
+
+The `[alfred]` line at session start is a live up/down summary of those units;
+the file is the map.

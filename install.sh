@@ -15,6 +15,7 @@
 #   ~/.claude/models.md            → Model strategy & Codex delegation reference
 #   ~/.claude/playwright.md        → Playwright visual web-testing reference
 #   ~/.claude/t3-conversations.md  → Where T3 Code conversations live + how to query them
+#   ~/.claude/system-map.md        → Map of Alfred + every service/port/unit/repo on this box
 #   ~/.claude/hooks/                → Hook scripts (e.g. second-brain SessionEnd ingest)
 #   ~/.claude/statusline-command.sh → Status bar renderer (model, tokens, context, cost)
 #
@@ -74,6 +75,7 @@ link "$REPO_DIR/model-selection.md"   "$CLAUDE_DIR/model-selection.md"
 link "$REPO_DIR/model-usage.md"       "$CLAUDE_DIR/model-usage.md"
 link "$REPO_DIR/playwright.md"        "$CLAUDE_DIR/playwright.md"
 link "$REPO_DIR/t3-conversations.md"  "$CLAUDE_DIR/t3-conversations.md"
+link "$REPO_DIR/system-map.md"        "$CLAUDE_DIR/system-map.md"
 link "$REPO_DIR/statusline-command.sh" "$CLAUDE_DIR/statusline-command.sh"
 link "$REPO_DIR/CODING_AGENTS.md"    "$CLAUDE_DIR/CODING_AGENTS.md"
 link "$REPO_DIR/hooks"               "$CLAUDE_DIR/hooks"
