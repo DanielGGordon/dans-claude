@@ -15,7 +15,7 @@ OUT="${SYSTEM_MAP_STATE:-$HOME/.claude/system-map.state}"
 
 # Long-running units Alfred depends on. Add new ones here (see
 # "How to add a component" in system-map.md).
-UNITS="t3code second-brain brain-actions voice-gateway voice-tunnel slackcc second-brain-callcards.timer todo-service"
+UNITS="t3code second-brain brain-actions voice-gateway voice-tunnel slackcc second-brain-callcards.timer alive-ping.timer todo-service"
 # Not installed yet — reported only once their unit file exists.
 UNITS_PLANNED=""
 

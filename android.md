@@ -11,7 +11,9 @@ System-wide canonical reference for shipping Android apps from any project on th
 
 This is the current default for native-Kotlin Android apps on this machine. The structure below originated in **DanCode** (`~/projects/meta/DanCode/android/`), which remains the historical pattern source — but **DanCode is dormant; never target it for new work.** New projects should adopt the **android-framework** (`~/projects/android-framework`, see "Automated testing" section below); its `testapp/android/` is the current reference implementation of this layout (same `bootstrap-toolchain.sh` + gradlew-header conventions, plus the test layers). When porting to a new project, mirror this structure unless there's a deliberate reason to diverge — then document the divergence.
 
-**Divergent branch:** T3 Code is an Expo/React Native app and deploys differently — see the "T3 Code (Expo/React Native)" section below.
+**Divergent branches:**
+- **T3 Code** is an Expo/React Native app and deploys differently — see the "T3 Code (Expo/React Native)" section below.
+- **Alfred** follows this layout but owns no Caddy config, publishes one file per version behind a download page, and ships a **trust anchor** instead of an SPKI pin — see the "Alfred" section below. It is the reference for a framework-pattern app that has actually shipped to a phone.
 
 ### Toolchain (one-time, project-local)
 
@@ -104,6 +106,43 @@ bash <project>/android/reverse-proxy/scripts/publish-apk.sh
 
 The private key is gitignored; the cert is committed for reproducible tests.
 
+### TLS trust anchor (the other option — and the one that also fixes WebViews)
+
+Pinning by SPKI is not the only way to talk to a bare-IP self-signed origin, and it is
+the wrong way if the app renders any of that origin in a **WebView or Custom Tab**.
+Ship the server cert as an *additional trust anchor* instead:
+
+```xml
+<!-- res/xml/network_security_config.xml -->
+<base-config cleartextTrafficPermitted="false">
+    <trust-anchors>
+        <certificates src="system" />
+        <certificates src="@raw/<project>_server" />
+    </trust-anchors>
+</base-config>
+```
+
+- Covers **OkHttp and the WebView in one declaration**, with **no `onReceivedSslError`
+  override anywhere** — an override is a security hole and reviewers treat it as one.
+- This is the general answer to the **abba-bank blocker** recorded under "Adopting
+  projects": a Chrome Custom Tab / TWA uses *Chrome's* trust store and cannot be taught
+  about the cert, so it fails where a plain `WebView` inside the app succeeds. If a
+  project needs a self-signed origin on screen, render it in a WebView.
+- No pin to rotate: **do not add `sync-pin.sh`-style SPKI pinning on top**; the two
+  mechanisms both have to be right, and the pin is the one that silently expires.
+- Re-minted cert ⇒ re-fetch the leaf and rebuild:
+
+  ```bash
+  openssl s_client -connect <server-ip>:<port> </dev/null 2>/dev/null \
+    | openssl x509 > <project>/android/app/src/main/res/raw/<project>_server.crt
+  <project>/android/gradlew :app:assembleDebug
+  ```
+
+- Keep cleartext permitted for `10.0.2.2` / `127.0.0.1` / `localhost` only, so
+  instrumented tests can point at a loopback `MockWebServer`.
+
+**Alfred uses this branch; DanCode uses the SPKI pin above.**
+
 ### Manual smoke tests
 
 Manual checklists are now the **fallback, not the default** — the android-framework's emulator layers (see "Automated testing" below) cover UI flows, screenshots, and instrumented behavior automatically. New user-visible slices ship a Maestro flow or instrumented test *first*; a manual-checklist entry in the project's `android/README.md` is reserved for what the emulator genuinely can't cover (real TLS-pin behavior against production Caddy, camera, OEM installer prompts), and each such entry should name why it can't be automated. A *thin* release-candidate phone checklist remains forever.
@@ -164,10 +203,21 @@ scripts/emu.sh stop test35       # graceful (adb emu kill → snapshot save), ve
 
 Visual verification: `scripts/screenshot.sh out.png [avd]` — the agent Reads the PNG and evaluates it (Android analogue of `~/.claude/playwright.md`).
 
+### Emulator gotchas (learned the hard way; apply to every project)
+
+- **One runner per AVD.** A Maestro flow and an instrumented test driving the same AVD fight over the UiAutomation connection, and the symptom is misleading: a permission dialog "never appeared" (it did — nothing could see it). When more than one agent shares this box, take a lock first; Alfred's convention is `mkdir /tmp/alfred-emu.lock` and `rmdir` it when done.
+- **Never toggle airplane mode on an emulator.** `cmd connectivity airplane-mode enable` through the instrumentation shell takes the emulator's Bluetooth stack down with it — `com.android.bluetooth` dies, its crash dialog steals the foreground, and the *next* instrumented class fails with "no activities in stage RESUMED" for reasons unrelated to the code. Simulate "no signal" at the socket instead: a `MockWebServer` returning `SocketPolicy.DISCONNECT_AT_START` is exactly what an offline app sees, and it is instant and reversible. (Alfred's `OutboxDrainTest`, WP15 → WP16.)
+- **`adb kill-server` after a killed `emu.sh start`.** Killing that script mid-flight (a `timeout`, a Ctrl-C) leaves the `flock` on `/tmp/android-framework/lifecycle.lock` held by the adb fork-server, which inherited the fd; every later `emu.sh` call then blocks forever on `flock -x 9`. The daemon restarts itself on the next adb call, so killing it costs nothing.
+- **A dead emulator needs `start`, not `restart`.** A heavy WebView page has killed the emulator process outright (`Failed to find EmulatedEglImage` in `<avd>.log`); `emu.sh start <avd>` clears stale state itself, while `restart` and `stop` both refuse to act on a state file whose PID is dead.
+- **Runtime permissions: grant, never revoke.** `grantRuntimePermission` is safe; a revoke kills the app process, which is also the instrumentation process. Test a denied path from the fresh-install state instead.
+- **A grant survives `install -r`.** Gradle's connected-test install is an upgrade, so a suite that needs a fresh-install *denial* (Alfred's `CallIntentTest.t1`, the only place the real `CALL_PHONE` dialog can be observed) must `adb uninstall` the package immediately before layer 3. Anything that left the app on the device — a manual sideload, a Maestro run, the test runner's own post-Espresso reinstall — otherwise hands it a pre-granted permission.
+- **Stop the AVD and `adb kill-server` when a test session ends**, so the next agent starts from a known state.
+
 ### Adopting projects
 
 - **testapp** (`~/projects/android-framework/testapp/`) — the reference guinea-pig app; all four layers green via `testapp/run-all-tests.sh`.
 - **abba-bank** (`~/projects/abba-bank/android/`) — first real adopter: a framework-based **TWA** (Trusted Web Activity wrapping the existing Next.js PWA, per `plans/abba-android.md`), built on the framework from day one on branch `android-framework-adoption` (commit `e3202a4`). Uses the framework toolchain/gradlew conventions and targets the framework emulator + `flow.sh` for its smoke flow. `android/` scaffold committed (`app/`, `gradle/`, `gradlew`, `scripts/bootstrap-toolchain.sh`, `maestro/`), debug APK builds and installs on the emulator (`app-debug.apk`, appId `com.abbabank.twa`), and `android/maestro/smoke.yaml` is green but **entry-state-only** (asserts the "Abba Bank" / "Email address" / "Send magic link" entry screen + screenshot) — the full magic-link sign-in → balance flow is **not** automated: Chrome rejects the self-signed NextAuth origin cert, and chromeless TWA mode needs HTTPS + Digital Asset Links to work around it. Deferred pending that; see `abba-bank/android/README.md`.
+- **alfred** (`~/projects/alfred/android`) — **the reference adopter that has actually shipped to a phone.** Native Kotlin, View Binding, no Compose, no Room, appId `com.dgordon.alfred`, scaffolded from `android-framework/testapp/android/`. All four layers green via **`bash android/run-all-tests.sh`** (`--jvm-only` stops after Roborazzi, for work without an emulator); that script is the model to copy — it starts `test35` if needed, reinstalls the APK after Espresso, and `adb uninstall`s before it. Published **v1.0.0 (versionCode 2)** on 2026-09-16. Two deliberate divergences from the reference layout — **no `android/reverse-proxy/`** (it does not own its Caddy config) and **`minSdk 33`** — plus the trust-anchor TLS branch above. Full detail in the "Alfred" section below and in `~/projects/alfred/android/README.md`.
 - **DanCode** — dormant; historical pattern source only. Do not adopt the framework into it.
 - Expo/RN projects (T3 Code): emulator + Maestro layers apply as-is; Roborazzi does not (use Maestro screenshots for visual regression). Note x86_64 emulator images need an x86_64/universal build variant, not arm64-only.
 
@@ -220,6 +270,113 @@ bash apps/mobile/scripts/publish-android-apk.sh   # copies APK → /var/lib/t3co
 ### Server-version skew
 
 The mobile app and `t3code.service` must run compatible `packages/contracts`. Deploy them from the same branch: build the APK and fast-forward `~/projects/meta/t3code-v2` to the same commit, `pnpm install`, then restart the service (see gotcha above).
+
+## Alfred (`~/projects/alfred/android`) — divergent branch
+
+Dan's multi-surface assistant; the Android surface of the system mapped in
+`~/.claude/system-map.md`. Native Kotlin on the **android-framework pattern**, so
+everything in "Testing / prototype deployment" and "Automated testing" above applies
+as written **except** the points below. Project doc: `~/projects/alfred/android/README.md`
+— the source of truth for this section; update it there first.
+
+**Live since:** v0.1.0 (versionCode 1) 2026-09-16, **v1.0.0 (versionCode 2)** the same day.
+
+### Divergences from the reference layout
+
+1. **No `android/reverse-proxy/`.** Alfred does not own a Caddy config. Its `:6443`
+   site, plus a `/alfred/*` mirror spliced into T3 Code's `:7443` site (Dan's
+   phone content filter allows `:7443`, not `:6443` — that mirror is now the
+   app's **primary** origin), live in the machine's single
+   `/etc/caddy/Caddyfile` (documented in `~/projects/alfred/docs/CADDY.md`, and
+   in `system-map.md` under "Caddy"), which is shared with T3 Code, DanCode and
+   Abba Bank — a careless edit there takes all of them down. The publish script
+   therefore lives at **`android/scripts/publish-apk.sh`**, not
+   `android/reverse-proxy/scripts/publish-apk.sh`, and there is no `install.sh`,
+   no `generate-cert.sh` and no `sync-pin.sh` in this project.
+2. **`minSdk 33`** (the framework default is 26). Two reasons, both hard: Dan's phone is
+   a Galaxy S23 on Android 13, and 33 is the floor for `POST_NOTIFICATIONS`, which the
+   app's reply notifications need. `compileSdk`/`targetSdk` stay at 35.
+3. **Trust anchor, not SPKI pin** — see "TLS trust anchor" above.
+
+### Publish (no sudo, no Caddy restart)
+
+```bash
+bash ~/projects/alfred/android/scripts/publish-apk.sh    # builds assembleDebug, then publishes
+```
+
+- Reads `versionName`/`versionCode` straight out of `android/app/build.gradle.kts`;
+  **bump them by hand first** (see "Version bumping" above — nothing derives them).
+- Writes into **`/var/lib/alfred-apk`** (dgordon-owned, 755; override with `DST_DIR=`).
+  Publishing is a plain file copy: **no `sudo`, no `systemctl restart caddy`**, because
+  the route is a static `handle_path /downloads/*` `file_server` that is already there.
+- Names — **Alfred keeps one file per version**, unlike DanCode's
+  `<app>-android-debug{,.previous}.apk`:
+
+  | File | What |
+  |---|---|
+  | `alfred-<versionName>.apk` | this build, kept forever |
+  | `alfred-latest.apk` | what the phone downloads |
+  | `alfred-previous.apk` | the previous `alfred-latest.apk` — rollback by re-sideloading it |
+  | `index.html` | generated install page: version, versionCode, size, SHA-256, build time, the sideload steps, and the upgrade-in-place note |
+
+- **Server base URL (pairing):** `https://15.204.108.12:7443/alfred` — also the
+  default for `bin/alfred-pair-link.mjs --base`, for the same phone-content-filter
+  reason as the sideload URLs below.
+- **Sideload URLs (primary):** page
+  `https://15.204.108.12:7443/alfred/downloads/index.html`, APK
+  `https://15.204.108.12:7443/alfred/downloads/alfred-latest.apk` — use these;
+  Dan's phone content filter allows `:7443`, not `:6443`. The unchanged mirror
+  at `https://15.204.108.12:6443/downloads/{index.html,alfred-latest.apk}` is
+  still live. Both sites set `index off`, so bare `/downloads/` lists files
+  rather than serving the page — link the explicit `index.html`.
+- Verify after publishing:
+
+  ```bash
+  curl -skI https://15.204.108.12:7443/alfred/downloads/alfred-latest.apk   # 200 (primary)
+  sha256sum /var/lib/alfred-apk/alfred-latest.apk                           # matches the page
+  ```
+
+### Signing and upgrades
+
+Debug-signed with `~/.android/debug.keystore`, built by `assembleDebug`; there is no
+release build type at all (`androidComponents` disables the release variant outright).
+Because the key never changes, **a new version installs over the old one** — no
+uninstall, and the pairing, the settings and anything still queued in the outbox all
+survive. That is a promise the download page makes to Dan, so it has a cost:
+**do not delete or regenerate `~/.android/debug.keystore`.** If it ever is regenerated,
+the signature changes, the upgrade is refused, and the only way back is an uninstall
+that throws away the pairing and the queue.
+
+### Testing
+
+`bash ~/projects/alfred/android/run-all-tests.sh` runs all four layers cheapest-first
+and prints **"All four layers green"**; `--jvm-only` stops after Roborazzi for work
+without an emulator. It starts `test35` if the framework has no state for it, `adb
+uninstall`s before the Espresso layer and reinstalls the APK after it. Read the
+"Emulator gotchas" list above before driving the emulator — several of its entries were
+learned in this project.
+
+### What stays manual (and why)
+
+The emulator layers cover the UI, so Alfred's checklist is only what a headless AVD
+genuinely cannot be. Each entry names its reason; keep that rule when adding one.
+
+- **A SIM** — placing the actual call.
+- **A real speech recogniser** — `test35` reports `isRecognitionAvailable() == true`
+  and then produces no transcript, so every automated test exercises the *fallback*.
+  Real speech, with signal and without, is phone-only.
+- **Driving mode** — a car, a dock, Bluetooth mic routing, a hotspot flapping between
+  LTE and nothing. The reason the voice screen exists.
+- **A real dead zone** — one bar is not a clean switch the way airplane mode is.
+- **Doze on Samsung** — `TestDriver` proves the periodic worker is *right*, never *when*
+  the OEM lets it run.
+- **Notification tap-through from a lock screen** — the shade, the lock screen and
+  Samsung's own grouping.
+- **The OEM installer** — the browser cert warning, "install unknown apps", and
+  **installing over the previous build**.
+- **Which apps linkify `alfred://`** — a phone question, not an emulator one.
+- **TLS from Dan's carrier** — the emulator proves the trust anchor; the phone proves
+  Techloq/DNS.
 
 ## Production deployment
 
