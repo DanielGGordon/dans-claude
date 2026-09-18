@@ -93,7 +93,16 @@ docs/                                       CADDY.md, COSTS.md, RESTORE.md, migr
 | `web/` | 7443/alfred (primary) + 6443 via Caddy | (static) | **LIVE** — desk surface, Vite + Preact SPA, built to `web/dist` and deployed to **`/var/lib/alfred-web`** by `web/scripts/deploy.sh`; Caddy serves it as the SPA fallback at both `https://15.204.108.12:7443/alfred/` (**primary** — Dan's phone content filter allows `:7443`, not `:6443`) and unchanged at `:6443` |
 | `android/` | — | (no unit) | **LIVE** — native Kotlin app `com.dgordon.alfred` on **android-framework**, **v1.0.0 / versionCode 2**, debug-signed, published to `/var/lib/alfred-apk` and sideloaded from `…:7443/alfred/downloads/` (primary; `…:6443/downloads/` still live). Deploy rules: `~/.claude/android.md` ("Alfred") |
 
-- **The tool surface is nine verbs, merged from two files.** The four T3 verbs
+- **Outbound calls (PR pending, alfred #19).** `brain-actions/callbacks.mjs` owns
+  scheduled calls ("call me tomorrow at 6"): a `scheduled_calls` table in
+  `second_brain` (migration 006), a 10 s sweep, and **Twilio REST** (creds from
+  `~/.profile`) ringing Dan's number then bridging `<Dial><Sip>` into
+  `sip.voice.x.ai`, so xAI sees an ordinary inbound call; the gateway
+  (`gateway/scheduled.mjs`) recognises the leg by From = Alfred's own number.
+  Three owner-only tools bring the tool surface to **twelve**. Kill switch
+  `ALFRED_CALLBACKS=off`. No new port or unit.
+
+- **The tool surface is nine verbs (twelve with the call tools above), merged from two files.** The four T3 verbs
   (`summarize_recent`, `continue_chat`, `kick_off_task`, `new_project_and_chat`)
   are defined in `services/brain-actions/tools.json` and executed there; the five
   to-do tools (`todo_add`, `todo_list`, `todo_complete`, `todo_update`,
