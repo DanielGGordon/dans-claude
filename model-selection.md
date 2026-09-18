@@ -24,7 +24,7 @@ Claude web research (sources in its note below).
 | Model        | Cost Efficiency | Intelligence | Taste | Reliability |
 | ------------ | --------------- | ------------ | ----- | ----------- |
 | composer-2.5 | 10              | 6            | 4*    | 5*          |
-| gpt-6-astra  | 6               | 9            | 7     | 6           |
+| gpt-6-astra  | 6               | 9            | 8     | 6           |
 | grok-4.6*    | 10*             | 7*           | 4*    | 3*          |
 | grok-4.5     | 10              | 7            | 4     | 3           |
 | glm-5.2      | 9               | 7            | 7     | 6*          |
@@ -41,7 +41,11 @@ Claude web research (sources in its note below).
 The pre-2026-09 rows quote AA Intelligence Index **v4.1.1** (fable-5 59.9,
 gpt-5.6-sol 58.9, grok-4.5 53.8); the gpt-6-astra note quotes **v4.3**
 (2026-09-07), where the whole scale shifted down: Astra 53, Fable 5.1 53,
-Opus 5 51, Sol 47. A v4.3 number is not comparable to a v4.1.1 number.
+Opus 5 51, Sol 47. A v4.3 number is not comparable to a v4.1.1 number — AA's
+methodology moved twice in the four days after Astra launched (v4.1.1 61 →
+v4.2 55, Fable leading → v4.3 53, tied), so pin every claim to a version and
+treat any *standing* ("#1", "tied") as provisional even when the score is
+sourced.
 
 - **grok-4.6** is the grok row that matters now: it is the **default grok**
   (`--task-type recency` → `cursor-grok-4.6-high`; routed 2026-08-19 as
@@ -72,11 +76,14 @@ Notes (evidence-backed, 2026-07-21; the gpt-6-astra note is 2026-09-18):
     **$3.26 per AA Index task vs Fable 5.1's $7.63**, and ~15% above Sol per
     completed CAI task despite 2.5× list. Still 2.5–5× Terra/Sol for work that
     doesn't need it, and it burns subscription quota fast.
-  - **Taste 7, lopsided** — #1 on Design Arena **3D Design** (74% WR), SVG,
-    Game Dev and UI Component, and #1 on LMArena Code/WebDev Arena
-    (1800 vs Fable 5.1's 1758) — but **LMArena Text Arena overall #24** and a
-    measured *regression* vs Sol on presentation Elo and GDPval-AA. Great at
-    generating interfaces and scenes; not the model for prose, copy, or a deck.
+  - **Taste 8, lopsided** — **#1 overall on Design Arena** (68% WR) and #1 in
+    each of 3D Design (74%), SVG, Game Dev and UI Component (Data Visualization
+    is its one weak board, #6), plus #1 on LMArena Code/WebDev Arena (1800 vs
+    Fable 5.1's 1758) — but **LMArena Text Arena overall #24** and a measured
+    *regression* vs Sol on presentation Elo and GDPval-AA. Great at generating
+    interfaces and scenes; not the model for prose, copy, or a deck. (Scored 8
+    rather than 9 only because those weak boards are real; on generated design
+    alone it is at Fable's level.)
   - **Reliability 6** — better than Sol on every honesty axis (AA-Omniscience
     hallucination **51% vs Sol's 92%**; OpenAI-internal hallucination 4.2% vs
     12.2%; 0% vs 48.2% out-of-scope actions on the ExploitGym honeypot; no METR
@@ -86,7 +93,11 @@ Notes (evidence-backed, 2026-07-21; the gpt-6-astra note is 2026-09-18):
     monitors would catch it <11% of the time ("we would likely be unable to
     catch it reliably"). Operationally it also **over-tests small changes, asks
     more clarifying questions, and under-delegates subagents** unless told, and
-    OpenAI's misalignment monitoring can pause a Codex task outright.
+    OpenAI's misalignment monitoring can pause a Codex task outright — Astra is
+    the **first OpenAI model classified Critical for cyber capability** under
+    the Preparedness Framework (ExploitBench 100%), so exploit-adjacent work
+    hits extra gating and API hard-stops. Budget for interruptions on
+    security-flavored tasks rather than being surprised by them.
   - Sources: OpenAI launch post + system card (2026-09-03/09-09), Artificial
     Analysis Index v4.3 + Astra writeup (2026-09-07/09-09), ARC Prize
     (2026-09-03), Design Arena and LMArena boards (fetched 2026-09-18).

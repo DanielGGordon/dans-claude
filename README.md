@@ -166,6 +166,7 @@ Why: on 2026-08-19 a task asked for "Grok 4.6" while routes.tsv only knew `curso
 What it does (zero tokens, no model calls): reads the live catalogs — Cursor via `cursor-agent --list-models`, Codex via `codex debug models` (a local-cache read of `~/.codex/models_cache.json`, which Codex refreshes itself; both commands are allowed by route-guard) — parses each id into family + version (strip a leading `cursor-`, then `<family>-<N.N>[-variant]`: `cursor-grok-4.6-high-fast` → grok 4.6, `gpt-5.6-sol` → gpt 5.6, `composer-2.5` → composer 2.5) and compares against `bin/routes.tsv`:
 
 - **newer** — a family routed in routes.tsv has a higher version in its catalog than any routed row (`Cursor catalog has cursor-grok-4.7-* (7 ids) but routes.tsv stops at cursor-grok-4.6`). New *variants* of an already-routed version (e.g. `-xhigh-fast`) are deliberately not drift.
+- **Known limitation (family-max semantics)** — comparison is per family against the *highest* routed version, so once a `gpt-6+` id is routed, a later `gpt-5.x` point release no longer warns. Routed-major-version regressions are the blind spot; the mock fixture in `tests/routecheck.sh` pins this behavior deliberately.
 - **vanished** — a routes.tsv id is no longer listed by its backend (`routes.tsv id cursor-grok-4.5-low is gone from the Cursor catalog`) — that route will hard-error or silently remap, fix it now.
 - **unavailable / stale** — a CLI is missing, times out, or isn't logged in: that backend is skipped (or served from a stale cache) and said so in one line. Never fatal, never blocks.
 
