@@ -13,6 +13,8 @@
 #   73  transport error persisting after one automatic retry — retry later
 #   75  auth/quota error — STOP and surface to the user; never substitute a model
 #   124 timeout
+# Env: MODEL_RUN_TIMEOUT=<secs> (default 600) · MODEL_RUN_EFFORT=<low|medium|
+# high|xhigh|max> overrides the codex reasoning effort pinned in routes.tsv
 # Claude models (sonnet/opus/haiku/fable) are NOT served here — use the Agent
 # tool's `model` param (see ~/.claude/model-usage.md).
 set -u
@@ -20,6 +22,8 @@ set -u
 TABLE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/routes.tsv"
 [ -f "$TABLE" ] || { echo "model-run: routing table missing: $TABLE" >&2; exit 64; }
 lookup() { awk -F'\t' -v t="$1" -v k="$2" '$1==t && $2==k {print $3; exit}' "$TABLE"; }
+# 4th field of a `model` row: optional codex reasoning effort pinned for that id.
+lookup_effort() { awk -F'\t' -v k="$1" '$1=="model" && $2==k {print $4; exit}' "$TABLE"; }
 list()   { awk -F'\t' -v t="$1" '$1==t {printf "%s ", $2}' "$TABLE"; }
 
 usage() {
@@ -59,10 +63,19 @@ if [ -z "$BACKEND" ]; then
   fi
   echo "model-run: unknown model id '$MODEL'. Known ids: $(list model)(see bin/routes.tsv, or cursor-agent --list-models for the live catalog)" >&2; exit 64
 fi
+EFFORT="${MODEL_RUN_EFFORT:-$(lookup_effort "$MODEL")}"
+if [ -n "$EFFORT" ] && [ "$BACKEND" != codex ]; then
+  echo "model-run: reasoning effort ('$EFFORT') is a codex-only knob — ignored for backend '$BACKEND'" >&2
+  EFFORT=""
+fi
 
 run_codex() {
   local args=()
   [ "$MODEL" != "gpt-5.5" ] && args=(-m "$MODEL")
+  # Reasoning effort: routes.tsv 4th column, overridable per call with
+  # MODEL_RUN_EFFORT. Codex otherwise uses each model's catalog default, which
+  # for the frontier tiers (gpt-6-astra, gpt-5.6-sol) is "low".
+  [ -n "$EFFORT" ] && args+=(-c "model_reasoning_effort=\"$EFFORT\"")
   timeout "$TIMEOUT" codex exec --dangerously-bypass-approvals-and-sandbox \
     -C "$WORKDIR" "${args[@]}" "$(cat "$PROMPTFILE")" 2>&1
 }

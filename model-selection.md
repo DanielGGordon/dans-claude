@@ -8,7 +8,9 @@ Read this before ANY delegation — every Agent-tool subagent and every Workflow
 
 Scores are **1–10, higher is better**. Last validated **2026-07-21** against
 Artificial Analysis, Coding Agent Index, LMArena/Design Arena, and vendor pricing
-(two independent research passes: Claude web research + grok-4.5 recent-intel).
+(two independent research passes: Claude web research + grok-4.5 recent-intel);
+**gpt-6-astra added 2026-09-18** from a grok-4.6 citation-backed pass plus
+Claude web research (sources in its note below).
 
 - **Cost efficiency** = cost **per completed task**, not per token. (Per-token
   intuition inverts rankings: sonnet-5 has cheaper tokens than opus-4.8 but burns
@@ -22,6 +24,7 @@ Artificial Analysis, Coding Agent Index, LMArena/Design Arena, and vendor pricin
 | Model        | Cost Efficiency | Intelligence | Taste | Reliability |
 | ------------ | --------------- | ------------ | ----- | ----------- |
 | composer-2.5 | 10              | 6            | 4*    | 5*          |
+| gpt-6-astra  | 6               | 9            | 7     | 6           |
 | grok-4.6*    | 10*             | 7*           | 4*    | 3*          |
 | grok-4.5     | 10              | 7            | 4     | 3           |
 | glm-5.2      | 9               | 7            | 7     | 6*          |
@@ -33,6 +36,12 @@ Artificial Analysis, Coding Agent Index, LMArena/Design Arena, and vendor pricin
 | fable-5      | 2               | 9            | 9     | 9           |
 
 `*` = thin public evidence; treat as provisional.
+
+**Benchmark numbers below come from different index versions — never mix them.**
+The pre-2026-09 rows quote AA Intelligence Index **v4.1.1** (fable-5 59.9,
+gpt-5.6-sol 58.9, grok-4.5 53.8); the gpt-6-astra note quotes **v4.3**
+(2026-09-07), where the whole scale shifted down: Astra 53, Fable 5.1 53,
+Opus 5 51, Sol 47. A v4.3 number is not comparable to a v4.1.1 number.
 
 - **grok-4.6** is the grok row that matters now: it is the **default grok**
   (`--task-type recency` → `cursor-grok-4.6-high`; routed 2026-08-19 as
@@ -47,7 +56,44 @@ Artificial Analysis, Coding Agent Index, LMArena/Design Arena, and vendor pricin
   when a newer grok/composer/glm/gpt version shows up in a catalog so the next
   bump is surfaced at session start, not mid-task.
 
-Notes (evidence-backed, 2026-07-21):
+Notes (evidence-backed, 2026-07-21; the gpt-6-astra note is 2026-09-18):
+
+- **gpt-6-astra** (OpenAI GPT-6 "Astra", GA 2026-09-03; the only GPT-6 tier —
+  there is no mini/nano/Terra/Sol sibling) — $10/$50 per Mtok, cached input $1,
+  **doubling to $20/$75 for the whole request past 272k input**; 1.05M context,
+  128k max output, training cutoff 2026-04-30. Routed here as `gpt-6-astra`
+  via Codex.
+  - **Intelligence 9** — AA Intelligence Index **v4.3 = 53, tied with Fable
+    5.1** (Opus 5 51, Sol 47), and it gets there on ~**27k output tokens/task
+    vs Fable's 78k**. Independent Terminal-Bench 4.0 **59.1%** (Fable 5.1 52.0,
+    Opus 5 49.0, Sol 39.9). Coding Agent Index in the Codex harness **62**,
+    also tied with Fable 5.1.
+  - **Cost Efficiency 6** — list price is a bad proxy: the token cut puts it at
+    **$3.26 per AA Index task vs Fable 5.1's $7.63**, and ~15% above Sol per
+    completed CAI task despite 2.5× list. Still 2.5–5× Terra/Sol for work that
+    doesn't need it, and it burns subscription quota fast.
+  - **Taste 7, lopsided** — #1 on Design Arena **3D Design** (74% WR), SVG,
+    Game Dev and UI Component, and #1 on LMArena Code/WebDev Arena
+    (1800 vs Fable 5.1's 1758) — but **LMArena Text Arena overall #24** and a
+    measured *regression* vs Sol on presentation Elo and GDPval-AA. Great at
+    generating interfaces and scenes; not the model for prose, copy, or a deck.
+  - **Reliability 6** — better than Sol on every honesty axis (AA-Omniscience
+    hallucination **51% vs Sol's 92%**; OpenAI-internal hallucination 4.2% vs
+    12.2%; 0% vs 48.2% out-of-scope actions on the ExploitGym honeypot; no METR
+    eval-gaming finding — **METR has not published on Astra at all**). Still
+    under the unsupervised bar: 51% is half of its unsourced answers wrong, and
+    OpenAI's own system card says that if it *were* told to sandbag, CoT
+    monitors would catch it <11% of the time ("we would likely be unable to
+    catch it reliably"). Operationally it also **over-tests small changes, asks
+    more clarifying questions, and under-delegates subagents** unless told, and
+    OpenAI's misalignment monitoring can pause a Codex task outright.
+  - Sources: OpenAI launch post + system card (2026-09-03/09-09), Artificial
+    Analysis Index v4.3 + Astra writeup (2026-09-07/09-09), ARC Prize
+    (2026-09-03), Design Arena and LMArena boards (fetched 2026-09-18).
+  - **UNVERIFIED — do not quote:** any SWE-bench Verified/Pro score for Astra
+    (OpenAI published none), a METR time horizon, and the headline ARC-AGI-3
+    "99.9%" (that is OpenAI's provider-adapter harness; like-for-like Standard
+    harness is **62.7%**).
 
 - **grok-4.5** — $2/$6 per Mtok (cached input $0.30; 2× rates past 200k prompt),
   AA Intelligence 53.8 (#4). Reliability 3: **54% hallucination on
@@ -85,8 +131,10 @@ work. For anything that ships:
 **Intelligence > Taste > Cost Efficiency**
 
 And the new axis's rule: **only models with Reliability ≥ 7 run unsupervised.**
-Anything lower (grok-4.6/4.5, composer-2.5, gpt-5.6-sol) needs its output judged
-by you or a high-reliability model before it lands.
+Anything lower (grok-4.6/4.5, composer-2.5, gpt-5.6-sol, **gpt-6-astra**) needs
+its output judged by you or a high-reliability model before it lands. Astra sits
+just under the bar despite its intelligence — judge the diff, not its summary of
+the diff.
 
 ## Selection by Task Type
 
@@ -99,19 +147,53 @@ multi-file agentic edits; avoid terminal-heavy tasks) and **grok-4.6**
 scores inherited from grok-4.5, see the rankings note).
 **glm-5.2** is a promising budget alternative via the Cursor catalog.
 
+### Computer Use, 3D/CAD, and Long Terminal Agents — gpt-6-astra
+
+**gpt-6-astra is the first pick for exactly four shapes of work**, where its
+lead over everything else in this stack is measured, not marketing:
+
+1. **Computer use / GUI & browser agents** — OSWorld 2.0 72.6% at ~47% less
+   wall-clock per task than Sol (Opus 5 70.2%); ScreenSpot-Pro 92.7% vs Sol
+   76.9% / Fable 5.1 87.3%; #1 on AA's AutomationBench over grok-4.6.
+2. **3D, CAD, and spatial/scene generation** — BenchCAD 95.9% (Sol 83.3%,
+   Fable 5.1 84.3%) and **#1 on Design Arena 3D Design**, Game Dev and SVG.
+   Blender/Unreal scene generation from a prompt is its headline demo. Nothing
+   else routable here is close.
+3. **Long-horizon terminal / agentic coding** — Terminal-Bench 4.0 59.1% vs
+   Fable 5.1 52.0 / Opus 5 49.0 / Sol 39.9, at ~1/3 of Sol's tokens.
+4. **Hard analysis and science** — FrontierMath Tier 4 97.6%, GPQA Diamond
+   96.0%, AA-Briefcase ~+90 Elo over Sol.
+
+Start it at **low or medium effort** for work Sol-high already handled
+(OpenAI's own guidance); the route's default pin is `high` (see model-usage.md).
+It is **not** a general "best model" upgrade: it ties Fable 5.1 on overall
+intelligence, loses to Sol on knowledge-with-tools (HLE 57.2 vs 65.0) and on
+DeepSWE, and regresses on presentation. Do not spend Astra tokens on
+Terra-shaped bulk work.
+
 ### User-Facing / High-Taste Work
 
 Use Taste ≥ 7: **fable-5**, **opus-4.8** (also **sonnet-5** for lighter work).
 For UI, copy, API design, product design — anything where polish matters.
+**gpt-6-astra** is the exception worth knowing: it is #1 on LMArena's Code/WebDev
+Arena and on Design Arena's UI Component, SVG, Game Dev and 3D boards, so it is a
+legitimate pick for *generating* an interface, a scene, or a graphic. Keep Claude
+for prose, copy, decks, and product judgment — Astra is #24 on Text Arena overall
+and measurably worse than Sol on presentation.
 
 ### Reviews & Planning
 
-**fable-5** or **opus-4.8**. For higher confidence add **gpt-5.6-sol** or
-**gpt-5.5** as a second opinion (ask for severity, file:line, concrete failing
-scenario, SHIP / FIX-FIRST verdict). **Never grok (4.6 or 4.5) or composer-2.5 as review
-models** — reviews need low hallucination and strong reasoning, exactly where
-they trade down. Treat sol's verdicts with its METR caveat in mind: judge the
-findings, not its confidence.
+**fable-5** or **opus-4.8**. For higher confidence add a non-Claude second
+opinion: **gpt-6-astra** (`--task-type second-review`) is now the default there,
+having replaced gpt-5.6-sol on 2026-09-18 — same reviewer role, half the
+hallucination rate (AA-Omniscience 51% vs Sol's 92%), higher intelligence, and
+no METR eval-gaming finding against it. `gpt-5.6-sol` and `gpt-5.5` stay
+routable by id if you want a third voice or a cheaper pass. Ask any of them for
+severity, file:line, a concrete failing scenario, and a SHIP / FIX-FIRST
+verdict. **Never grok (4.6 or 4.5) or composer-2.5 as review models** — reviews
+need low hallucination and strong reasoning, exactly where they trade down.
+Judge the findings, not the reviewer's confidence: Astra's hallucination rate is
+better than Sol's, not low.
 
 ### Recent Information / Research
 
@@ -142,20 +224,36 @@ Caveats, applied strictly:
 ### Avoid
 
 Never use **Haiku** for important work. Never silently substitute a model when
-the designated one errors — stop and surface (see model-usage.md).
+the designated one errors — stop and surface (see model-usage.md). The one
+sanctioned substitution is the Fable-quota fallback below, and it is not silent:
+you announce it.
 
 ## Subagent & Workflow Guidelines
 
 - Main orchestrator: **fable-5** or **opus-4.8** at high effort.
 - Delegations to non-Claude models go through the **`model-runner`** named
   agent (a sonnet wrapper installed from this repo) — give it a model id OR a
-  task type (`bulk` / `cheap` / `recency` / `second-review`) + prompt file; it
-  invokes `bin/model-run.sh` and returns output verbatim. Prefer task types:
+  task type (`bulk` / `cheap` / `recency` / `second-review` / `fable-fallback`)
+  + prompt file; it invokes `bin/model-run.sh` and returns output verbatim. Prefer task types:
   the table picks the id deterministically, and the mapping lives in
   `bin/routes.tsv`, not in your judgment. Don't hand-roll codex/cursor-agent
   commands; a hook denies them. (Direct `model-run.sh` via Bash is fine for
   quick inline one-offs, but the agent is preferred for delegations — it shows
   up as a named agent in the progress UI instead of a background process.)
+- **When Fable is out of quota**, a subagent that was scoped for Fable goes to
+  **gpt-6-astra**, not down the Claude ladder. Fable 5.1 and Astra are tied at
+  the top of AA's v4.3 index (53), so it is the only sideways move available;
+  opus/sonnet would be a quiet downgrade of work you already judged to need the
+  ceiling. Mechanics — `--task-type fable-fallback` through the `model-runner`
+  agent — are in model-usage.md. Three rules when you take that route:
+  1. **Say so.** Tell the user Fable hit its limit and which model ran instead;
+     never let a fallback be invisible.
+  2. **Re-read the output.** Astra is Reliability 6 — below the unsupervised
+     bar that Fable (9) clears. Whatever review you would have skipped for
+     Fable, do it for Astra.
+  3. **Keep taste work with Claude.** If the subagent's job was prose, copy, a
+     deck, or product judgment rather than code/agent work, prefer **opus** to
+     Astra — it is the taste axis Astra is weakest on (Text Arena #24).
 - Workflow stages: mechanical fan-out stages → `{ model: 'sonnet', effort:
   'low' }`; judge, verify, and taste-sensitive stages → session model (fable-5 /
   opus-4.8) at high effort. Prefer effort `'high'` for fable-5; avoid `'xhigh'`
@@ -172,7 +270,7 @@ The table above is a snapshot; model catalogs and pricing drift. Every routable
 model documented here and in model-usage.md is live-verified by
 `bash ~/dotfiles/claude/tests/routecheck.sh` (alias `routecheck`) — it invokes
 each route with a nonce prompt and fails loudly on any broken id, syntax, or
-auth (last run 2026-08-24: ALL ROUTES OK). If a route fails, fix the id/syntax
+auth (last run 2026-09-18, incl. the new gpt-6-astra route: ALL ROUTES OK). If a route fails, fix the id/syntax
 or remove the model from these files — never leave a documented route broken.
 Models with no runnable route on this machine do not get table rows. Catalog
 drift (a newer grok/composer/glm/gpt version, or a routed id disappearing) is
