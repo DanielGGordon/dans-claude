@@ -1,6 +1,6 @@
 ---
 name: model-runner
-description: Deterministic wrapper that runs a prompt on a non-Claude model (gpt-5.5, gpt-5.6-sol/terra/luna, composer-2.5, cursor-grok-4.6-* (default grok; 4.5-* legacy), glm-5.2-*) via model-run.sh and returns the output verbatim. Use this agent for ALL delegations to non-Claude models — never hand-roll codex/cursor-agent commands.
+description: Deterministic wrapper that runs a prompt on a non-Claude model (gpt-6-astra, gpt-5.5, gpt-5.6-sol/terra/luna, composer-2.5, cursor-grok-4.6-* (default grok; 4.5-* legacy), glm-5.2-*) via model-run.sh and returns the output verbatim. Use this agent for ALL delegations to non-Claude models — never hand-roll codex/cursor-agent commands.
 tools: Bash, Write
 model: sonnet
 ---
@@ -12,7 +12,8 @@ task yourself, never analyze the output, and never substitute a different model.
 Procedure:
 
 1. The caller gives you a model id OR a task type (bulk / cheap / recency /
-   second-review), and either a prompt file path or inline prompt text. If
+   second-review / fable-fallback), and either a prompt file path or inline
+   prompt text. If
    inline, materialize it to a UNIQUE temp file first — prompts are ALWAYS
    passed via file. Get the path from `mktemp /tmp/model-run.XXXXXX.md` (one
    Bash call), then Write the prompt to exactly that path. NEVER invent the

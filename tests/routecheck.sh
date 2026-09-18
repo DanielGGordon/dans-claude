@@ -75,7 +75,11 @@ MOCKBIN="$WORK/mockbin"; mkdir -p "$MOCKBIN"
 cat > "$MOCKBIN/codex" <<'MOCK'
 #!/usr/bin/env bash
 # Catalog reads (used by the catalog-drift unit tests): a fake future catalog —
-# grok 4.7 / gpt-5.7 exist, cursor-grok-4.5-low is gone. MOCK_MODE=catalog-down
+# grok 4.7 / gpt-7-nova exist, cursor-grok-4.5-low is gone. gpt-6-astra is
+# present (so a routed id is NOT reported vanished); gpt-5.7-sol is included
+# deliberately and must NOT warn — routed gpt-6 outranks 5.7 under the
+# detector's family-max semantics (known limitation: once a gpt-6+ id is
+# routed, a future gpt-5.x point release goes undetected). MOCK_MODE=catalog-down
 # simulates a logged-out/broken CLI for the fail-open test.
 [ "${MOCK_MODE:-ok}" = catalog-down ] && { echo "Not logged in"; exit 1; }
 if [ "${1:-}" = "--list-models" ]; then
@@ -86,8 +90,9 @@ if [ "${1:-}" = "--list-models" ]; then
     echo "$id - Mock"; done; exit 0
 fi
 if [ "${1:-}" = "debug" ]; then
-  echo '{"models":[{"slug":"gpt-5.7-sol","visibility":"list"},{"slug":"gpt-5.6-sol","visibility":"list"},{"slug":"gpt-5.6-terra","visibility":"list"},{"slug":"gpt-5.6-luna","visibility":"list"},{"slug":"gpt-5.5","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}'; exit 0
+  echo '{"models":[{"slug":"gpt-7-nova","visibility":"list"},{"slug":"gpt-6-astra","visibility":"list"},{"slug":"gpt-5.7-sol","visibility":"list"},{"slug":"gpt-5.6-sol","visibility":"list"},{"slug":"gpt-5.6-terra","visibility":"list"},{"slug":"gpt-5.6-luna","visibility":"list"},{"slug":"gpt-5.5","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}'; exit 0
 fi
+printf '%s\n' "$*" > "${MOCK_ARGS:-/dev/null}"
 case "${MOCK_MODE:-ok}" in
   ok)        echo "mock response OK"; exit 0 ;;
   auth)      echo "Error: authentication required — run codex login"; exit 1 ;;
@@ -108,12 +113,38 @@ mock_run() { # $1 MOCK_MODE, $2 model id
 [ "$(mock_run transport gpt-5.6-terra)" = 73 ] && ok "mock:transport->73-after-retry" || bad "mock:transport->73-after-retry"
 [ "$(mock_run flaky gpt-5.6-terra)" = 0 ]      && ok "mock:transient-retry-recovers" || bad "mock:transient-retry-recovers"
 [ "$(mock_run quote-ok gpt-5.6-terra)" = 0 ]   && ok "mock:prose-quote-no-false-positive" || bad "mock:prose-quote-no-false-positive"
+# reasoning effort (routes.tsv 4th column / MODEL_RUN_EFFORT) must reach the codex
+# CLI as -c model_reasoning_effort, and must never be passed to cursor.
+mock_args() { # $1 outfile, $2 model id; extra env in $3.. as KEY=VAL
+  local out="$1" model="$2"; shift 2
+  env "$@" MOCK_MODE=ok MOCK_ARGS="$out" MODEL_RUN_RETRY_DELAY=0 PATH="$MOCKBIN:$PATH" \
+    "$RUN" "$model" "$PROMPTFILE" "$WORK" >/dev/null 2>&1
+}
+mock_args "$WORK/args-astra.txt" gpt-6-astra
+grep -q 'model_reasoning_effort="high"' "$WORK/args-astra.txt" \
+  && ok "mock:effort-from-table(gpt-6-astra=high)" \
+  || bad "mock:effort-from-table(gpt-6-astra=high)" "codex argv: $(cat "$WORK/args-astra.txt" 2>/dev/null)"
+mock_args "$WORK/args-astra-env.txt" gpt-6-astra MODEL_RUN_EFFORT=xhigh
+grep -q 'model_reasoning_effort="xhigh"' "$WORK/args-astra-env.txt" \
+  && ok "mock:effort-env-override" \
+  || bad "mock:effort-env-override" "codex argv: $(cat "$WORK/args-astra-env.txt" 2>/dev/null)"
+mock_args "$WORK/args-terra.txt" gpt-5.6-terra
+grep -q 'model_reasoning_effort' "$WORK/args-terra.txt" \
+  && bad "mock:no-effort-when-table-blank" "unpinned model got an effort flag" \
+  || ok "mock:no-effort-when-table-blank"
+mock_args "$WORK/args-cursor.txt" composer-2.5 MODEL_RUN_EFFORT=high
+grep -q 'model_reasoning_effort' "$WORK/args-cursor.txt" \
+  && bad "mock:effort-not-passed-to-cursor" "cursor got a codex-only flag" \
+  || ok "mock:effort-not-passed-to-cursor"
+
 # catalog-drift detector against the fake future catalog above (zero tokens, no network)
 mock_drift=$(CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_drift_st=$?
 [ "$mock_drift_st" = 1 ] \
   && grep -q $'^newer\t.*cursor-grok-4.7-\*.*stops at cursor-grok-4.6' <<<"$mock_drift" \
-  && grep -q $'^newer\t.*gpt-5.7-\*.*stops at gpt-5.6' <<<"$mock_drift" \
+  && grep -q $'^newer\t.*gpt-7-\*.*stops at gpt-6' <<<"$mock_drift" \
   && grep -q $'^vanished\t.*cursor-grok-4.5-low' <<<"$mock_drift" \
+  && ! grep -q 'gpt-5.7' <<<"$mock_drift" \
+  && ! grep -q $'^vanished\t.*gpt-6-astra' <<<"$mock_drift" \
   && ! grep -q 'glm\|composer' <<<"$mock_drift" \
   && ok "mock:catalog-drift-detects-newer+vanished" \
   || bad "mock:catalog-drift-detects-newer+vanished" "exit $mock_drift_st: $(printf '%s' "$mock_drift" | tr '\n' '|')"
@@ -128,6 +159,9 @@ codex login status 2>&1 | grep -qi "logged in" && ok "auth:codex" || bad "auth:c
 "$RUN" definitely-not-a-model-xq7 "$PROMPTFILE" >/dev/null 2>&1 && bad "guard:unknown-id" "accepted garbage id" || ok "guard:unknown-id"
 "$RUN" grok-4.5-xhigh "$PROMPTFILE" >/dev/null 2>&1 && bad "guard:retired-id" "accepted retired id" || ok "guard:retired-id"
 "$RUN" --task-type not-a-type "$PROMPTFILE" >/dev/null 2>&1 && bad "guard:unknown-task-type" "accepted garbage task type" || ok "guard:unknown-task-type"
+# reasoning-effort column: valid level, codex rows only
+bad_effort=$(awk -F'\t' '$1=="model" && $4!="" && ($3!="codex" || $4 !~ /^(low|medium|high|xhigh|max)$/) {print $2"="$4"("$3")"}' "$TABLE")
+[ -z "$bad_effort" ] && ok "table:effort-column-valid" || bad "table:effort-column-valid" "$bad_effort"
 # every task type must resolve to a model id present in the table
 while IFS=$'\t' read -r _ tt mid; do
   awk -F'\t' -v m="$mid" '$1=="model" && $2==m {found=1} END {exit !found}' "$TABLE" \

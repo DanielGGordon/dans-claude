@@ -1,11 +1,15 @@
 # Single source of truth for non-Claude model routing. Tab-separated.
-#   model	<id>	<backend>          — routable model id
+#   model	<id>	<backend>[	<effort>]  — routable model id; 4th field (codex
+#                                     only, optional) pins model_reasoning_effort
 #   retired	<old-id>	<successor>    — rejected with pointer to successor
 #   task	<task-type>	<model-id>     — --task-type resolution
 # Consumed by bin/model-run.sh (routing + errors), tests/routecheck.sh
 # (test matrix) and bin/catalog-drift.sh (live-catalog drift detection).
 # model-usage.md/model-selection.md point here; don't let the markdown grow
 # its own id lists.
+# gpt-6-astra: OpenAI's frontier tier (Codex catalog default effort is LOW —
+# the 4th column pins it to high; override per-call with MODEL_RUN_EFFORT).
+model	gpt-6-astra	codex	high
 model	gpt-5.5	codex
 model	gpt-5.6-sol	codex
 model	gpt-5.6-terra	codex
@@ -32,4 +36,9 @@ retired	grok-4.5-fast-xhigh	cursor-grok-4.5-high-fast
 task	bulk	gpt-5.6-terra
 task	cheap	composer-2.5
 task	recency	cursor-grok-4.6-high
-task	second-review	gpt-5.6-sol
+# second-review moved sol -> astra 2026-09-18 (half Sol's hallucination rate,
+# higher AA index, no METR eval-gaming finding); gpt-5.6-sol still routable by id.
+task	second-review	gpt-6-astra
+# fable-fallback: what a Fable subagent's work reroutes to when Fable is out of
+# quota (see model-selection.md) — never a silent downgrade to a weaker Claude.
+task	fable-fallback	gpt-6-astra
