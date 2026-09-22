@@ -97,16 +97,24 @@ catalog drift, and unrouted catalog ids. Read it first.
      **publication date**. Prefer primary sources: the vendor launch post,
      pricing page, model card or docs, Artificial Analysis model pages,
      LMArena/Design Arena boards, METR, and the official CLI changelogs.
-   - **Pin benchmark versions.** A number is quoted with its index version
-     (e.g. "AA Intelligence Index v4.3.2"). Never compare numbers across index
-     versions.
-   - **Treat grok's claims as leads, not facts.** grok carries a **54%
-     AA-Omniscience hallucination rate** (measured on 4.5 and assumed for 4.7).
+   - **Pin benchmark versions and effort.** Every benchmark number is quoted
+     with its index version **and** the effort it was run at (e.g. "AA
+     Intelligence Index v4.3.2, max"; AA labels models "GPT-6 Sol (max)",
+     "GPT-6 Astra (high)"). The same model at two efforts is two numbers: tag
+     each where it appears. Never compare numbers across index versions.
+   - **Treat grok's claims as leads, not facts.** grok-4.7 has a **29%
+     AA-Omniscience hallucination rate** (AA, 2026-09-21; grok-4.5 was 54%).
      No grok claim goes into a repo file until you have fetched and read a
      source that states it (WebFetch, not just a search snippet).
    - Unconfirmed claims go only into the report's "Unverified — not quoted"
      list, or into a model-selection.md note's existing
      `**UNVERIFIED — do not quote:**` bullet.
+   - **Before marking a number UNVERIFIED, check the pages you already
+     fetched.** AA model and comparison pages
+     (`artificialanalysis.ai/models/comparisons/<a>-vs-<b>`) print **cost per
+     Intelligence Index task** (the Cost Efficiency metric), output tokens per
+     task and the AA-Omniscience Index. If a summarizing fetch didn't mention
+     a number, re-fetch and ask for it by name before calling it missing.
    - Mark a ranking row provisional (`*` on the score, as the table already
      does) whenever you have fewer than two independent sources, or when you
      copied a score from a predecessor. Say so in the note.
@@ -318,6 +326,9 @@ definitions at the top of model-selection.md:
 
 - Cost Efficiency is **per completed task, not per token**.
 - Reliability ≥ 7 is the bar for running unsupervised.
+- Score Reliability against the hallucination rates already in the table. A
+  model measured worse than one scored N doesn't score above N unless its note
+  cites honesty or instruction-adherence evidence that justifies it.
 - Provisional scores get `*`.
 - If you copy a predecessor's scores, say so, as the grok-4.7 note does.
 
@@ -450,6 +461,20 @@ Skip this step only if the tree has no changes besides `scout/`.
    live check too if routes changed. Record every rejected finding and why.
 
 ## Step 6: Report (`scout/last-report.md`, used verbatim as the PR body)
+
+**First, a consistency pass** over every file you touched (re-read them, don't
+trust memory):
+
+- Every score agrees with the axis definitions and with the evidence cited in
+  the same file. For example, a hallucination rate in a note must fit the
+  row's Reliability, and a per-task cost must fit its CE.
+- No stale model ids are left in prose (a replaced row's id, like `opus-4.8`,
+  survives only as dated history).
+- Every task-routing rationale is true given the table, both in routes.tsv
+  comments and in the "Selection by Task Type" sections. If a stated reason
+  for keeping or moving a `task` row no longer holds, fix the reason or the
+  row.
+- The "Core Rules" sub-7 list matches the table.
 
 Write GitHub markdown, in this order:
 

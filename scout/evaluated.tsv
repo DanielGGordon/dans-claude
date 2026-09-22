@@ -4,12 +4,12 @@
 # (watch = announced / not in any catalog yet — re-checked on later runs).
 # note: key reason + main source (URL, publication date).
 date	vendor	model	verdict	note
-2026-09-22	OpenAI	gpt-6-sol	supersedes:gpt-5.6-sol	GA 2026-09-22; $2/$10 vs 5.6-sol $4/$20; AA v4.3.2 48 vs 47; bulk stays Terra pending per-task cost (developers.openai.com pricing + AA model page, 2026-09-22)
-2026-09-22	OpenAI	gpt-6-luna	supersedes:gpt-5.6-luna	GA 2026-09-22; $0.10/$0.50 vs 5.6-luna $0.20/$1.20; AA v4.3.2 37 = 5.6-luna (developers.openai.com pricing + AA comparison page, 2026-09-22)
-2026-09-22	Anthropic	claude-opus-5-5	routed	native Claude (opus alias since Claude Code 2.1.280); AA index 58, #1; $4/$20; Cursor claude-opus-5-5-* ignored (anthropic.com/news/claude-opus-5-5 + AA article, 2026-09-22)
-2026-09-22	Anthropic	claude-fable-5-1	routed	native Claude (fable alias); released 2026-09-01; AA v4.3.2 53; AA-Omniscience hallucination 72.6% flagged; Cursor ids ignored (platform.claude.com + AA, 2026-09-01)
+2026-09-22	OpenAI	gpt-6-sol	supersedes:gpt-5.6-sol	GA 2026-09-22; $2/$10 vs 5.6-sol $4/$20; AA v4.3.2 48 vs 47; AA $1.06/index task vs Terra $1.40 (max); bulk stays Terra on Reliability 5* < 7 (developers.openai.com pricing + AA comparison pages, fetched 2026-09-22)
+2026-09-22	OpenAI	gpt-6-luna	supersedes:gpt-5.6-luna	GA 2026-09-22; $0.10/$0.50 vs 5.6-luna $0.20/$1.20; AA v4.3.2 37 = 5.6-luna; $0.07 vs $0.18 per AA index task (max) (developers.openai.com pricing + AA comparison page, 2026-09-22)
+2026-09-22	Anthropic	claude-opus-5-5	routed	native Claude (opus alias since Claude Code 2.1.280); AA v4.3.2 58 (max), #1 of 212; $4/$20; Cursor claude-opus-5-5-* ignored (anthropic.com/news/claude-opus-5-5 + AA article, 2026-09-22)
+2026-09-22	Anthropic	claude-fable-5-1	routed	native Claude (fable alias); released 2026-09-01; AA v4.3.2 53; AA-Omniscience hallucination 72.6% (93.4% attempted) -> Reliability 9* to 6*; Cursor ids ignored (platform.claude.com + AA articles/claude-fable-5-1, 2026-09-01)
 2026-09-22	Anthropic	cursor:claude-* (opus-5, fable-5, sonnet-5, opus-4.8/4.7, 4.x)	ignore	Claude runs natively, never via cursor-agent; one ignore glob per family version
-2026-09-22	xAI	grok-4.7	routed	already routed; re-benchmarked: AA v4.3.2 46, AA-Omniscience hallucination 29% (4.6 34%) -> Int 7, Rel 5*; -fast variants ignored (AA "Benchmarking Grok 4.7", 2026-09-21)
+2026-09-22	xAI	grok-4.7	routed	already routed; re-benchmarked: AA v4.3.2 46, AA-Omniscience hallucination 29% (4.6 34%) -> Int 7, Rel 5*; grok-4.6 Rel 3* -> 4*; -fast variants ignored (AA "Benchmarking Grok 4.7", 2026-09-21)
 2026-09-22	Google	gemini-3.8-flash	ignore	2026-09-02; AA v4.3.2 41 at $0.75/$3.75 intro; leads no axis vs grok-4.7/gpt-6-sol/luna (blog.google 2026-09-02, AA model page)
 2026-09-22	Google	gemini-3.7/3.6/3.5/3-flash, gemini-3.1-pro	ignore	superseded Flash tiers; 3.1 Pro still Google's newest Pro (ai.google.dev pricing, 2026-09-22)
 2026-09-22	Moonshot	kimi-k3	ignore	AA v4.3.2 44 at $3/$15, dominated by gpt-6-sol (platform.kimi.ai pricing, AA model page)
