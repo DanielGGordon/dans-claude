@@ -24,6 +24,23 @@
 # no ephemeral mode) — explicitly before the verdict, and again from the EXIT
 # trap if the run dies early. A caller (the daily model scout) can share its own
 # marker via ROUTECHECK_MARKER=<string>.
+#
+# The xai backend (direct xAI API, e.g. grok-4.7-xsearch / --task-type x-recency)
+# needs XAI_API_KEY. It is looked up exactly the way the scout's cron line gets
+# it — the environment, else what `. ~/.profile` exports (model-run.sh does the
+# same lookup itself). No key anywhere = those routes are SKIPPED with a WARN,
+# not a FAIL; a key that is present but rejected is a FAIL. Its live smoke is
+# NOT a nonce echo: grok-4.7 on the xAI API refuses "output exactly this
+# token" requests (2026-09-22: 6 of 7 attempts refused, e.g. "I won't output
+# exact phrases or tokens on demand"), so it asks for the sum of two per-run
+# random numbers instead — same proof that THIS prompt was processed. It tells
+# grok not to search (~$0.006); xAI keeps nothing (`store: false`), so there is
+# no chat to clean up.
+# ROUTECHECK_XAI_SOFT=1 turns the xai route's failures (auth:xai and its live
+# smoke) into WARNs. Only the model scout's publish gate sets it: a rejected /
+# out-of-credit / rate-limited XAI_API_KEY is an account problem, not a defect
+# in the tree under review, and must not stop verified routing edits from
+# being published (the scout records such a run "degraded" instead).
 set -u
 
 # Resolve the repo from this script's location (not ~/dotfiles/claude) so a
@@ -45,6 +62,16 @@ OUT="$WORK/out"; mkdir -p "$OUT"
 git -C "$WORK" init -q 2>/dev/null || true
 PROMPTFILE="$WORK/prompt.md"
 printf 'Output exactly this line and nothing else: %s\n\n[test-run marker: %s]\n' "$NONCE" "$MARKER" > "$PROMPTFILE"
+# xai routes: an arithmetic "nonce" (see header) and no web/X searches.
+XAI_A=$((RANDOM * 7 + 1000)); XAI_B=$((RANDOM * 3 + 1000)); XAI_SUM=$((XAI_A + XAI_B))
+XAI_PROMPTFILE="$WORK/prompt-xai.md"
+printf 'Quick arithmetic check, no search needed: what is %s + %s? Reply with just the number.\n\n[test-run marker: %s]\n' "$XAI_A" "$XAI_B" "$MARKER" > "$XAI_PROMPTFILE"
+# XAI_API_KEY available? The env, else ~/.profile, like cron's `. ~/.profile`.
+# Only a yes/no leaves the subshell — the key itself is never captured here.
+XAI_KEY_SRC=""
+if [ -n "${XAI_API_KEY:-}" ]; then XAI_KEY_SRC="env"
+elif [ "$(bash -c '. "$HOME/.profile" >/dev/null 2>&1 </dev/null; printf %s "${XAI_API_KEY:+1}"' 2>/dev/null)" = 1 ]; then XAI_KEY_SRC="~/.profile"
+fi
 # Every dir a live smoke runs in — cleanup matches chats by exact cwd.
 TEST_WORKDIRS=("$WORK" "$WORK/artifact-codex" "$WORK/artifact-cursor")
 CHATS_CLEANED=0
@@ -95,6 +122,8 @@ declare -a WARNINGS=()
 ok()   { echo "PASS  $1"; }
 bad()  { echo "FAIL  $1${2:+ — $2}"; FAILURES+=("$1"); }
 warn() { echo "WARN  $1${2:+ — $2}"; WARNINGS+=("$1"); }   # advisory: never fails the suite
+# xai-route failures: FAIL, or WARN under ROUTECHECK_XAI_SOFT=1 (see header)
+xbad() { if [ "${ROUTECHECK_XAI_SOFT:-0}" = 1 ]; then warn "$1" "${2:+$2 }(soft: ROUTECHECK_XAI_SOFT=1)"; else bad "$@"; fi; }
 
 # ---------- Tier 0: hook unit tests (free) ----------
 guard() { printf '{"tool_input":{"command":%s}}' "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$1")" | bash "$GUARD"; }
@@ -117,6 +146,14 @@ expect_allow "bash $CLEANUP --since 1 --marker ROUTECHECK-x1 --workdir /tmp/rout
 expect_allow 'codex delete --force 01a0caf4-1d77-7590-910e-c3b8e692f185' "codex delete (test-chat cleanup)"
 expect_allow "grep 'codex exec' $RUN" "grep mentioning codex exec"
 expect_allow 'ls -la && git status' "unrelated command"
+expect_deny  'curl -s https://api.x.ai/v1/responses -H "Authorization: Bearer $XAI_API_KEY" -d @req.json' "raw xAI responses call"
+expect_deny  'X=1 curl -s "https://api.x.ai/v1/chat/completions" -d @r.json' "raw xAI chat call (quoted url)"
+expect_allow 'curl -s https://api.x.ai/v1/models -H @h.txt' "xAI catalog read (GET /v1/models)"
+expect_allow 'curl -s https://example.com/v1/responses' "curl to another host"
+expect_allow "grep -n 'api.x.ai/v1/responses' $RUN" "grep mentioning the xAI endpoint"
+expect_allow "curl -s https://example.com/health && grep -n 'api.x.ai/v1/responses' $RUN" "curl + unrelated grep of the xAI endpoint (regression)"
+expect_deny  $'curl -s \\\n  "https://api.x.ai/v1/responses" -d @r.json' "raw xAI call across a line continuation"
+expect_deny  'R=$(curl -s -d @r.json "https://api.x.ai/v1/responses"; echo) && echo "$R"' "raw xAI call in \$( )"
 # model-runner agent contract lints (free). Regression for 2026-08-24: the agent
 # was told to Write inline prompts to the literal path /tmp/model-run-$$.md —
 # the Write tool does not expand $$, so parallel runners in a workflow fan-out
@@ -165,8 +202,54 @@ case "${MOCK_MODE:-ok}" in
 esac
 MOCK
 chmod +x "$MOCKBIN/codex"; cp "$MOCKBIN/codex" "$MOCKBIN/cursor-agent"
+# Fake curl for the xai backend: -o gets the body, stdout gets -w's
+# "<http code> <time_connect>", like the real one (time_connect 0 = the TCP
+# connect never completed). Records the request body, the Authorization header it was
+# handed (via -H @fd) and its argv to MOCK_ARGS. MOCK_XAI_CATALOG = the model
+# ids GET /v1/models returns.
+cat > "$MOCKBIN/curl" <<'MOCK'
+#!/usr/bin/env bash
+argv="$*"; out=/dev/stdout; url=""; data=""; auth=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    --data-binary) data="${2#@}"; shift 2 ;;
+    -H) case "$2" in @*) auth=$(cat "${2#@}");; esac; shift 2 ;;
+    -w|-m|--connect-timeout) shift 2 ;;
+    https://*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+if [ -n "${MOCK_ARGS:-}" ]; then
+  { echo "URL $url"; echo "AUTH $auth"; echo "ARGV $argv"; [ -n "$data" ] && cat "$data"; echo; } > "$MOCK_ARGS"
+fi
+reply() { printf '%s' "$2" > "$out"; printf '%s 0.012000' "$1"; exit 0; }
+[ "${MOCK_MODE:-ok}" = catalog-down ] && reply 401 '{"code":"unauthenticated","error":"mock"}'
+case "$url" in */models)
+  case "${MOCK_MODE:-ok}" in
+    ratelimit) reply 429 '{"code":"resource-exhausted","error":"Too many requests, slow down"}' ;;
+    quota)     reply 429 '{"code":"resource-exhausted","error":"Your team has used all available credits"}' ;;
+    connect-timeout) echo "curl: (28) Connection timed out after 20001 milliseconds" >&2; printf '000 0.000000'; exit 28 ;;
+  esac
+  ids=""; for i in ${MOCK_XAI_CATALOG:-grok-4.6 grok-4.7 grok-4.20-0309-reasoning}; do ids+="${ids:+,}{\"id\":\"$i\"}"; done
+  reply 200 "{\"data\":[$ids]}" ;;
+esac
+ok_body() { printf '{"status":"completed","store":false,"output":[{"type":"custom_tool_call","name":"x_keyword_search"},{"type":"message","content":[{"type":"output_text","text":"%s","annotations":[{"type":"url_citation","url":"https://x.com/i/status/123"}]}]}],"usage":{"cost_in_usd_ticks":1000000000,"server_side_tool_usage_details":{"x_search_calls":2,"web_search_calls":1,"x_posts_fetched":7}}}' "$1"; }
+case "${MOCK_MODE:-ok}" in
+  ok)        reply 200 "$(ok_body 'mock response OK')" ;;
+  auth)      reply 400 '{"code":"invalid-argument","error":"Incorrect API key provided."}' ;;
+  quota)     reply 429 '{"code":"resource-exhausted","error":"credits exhausted"}' ;;
+  transport) echo "curl: (7) Failed to connect" >&2; printf '000 0.000000'; exit 7 ;;
+  flaky)     if [ -f "$MOCK_STATE" ]; then reply 200 "$(ok_body 'mock response OK after retry')"
+             else touch "$MOCK_STATE"; reply 503 'upstream unavailable'; fi ;;
+  quote-ok)  reply 200 "$(ok_body 'this task discusses Incorrect API key and rate limit exceeded')" ;;
+  timeout)   echo "curl: (28) Operation timed out" >&2; printf '000 0.042000'; exit 28 ;;
+  connect-timeout) echo "curl: (28) Connection timed out after 20001 milliseconds" >&2; printf '000 0.000000'; exit 28 ;;
+esac
+MOCK
+chmod +x "$MOCKBIN/curl"
 mock_run() { # $1 MOCK_MODE, $2 model id
-  MOCK_MODE="$1" MOCK_STATE="$WORK/mockstate-$1-$2" MODEL_RUN_RETRY_DELAY=0 \
+  MOCK_MODE="$1" MOCK_STATE="$WORK/mockstate-$1-$2" MODEL_RUN_RETRY_DELAY=0 XAI_API_KEY=mock-key \
     PATH="$MOCKBIN:$PATH" "$RUN" "$2" "$PROMPTFILE" "$WORK" >/dev/null 2>&1; echo $?
 }
 [ "$(mock_run ok gpt-5.6-terra)" = 0 ]         && ok "mock:success-passthrough" || bad "mock:success-passthrough"
@@ -175,6 +258,49 @@ mock_run() { # $1 MOCK_MODE, $2 model id
 [ "$(mock_run transport gpt-5.6-terra)" = 73 ] && ok "mock:transport->73-after-retry" || bad "mock:transport->73-after-retry"
 [ "$(mock_run flaky gpt-5.6-terra)" = 0 ]      && ok "mock:transient-retry-recovers" || bad "mock:transient-retry-recovers"
 [ "$(mock_run quote-ok gpt-5.6-terra)" = 0 ]   && ok "mock:prose-quote-no-false-positive" || bad "mock:prose-quote-no-false-positive"
+# xai backend (direct xAI API via curl): same exit contract, driven by HTTP status.
+XID=$(awk -F'\t' '$1=="model" && $3=="xai" {print $2; exit}' "$TABLE")
+if [ -n "$XID" ]; then
+  XAPI=$(awk -F'\t' -v k="$XID" '$1=="model" && $2==k {print $4; exit}' "$TABLE")
+  for pair in ok:0 auth:75 quota:75 transport:73 flaky:0 quote-ok:0 timeout:124 connect-timeout:73; do
+    mode="${pair%%:*}" want="${pair##*:}"
+    got=$(mock_run "$mode" "$XID")
+    [ "$got" = "$want" ] && ok "mock:xai-$mode->$want" || bad "mock:xai-$mode->$want" "got exit $got"
+  done
+  st=$(env -u XAI_API_KEY MODEL_RUN_XAI_ENV_FILE=/dev/null PATH="$MOCKBIN:$PATH" "$RUN" "$XID" "$PROMPTFILE" "$WORK" 2>&1 >/dev/null; echo "exit=$?")
+  grep -q 'XAI_API_KEY not set' <<<"$st" && grep -q 'exit=75' <<<"$st" \
+    && ok "mock:xai-no-key->75" || bad "mock:xai-no-key->75" "$(tr '\n' '|' <<<"$st")"
+  # --xai-models (the zero-token catalog read behind auth:xai): only a verdict
+  # about the key/credits is 75 — a plain 429 rate limit is transient (73).
+  for pair in ok:0 catalog-down:75 quota:75 ratelimit:73 connect-timeout:73; do
+    mode="${pair%%:*}" want="${pair##*:}"
+    got=$(MOCK_MODE="$mode" XAI_API_KEY=mock-key PATH="$MOCKBIN:$PATH" "$RUN" --xai-models >/dev/null 2>&1; echo $?)
+    [ "$got" = "$want" ] && ok "mock:xai-models-$mode->$want" || bad "mock:xai-models-$mode->$want" "got exit $got"
+  done
+  # Request shape + key hygiene + output contract, in one call.
+  MOCK_MODE=ok MOCK_ARGS="$WORK/args-xai.txt" XAI_API_KEY=mock-key MODEL_RUN_XSEARCH_FROM=2026-09-01 PATH="$MOCKBIN:$PATH" \
+    "$RUN" "$XID" "$PROMPTFILE" "$WORK" >"$WORK/xai-out.txt" 2>"$WORK/xai-err.txt"
+  xreq=$(python3 - "$WORK/args-xai.txt" "$XAPI" "$NONCE" <<'PY'
+import json, sys
+lines = open(sys.argv[1]).read().splitlines()
+req = json.loads(next(l for l in lines if l.startswith("{")))
+tools = {t["type"]: t for t in req.get("tools", [])}
+checks = {"model": req.get("model") == sys.argv[2], "store:false": req.get("store") is False,
+          "web_search": "web_search" in tools, "x_search": "x_search" in tools,
+          "from_date": tools.get("x_search", {}).get("from_date") == "2026-09-01",
+          "prompt": sys.argv[3] in json.dumps(req.get("input")),
+          "endpoint": any(l == "URL https://api.x.ai/v1/responses" for l in lines),
+          "auth-header": "AUTH Authorization: Bearer mock-key" in lines,
+          "key-not-in-argv": not any(l.startswith("ARGV") and "mock-key" in l for l in lines)}
+print(" ".join(k for k, v in checks.items() if not v))
+PY
+)
+  [ -z "$xreq" ] && ok "mock:xai-request(store:false,web+x_search,from_date,key-off-argv)" || bad "mock:xai-request" "failed: $xreq"
+  grep -q 'mock response OK' "$WORK/xai-out.txt" && grep -q '^- https://x.com/i/status/123$' "$WORK/xai-out.txt" \
+    && grep -q '^model-run: xai-tools x_search=2 web_search=1 ' "$WORK/xai-err.txt" \
+    && ok "mock:xai-output(text+sources, tool-count line)" \
+    || bad "mock:xai-output" "out: $(tr '\n' '|' <"$WORK/xai-out.txt" | head -c 200) err: $(tr '\n' '|' <"$WORK/xai-err.txt" | head -c 200)"
+fi
 # reasoning effort (routes.tsv 4th column / MODEL_RUN_EFFORT) must reach the codex
 # CLI as -c model_reasoning_effort, and must never be passed to cursor.
 mock_args() { # $1 outfile, $2 model id; extra env in $3.. as KEY=VAL
@@ -209,7 +335,7 @@ grep -q -- '--ephemeral' "$WORK/args-cursor.txt" \
   && bad "mock:ephemeral-not-passed-to-cursor" "cursor got a codex-only flag" || ok "mock:ephemeral-not-passed-to-cursor"
 
 # catalog-drift detector against the fake future catalog above (zero tokens, no network)
-mock_drift=$(CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_drift_st=$?
+mock_drift=$(XAI_API_KEY=mock-key CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_drift_st=$?
 mock_nv=$(grep $'^newer\t\|^vanished\t' <<<"$mock_drift")
 [ "$mock_drift_st" = 1 ] \
   && grep -q $'^newer\t.*grok-4.8-\*.*stops at grok-4.7' <<<"$mock_nv" \
@@ -217,7 +343,7 @@ mock_nv=$(grep $'^newer\t\|^vanished\t' <<<"$mock_drift")
   && grep -q $'^vanished\t.*cursor-grok-4.5-low' <<<"$mock_nv" \
   && ! grep -q 'gpt-5.7' <<<"$mock_nv" \
   && ! grep -q $'^vanished\t.*gpt-6-astra' <<<"$mock_nv" \
-  && ! grep -q 'glm\|composer' <<<"$mock_nv" \
+  && ! grep -q 'glm\|composer\|xAI' <<<"$mock_nv" \
   && ok "mock:catalog-drift-detects-newer+vanished" \
   || bad "mock:catalog-drift-detects-newer+vanished" "exit $mock_drift_st: $(printf '%s' "$mock_drift" | tr '\n' '|')"
 # unrouted: ids no model/retired/ignore row accounts for. gpt-5.7-sol is exactly
@@ -226,7 +352,7 @@ grep -q $'^unrouted\tCodex catalog has 2 unrouted ids: gpt-5.7-sol, gpt-7-nova' 
   && grep -q $'^unrouted\tCursor catalog has 3 unrouted ids: .*auto.*grok-4.8-high' <<<"$mock_drift" \
   && ok "mock:catalog-drift-unrouted-summary" \
   || bad "mock:catalog-drift-unrouted-summary" "$(grep unrouted <<<"$mock_drift" | tr '\n' '|')"
-mock_unr=$(CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" --unrouted 2>/dev/null); mock_unr_st=$?
+mock_unr=$(XAI_API_KEY=mock-key CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" --unrouted 2>/dev/null); mock_unr_st=$?
 [ "$mock_unr_st" = 1 ] \
   && [ "$(sort <<<"$mock_unr" | tr '\n' ' ')" = "$(printf 'codex\tgpt-5.7-sol\ncodex\tgpt-7-nova\ncursor\tauto\ncursor\tgrok-4.8-high\ncursor\tgrok-4.8-xhigh\n' | sort | tr '\n' ' ')" ] \
   && ok "mock:catalog-drift--unrouted-lists-ids" \
@@ -234,16 +360,25 @@ mock_unr=$(CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH
 # ignore rows: bare glob matches any backend; "<backend>:<glob>" only that one
 # (cursor:gpt-7-* must NOT hide Codex's gpt-7-nova). Needs its own routes.tsv,
 # so run a copy of the detector next to a patched table.
-IGN="$WORK/ignore-repo/bin"; mkdir -p "$IGN"; cp "$DRIFT" "$IGN/"
+IGN="$WORK/ignore-repo/bin"; mkdir -p "$IGN"; cp "$DRIFT" "$RUN" "$IGN/"
 { cat "$TABLE"; printf 'ignore\tauto\tCursor meta-router, not a model\nignore\tcursor:grok-4.8-*\tmock: seen, not yet routed\nignore\tcursor:gpt-7-*\tmock: wrong-backend scope\n'; } > "$IGN/routes.tsv"
-mock_ign=$(CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$IGN/catalog-drift.sh" --unrouted 2>/dev/null)
+mock_ign=$(XAI_API_KEY=mock-key CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$IGN/catalog-drift.sh" --unrouted 2>/dev/null)
 [ "$(sort <<<"$mock_ign" | tr '\n' ' ')" = "$(printf 'codex\tgpt-5.7-sol\ncodex\tgpt-7-nova\n' | tr '\n' ' ')" ] \
   && ok "mock:catalog-drift-ignore-rows(+backend-scope)" \
   || bad "mock:catalog-drift-ignore-rows(+backend-scope)" "$(tr '\n' '|' <<<"$mock_ign")"
-mock_nodrift=$(MOCK_MODE=catalog-down CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache2" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_nodrift_st=$?
+mock_nodrift=$(MOCK_MODE=catalog-down XAI_API_KEY=mock-key CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache2" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_nodrift_st=$?
 [ "$mock_nodrift_st" = 2 ] && grep -q $'^unavailable\t' <<<"$mock_nodrift" && ! grep -q $'^newer\|^vanished' <<<"$mock_nodrift" \
   && ok "mock:catalog-drift-fail-open-when-catalogs-down" \
   || bad "mock:catalog-drift-fail-open-when-catalogs-down" "exit $mock_nodrift_st: $(printf '%s' "$mock_nodrift" | tr '\n' '|')"
+# xai catalog: vanished-only, by the API model id (column 4); no key = skipped silently.
+if [ -n "$XID" ]; then
+  mock_xv=$(MOCK_XAI_CATALOG="grok-4.6 grok-9.9" XAI_API_KEY=mock-key CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache3" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1)
+  mock_xn=$(env -u XAI_API_KEY MODEL_RUN_XAI_ENV_FILE=/dev/null CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache4" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1)
+  grep -q $'^vanished\t'"routes.tsv id $XID (xAI API model $XAPI) is gone from the xAI catalog" <<<"$mock_xv" \
+    && ! grep -q 'grok-9.9\|grok-4.6' <<<"$mock_xv" && ! grep -qi 'xai' <<<"$mock_xn" \
+    && ok "mock:catalog-drift-xai(vanished-by-api-id, no-key-silent)" \
+    || bad "mock:catalog-drift-xai" "with key: $(grep -i xai <<<"$mock_xv" | tr '\n' '|') / no key: $(grep -i xai <<<"$mock_xn" | tr '\n' '|')"
+fi
 
 # test-chat-cleanup against a FAKE home (TEST_CHAT_CLEANUP_HOME): records that
 # match (created >= since AND (cwd == a workdir OR marker in the FIRST user
@@ -311,12 +446,27 @@ TEST_CHAT_CLEANUP_HOME="$FH" bash "$CLEANUP" --since 1 --marker "$FM" --workdir 
 # ---------- Tier 1: zero-token model-run/auth checks ----------
 cursor-agent status 2>&1 | grep -q "Logged in" && ok "auth:cursor-agent" || bad "auth:cursor-agent" "run: cursor-agent login"
 codex login status 2>&1 | grep -qi "logged in" && ok "auth:codex" || bad "auth:codex" "run: codex login"
+# xAI: zero-token key check (GET /v1/models via model-run.sh --xai-models).
+if [ -n "$XID" ]; then
+  if [ -z "$XAI_KEY_SRC" ]; then
+    warn "auth:xai" "XAI_API_KEY is not set (env or ~/.profile) — xai routes ($XID, task x-recency) SKIPPED"
+  else
+    xm=$("$RUN" --xai-models 2>&1); xst=$?
+    case "$xst" in
+      0)  grep -qxF "$XAPI" <<<"$xm" && ok "auth:xai (key from $XAI_KEY_SRC)" \
+            || bad "auth:xai" "key works but API model $XAPI is not in the xAI catalog" ;;
+      75) xbad "auth:xai" "XAI_API_KEY rejected / out of credits: $(tail -1 <<<"$xm")" ;;
+      *)  warn "auth:xai" "xAI catalog read failed (exit $xst: $(tail -1 <<<"$xm"))" ;;
+    esac
+  fi
+fi
 "$RUN" definitely-not-a-model-xq7 "$PROMPTFILE" >/dev/null 2>&1 && bad "guard:unknown-id" "accepted garbage id" || ok "guard:unknown-id"
 "$RUN" grok-4.5-xhigh "$PROMPTFILE" >/dev/null 2>&1 && bad "guard:retired-id" "accepted retired id" || ok "guard:retired-id"
 "$RUN" --task-type not-a-type "$PROMPTFILE" >/dev/null 2>&1 && bad "guard:unknown-task-type" "accepted garbage task type" || ok "guard:unknown-task-type"
-# reasoning-effort column: valid level, codex rows only
-bad_effort=$(awk -F'\t' '$1=="model" && $4!="" && ($3!="codex" || $4 !~ /^(low|medium|high|xhigh|max)$/) {print $2"="$4"("$3")"}' "$TABLE")
-[ -z "$bad_effort" ] && ok "table:effort-column-valid" || bad "table:effort-column-valid" "$bad_effort"
+# 4th column: codex -> a valid reasoning level (optional); xai -> the API model
+# id (required); every other backend -> empty
+bad_effort=$(awk -F'\t' '$1=="model" && (($3=="codex" && $4!="" && $4 !~ /^(low|medium|high|xhigh|max)$/) || ($3=="xai" && $4 !~ /^grok-[a-z0-9.-]+$/) || ($3!="codex" && $3!="xai" && $4!="")) {print $2"="$4"("$3")"}' "$TABLE")
+[ -z "$bad_effort" ] && ok "table:col4-valid(codex effort / xai api id)" || bad "table:col4-valid" "$bad_effort"
 # ignore rows: exactly <ignore> <glob> <reason>, reason mandatory (an ignore
 # row silences catalog-drift's `unrouted` finding — it has to say why)
 bad_ignore=$(awk -F'\t' '$1=="ignore" && (NF!=3 || $2=="" || $3 !~ /[^[:space:]]/) {print "line " NR ": " $0}' "$TABLE")
@@ -373,7 +523,13 @@ if [ "${1:-}" = "--no-live" ]; then
   echo "FAILURES (free tiers): ${FAILURES[*]}"; exit 1
 fi
 mapfile -t MODELS < <(awk -F'\t' '$1=="model"{print $2}' "$TABLE")
+backend_of() { awk -F'\t' -v k="$1" '$1=="model" && $2==k {print $3; exit}' "$TABLE"; }
 for m in "${MODELS[@]}"; do
+  if [ "$(backend_of "$m")" = xai ]; then
+    [ -n "$XAI_KEY_SRC" ] || continue   # already WARNed in Tier 1
+    "$RUN" "$m" "$XAI_PROMPTFILE" "$WORK" >"$OUT/$m.txt" 2>&1 &
+    continue
+  fi
   "$RUN" "$m" "$PROMPTFILE" "$WORK" >"$OUT/$m.txt" 2>&1 &
 done
 # In $WORK, never the caller's cwd, and never persisted: a transcript would be
@@ -395,7 +551,19 @@ for pair in "codex:gpt-5.6-terra" "cursor:composer-2.5"; do
 done
 wait
 
+DIGIT_SEP=$'(,| |\u2009|\u202f|\u00a0)'   # , space, thin / narrow no-break / no-break space
 for m in "${MODELS[@]}"; do
+  if [ "$(backend_of "$m")" = xai ]; then
+    [ -n "$XAI_KEY_SRC" ] || { warn "route:$m" "skipped — no XAI_API_KEY"; continue; }
+    # the per-run sum answered AND the response parsed (the xai-tools usage line
+    # exists). Digit-group separators (231,456 / 231 456 / thin or no-break
+    # space) are dropped first — only BETWEEN digits, so word boundaries survive.
+    sed -E "s/([0-9])$DIGIT_SEP([0-9]{3})/\1\3/g" "$OUT/$m.txt" 2>/dev/null | grep -qw "$XAI_SUM" \
+      && grep -q '^model-run: xai-tools ' "$OUT/$m.txt" \
+      && ok "route:$m ($(grep -m1 -o 'x_search=[0-9]* web_search=[0-9]*.*cost_usd=[0-9.?]*' "$OUT/$m.txt"))" \
+      || { xbad "route:$m"; tail -c 400 "$OUT/$m.txt" 2>/dev/null | sed 's/^/      /'; }
+    continue
+  fi
   grep -q "$NONCE" "$OUT/$m.txt" 2>/dev/null && ok "route:$m" || { bad "route:$m"; tail -c 300 "$OUT/$m.txt" 2>/dev/null | sed 's/^/      /'; }
 done
 grep -q "$NONCE" "$OUT/claude-haiku.txt" 2>/dev/null && ok "route:claude-haiku(native)" || bad "route:claude-haiku(native)"

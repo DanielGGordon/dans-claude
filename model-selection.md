@@ -64,7 +64,10 @@ sourced.
   **legacy**: still routable while the Cursor catalog lists them, but not the
   default. `bin/catalog-drift.sh` (via `routecheck` and the SessionStart hook)
   warns when a newer grok/composer/glm/gpt version shows up in a catalog so
-  the next bump is surfaced at session start, not mid-task.
+  the next bump is surfaced at session start, not mid-task. The same model is
+  also wired **direct to the xAI API** as `grok-4.7-xsearch`
+  (`--task-type x-recency`, 2026-09-22), the only route with real X search;
+  the scores above apply to both routes.
 
 Notes (evidence-backed, 2026-07-21; the gpt-6-astra note is 2026-09-18):
 
@@ -214,31 +217,44 @@ better than Sol's, not low.
 
 ### Recent Information / Research
 
-**grok is the default for anything time-sensitive — grok-4.7 via
-`grok-4.7-high` (`--task-type recency`)**: xAI's server-side
-`web_search` and `x_search` agent tools give grok live web plus real-time
-X-stream access no other API model has ($5 per 1k successful tool calls on top
-of $2/$6 tokens, grok-4.5 pricing; 4.7's is unverified). Use it for breaking
-news, social sentiment, "what happened this week" research, and cross-checking
-another agent's claims about recent releases. `cursor-grok-4.6-*` and
-`cursor-grok-4.5-*` remain routable as legacy if you need to reproduce an
-earlier result.
+Two grok routes, split by **whether you need X**:
 
-Caveats, applied strictly:
+- **`--task-type x-recency` → `grok-4.7-xsearch`: social / X sentiment.** Hot
+  takes, practitioner and lab-staff reactions, "what are people saying about
+  X", launch chatter, anything whose best evidence is posts rather than
+  pages. It runs grok-4.7 on the **direct xAI Responses API** with the
+  server-side `x_search` **and** `web_search` tools. It is the only route in
+  this stack that reads X: no other API model has a real-time X feed, and grok
+  through Cursor has web search only. model-run prints a measured
+  `model-run: xai-tools x_search=<n> web_search=<n> ...` line on stderr, so you
+  can prove X was searched instead of trusting grok's word. Wired 2026-09-22;
+  the daily model scout uses it first, for the X hot-takes half of its
+  research. Pay-per-use (grok-4.7 $2 / $6 per Mtok, cached input $0.50,
+  doubled past 200k prompt tokens; `web_search` $5 per 1k calls; `x_search`
+  $5 per 1k **posts fetched**, $10 per 1k profiles; docs.x.ai models and
+  pricing pages, fetched 2026-09-22). Two test sentiment questions on
+  2026-09-22 cost $0.10 and $0.14 each (the response's own `cost_in_usd_ticks`). Needs `XAI_API_KEY` (env or `~/.profile`); a rejected key
+  is exit 75, like any auth failure.
+- **`--task-type recency` → `grok-4.7-high` (Cursor): general recent info.**
+  Breaking news, "what happened this week" research, and cross-checking
+  another agent's claims about recent releases, on the already-paid Cursor
+  seat, **web search only**. Note the id has **no `cursor-` prefix**, unlike
+  the legacy 4.6/4.5 ids. `cursor-grok-4.6-*` and `cursor-grok-4.5-*` remain
+  routable as legacy if you need to reproduce an earlier result.
 
-- **Do not trust its unsourced recall** — 54% AA-Omniscience hallucination rate
+Caveats, applied strictly (they apply to both routes, which run the same model):
+
+- **Do not trust its unsourced recall**: 54% AA-Omniscience hallucination rate
   (measured on 4.5; assume the same for 4.7 until re-benchmarked). Require
-  citations with dates in the prompt; treat uncited recent "facts" as
-  unverified. grok-4.5's training cutoff is 2026-02-01 (4.7's not verified
-  here); freshness comes from the search tools, not the model.
+  citations with dates in the prompt, and post URLs for X claims; treat
+  uncited recent "facts" as unverified. grok-4.7's knowledge cutoff is May
+  2026 (docs.x.ai models page, fetched 2026-09-22); freshness comes from the
+  search tools, not the model. An X post is a lead, not a source: a claim
+  that goes into a repo file still needs a primary source.
 - Its edge is specifically the **X stream and cheap tokens for search-heavy
-  loops**. For ordinary web recency, Claude's native WebSearch is fine — don't
-  route to grok just because a question mentions a date.
-- Via Cursor CLI (`grok-4.7-high`, or just `--task-type recency`) for
-  general recent-info prompts. Note the id has **no `cursor-` prefix**, unlike
-  the legacy 4.6/4.5 ids. The direct xAI Responses API (`x_search` etc.)
-  is **unwired on this machine** — see model-usage.md; don't attempt it
-  without the user wiring `XAI_API_KEY`.
+  loops**. For ordinary web recency, Claude's native WebSearch is fine. Don't
+  route to grok just because a question mentions a date, and don't pay for
+  x-recency when the question isn't about what people are saying.
 
 ### Avoid
 
@@ -252,7 +268,7 @@ you announce it.
 - Main orchestrator: **fable-5** or **opus-4.8** at high effort.
 - Delegations to non-Claude models go through the **`model-runner`** named
   agent (a sonnet wrapper installed from this repo) — give it a model id OR a
-  task type (`bulk` / `cheap` / `recency` / `second-review` / `fable-fallback`)
+  task type (`bulk` / `cheap` / `recency` / `x-recency` / `second-review` / `fable-fallback`)
   + prompt file; it invokes `bin/model-run.sh` and returns output verbatim. Prefer task types:
   the table picks the id deterministically, and the mapping lives in
   `bin/routes.tsv`, not in your judgment. Don't hand-roll codex/cursor-agent
@@ -299,7 +315,9 @@ before anyone asks for it. Since 2026-09-22 it also reports **unrouted** ids
 (a new tier like `gpt-6-sol` or a new family like `claude-opus-5-5-*` that no
 `model` / `retired` / `ignore` row in routes.tsv accounts for), and the **daily
 model scout** (`bin/model-scout.sh`, cron 11:30 UTC) turns all of that into a
-PR: grok recency research with live web + X search, independent WebSearch
+PR: grok research with live X + web search first (`x-recency`, measured
+x_search count; a failure falls back to web-only `recency` and marks the run
+degraded), independent WebSearch
 confirmation of every claim it writes here, table/notes/routes updates under
 this file's evidence rules (provisional `*` when thin, pinned benchmark index
 versions), a live routecheck, and a gpt-6-astra second review. Models it has

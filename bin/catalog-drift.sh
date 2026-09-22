@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # catalog-drift — compare the LIVE model catalogs (Cursor: `cursor-agent
-# --list-models`; Codex: `codex debug models`, a local-cache read) against
+# --list-models`; Codex: `codex debug models`, a local-cache read; xAI:
+# `model-run.sh --xai-models` = GET /v1/models, zero tokens) against
 # bin/routes.tsv and report drift. Exists so the next "grok 4.7" shows up at
 # session start instead of mid-task as a model-run.sh exit-64.
 #
@@ -28,6 +29,11 @@
 # any, 0 if none, 2 if no catalog readable. Acknowledge an id you deliberately
 # don't route with an `ignore<TAB><glob><TAB><reason>` row in routes.tsv.
 # Fail-open by design: unavailable catalogs are reported, not treated as drift.
+# xAI (backend xai, the direct-API route): only `vanished` is checked, against
+# each row's API model id (routes.tsv column 4) — its catalog is raw API ids
+# whose numbering defeats version-max (grok-4.20 predates grok-4.7) and new
+# groks already surface through the Cursor catalog. No XAI_API_KEY (env or
+# ~/.profile) = the backend is skipped silently, not "unavailable".
 # --cached also remembers a failed fetch for 1h (catalog-<backend>.failed stamp)
 # so a broken/unauthenticated CLI costs one timeout per hour, not per session.
 #
@@ -83,11 +89,15 @@ if not ids: sys.exit(65)
 print("\n".join(ids))'
 }
 
+fetch_xai() {  # 69 = no XAI_API_KEY configured (skipped silently by the caller)
+  timeout "$FETCH_TIMEOUT" bash "$DIR/model-run.sh" --xai-models </dev/null 2>/dev/null
+}
+
 # Returns the id list for a backend (cached or live per MODE) on stdout; prints a
 # human reason on stderr and returns nonzero when nothing usable exists.
 catalog_for() {
   local be="$1" cache="$CACHE_DIR/catalog-$be.txt" label
-  case "$be" in cursor) label="Cursor";; codex) label="Codex";; *) label="$be";; esac
+  label=$(label_of "$be")
   if [ "$MODE" = cached ] && [ -s "$cache" ]; then
     local age=$(( $(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0) ))
     if [ "$age" -lt "$MAX_AGE" ]; then cat "$cache"; return 0; fi
@@ -98,14 +108,17 @@ catalog_for() {
     why="$(cat "$stamp"), not retried for 1h"   # negative cache: don't pay the timeout every session
   else
     ids=$("fetch_$be"); st=$?
+    [ "$st" -eq 69 ] && return 69   # backend not configured on this machine: no stamp, no message
     if [ "$st" -eq 0 ]; then
       mkdir -p "$CACHE_DIR" && printf '%s\n' "$ids" > "$cache.tmp" && mv "$cache.tmp" "$cache"
       rm -f "$stamp"; printf '%s\n' "$ids"; return 0
     fi
     case "$st" in
-      127) why="$( [ "$be" = cursor ] && echo cursor-agent || echo codex ) not installed" ;;
+      127) why="$(case "$be" in cursor) echo cursor-agent;; xai) echo curl;; *) echo "$be";; esac) not installed" ;;
+      75)  why="XAI_API_KEY rejected or out of credits" ;;
       124) why="catalog fetch timed out after ${FETCH_TIMEOUT}s" ;;
       65)  why="catalog output unparseable (not logged in?)" ;;
+      73)  why="catalog fetch failed (exit 73 — network error or rate limit)" ;;
       *)   why="catalog fetch failed (exit $st — not logged in / network?)" ;;
     esac
     mkdir -p "$CACHE_DIR" && printf '%s\n' "$why" > "$stamp"
@@ -121,7 +134,7 @@ catalog_for() {
 # "<id>" -> "<family> <version>" (or nothing if the id carries no version).
 fam_ver() { sed -E 's/^cursor-//' | sed -nE 's/^([a-z][a-z-]*[a-z])-([0-9]+(\.[0-9]+)*)(-.*)?$/\1 \2/p'; }
 # Catalog display label per backend for messages.
-label_of() { case "$1" in cursor) echo Cursor;; codex) echo Codex;; *) echo "$1";; esac; }
+label_of() { case "$1" in cursor) echo Cursor;; codex) echo Codex;; xai) echo xAI;; *) echo "$1";; esac; }
 # Family-ish grouping key for the unrouted summary: the leading alphabetic
 # dash-words ("claude-opus-5-5-high" -> claude-opus, "kimi-k3-low" -> kimi,
 # "gpt-6-sol" -> gpt, "auto" -> auto). Works where fam_ver can't parse a version.
@@ -151,11 +164,22 @@ for be in $(awk -F'\t' '$1=="model"{print $3}' "$TABLE" | sort -u); do
   LABEL=$(label_of "$be")
   ROUTED=$(awk -F'\t' -v b="$be" '$1=="model" && $3==b {print $2}' "$TABLE")
   [ -n "$ROUTED" ] || continue
-  if ! CATALOG=$(catalog_for "$be" 2>"$ERR"); then
+  CATALOG=$(catalog_for "$be" 2>"$ERR"); cst=$?
+  [ "$cst" -eq 69 ] && continue   # xai without a key: not configured here, not a finding
+  if [ "$cst" -ne 0 ]; then
     emit unavailable "$(cat "$ERR" 2>/dev/null)"; continue
   fi
   [ -s "$ERR" ] && emit stale "$(cat "$ERR")"   # stale-cache note, informational
   READABLE=1
+
+  if [ "$be" = xai ]; then   # vanished-only, by API model id (see header)
+    while IFS=$'\t' read -r rid api; do
+      [ -n "$rid" ] || continue
+      printf '%s\n' "$CATALOG" | grep -qxF "${api:-$rid}" \
+        || { emit vanished "routes.tsv id $rid (xAI API model ${api:-?}) is gone from the xAI catalog"; DRIFT=1; }
+    done < <(awk -F'\t' '$1=="model" && $3=="xai" {print $2"\t"$4}' "$TABLE")
+    continue
+  fi
 
   # (b) routed ids that vanished from the catalog
   while read -r id; do

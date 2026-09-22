@@ -17,7 +17,8 @@
 #
 # One run:
 #  1. flock single-instance; log to ~/.claude/model-scout/logs/<YYYY-MM-DD>.log
-#     (30 days kept, plus <date>.report.md / .grok.md / .review.md / .patch).
+#     (30 days kept, plus <date>.report.md / .grok.md / .grok-fallback.md /
+#     .review.md / .patch).
 #  2. A throwaway git worktree of --repo in ~/.cache/model-scout/wt-<date>,
 #     detached at the base — the live ~/dotfiles/claude checkout is never touched.
 #  3. Deterministic pre-steps (zero model tokens except routecheck's ~100/route),
@@ -28,17 +29,25 @@
 #     prompt AND by --disallowedTools deny rules + refusing git commit/push
 #     hooks: no commit, push, gh pr write, crontab or install.sh) running
 #     scout/prompt.md + the signals, hard timeout
-#     MODEL_SCOUT_TIMEOUT (5400s). It researches (grok recency FIRST, then
-#     Claude WebSearch, then the live catalogs), edits the routing table/docs,
-#     re-runs routecheck, gets a gpt-6-astra second review and writes
-#     scout/last-report.md. It must write a status line and the grok output to
-#     files this script checks — a run that skipped (or failed) the mandatory
-#     grok pass fails; one whose grok reported no X search is published but
-#     recorded failed. Every routecheck in the run writes its verdict to the
-#     artifacts dir (ROUTE_HEALTH_FILE/_TOOLS), never the live banner's files,
-#     except the pre-run one on an unmodified origin/master.
+#     MODEL_SCOUT_TIMEOUT (5400s). It researches (grok FIRST via
+#     `--task-type x-recency` = the direct xAI API with real web + X search,
+#     then Claude WebSearch, then the live catalogs), edits the routing
+#     table/docs, re-runs routecheck, gets a gpt-6-astra second review and
+#     writes scout/last-report.md. It must write a status line and the grok
+#     output to files this script checks. The gate is MEASURED, not
+#     self-reported: model-run's `xai-tools x_search=<n>` line. x-recency ok
+#     with >=1 x_search call = full research. x-recency failed (exit 75/73/124,
+#     or 0 x_search calls) = the agent must fall back to `--task-type recency`
+#     (cursor grok, web only) and announce it in the report; the run is then
+#     recorded DEGRADED (status "degraded", not "failed"; a 75 is named, e.g.
+#     "XAI_API_KEY rejected"). No grok output, output that isn't model-run's,
+#     or both passes failing = BLOCKED (failed). Every routecheck in the run
+#     writes its verdict to the artifacts dir (ROUTE_HEALTH_FILE/_TOOLS), never
+#     the live banner's files, except the pre-run one on an unmodified
+#     origin/master.
 #  5. Gate + publish: only files on an allowlist may change (anything else is
-#     reverted and logged); `routecheck --no-live` must pass; then commit on
+#     reverted and logged); `routecheck --no-live` must pass (xai key/credit
+#     failures only WARN there: ROUTECHECK_XAI_SOFT=1); then commit on
 #     claude/model-scout-<date> (or the open scout PR's branch — at most ONE
 #     open scout PR: a failed `gh pr list` aborts rather than risk a second;
 #     the PR's state is re-checked right before pushing — MERGED replays the
@@ -60,13 +69,21 @@
 # out master), never from the worktree the agent was allowed to edit.
 #
 # State ~/.claude/model-scout/last-run.json (read by hooks/route-health-banner.sh):
-#   {date, status: "no-change"|"pr"|"failed", pr_url, summary, log,
-#    finished_at, started_at, last_success, marker, branch, cleanup, open_pr}
-# open_pr = a scout PR known to be open, kept across no-change runs. "failed"
-# also covers runs that worked but left something actionable (DEGRADED:
-# cleanup incomplete, live routecheck still failing, grok without X search);
-# last_success follows the research outcome, not those.
-# Exit: 0 no-change / pr / dry-run · 1 failed · 0 (silently) when another run
+#   {date, status: "no-change"|"pr"|"degraded"|"failed", pr_url, summary, log,
+#    finished_at, started_at, last_success, last_x_success, marker, branch,
+#    cleanup, open_pr}
+# open_pr = a scout PR known to be open, kept across no-change runs.
+# "degraded" = the run worked (any PR is published) but its research had no X
+# search (x-recency failed; the cursor-grok web-only fallback ran), or the live
+# routecheck fails ONLY the xai route (auth:xai / its smoke: a rejected,
+# out-of-credit or rate-limited XAI_API_KEY) — the summary says why. The
+# publish gate runs routecheck with ROUTECHECK_XAI_SOFT=1, so a bad key never
+# blocks the PR. "failed" also covers runs that worked but left something
+# actionable (cleanup incomplete, any other live routecheck failure); it wins
+# over "degraded". last_success follows the research outcome, not those;
+# last_x_success advances only on a measured X search (it sets the next
+# x-recency from_date, so a degraded run's gap is searched later, ≤30 days).
+# Exit: 0 no-change / pr / degraded / dry-run · 1 failed · 0 (silently) when another run
 # holds the lock. Auth/quota errors (model-run exit 75, claude login/usage
 # limits) fail loudly into last-run.json — never substituted.
 #
@@ -144,6 +161,21 @@ try: d=json.load(open(sys.argv[1]))
 except Exception: sys.exit()
 print(d["last_success"] or "" if "last_success" in d else (d.get("date") if d.get("status") in ("no-change","pr") else "") or "")' "$STATE" 2>/dev/null)
 SINCE="${PREV_SUCCESS:-$(date -d '14 days ago' +%F)}"
+# X has its own window: a degraded run (no X search) still advances
+# last_success — its web research counted — but not last_x_success, so the
+# next x-recency pass searches X back over the gap instead of skipping it for
+# good. Never later than the research window; capped at 30 days (a key dead
+# for months shouldn't mean a months-wide X search). null = no measured X
+# search yet (the 14-day first-run default); state files from before this
+# field fall back to last_success.
+PREV_X_SUCCESS=$(python3 -c 'import json,sys
+try: d=json.load(open(sys.argv[1]))
+except Exception: sys.exit()
+print((d["last_x_success"] if "last_x_success" in d else d.get("last_success")) or "")' "$STATE" 2>/dev/null)
+X_SINCE="${PREV_X_SUCCESS:-$(date -d '14 days ago' +%F)}"
+[[ "$SINCE" < "$X_SINCE" ]] && X_SINCE="$SINCE"
+[[ "$X_SINCE" < "$(date -d '30 days ago' +%F)" ]] && X_SINCE=$(date -d '30 days ago' +%F)
+X_FULL=0               # set once the grok gate measures a real x_search pass
 
 STATUS=failed          # pessimistic until the run proves otherwise
 SUMMARY="run died before finishing (see log)"
@@ -152,6 +184,7 @@ OPEN_PR_URL=""         # a scout PR known to be open (kept in state across no-ch
 BRANCH=""
 CLEANUP_NOTE="not run"
 DEGRADED=()            # reasons a run that otherwise worked must still be recorded "failed"
+RESEARCH_DEGRADED=()   # reasons it is recorded "degraded" (no X search; web-only fallback ran)
 WT=""
 SCRATCH=$(mktemp -d /tmp/model-scout.XXXXXX)
 WORK_ROOT="$SCRATCH/work"            # the agent's throwaway model-call workdirs live here
@@ -163,16 +196,20 @@ fail() { STATUS=failed; SUMMARY="$*"; log "FAILED: $*"; exit 1; }
 
 # JSON state, written atomically (the SessionStart hook reads it).
 write_state() {  # $1 = the status the research itself ended with (before DEGRADED)
-  local last_success="$PREV_SUCCESS"
+  local last_success="$PREV_SUCCESS" last_x_success="$PREV_X_SUCCESS"
   # A dry run did no research, so it must not shrink the next run's window.
-  [ "${1:-$STATUS}" = failed ] || [ "$DRY_RUN" -eq 1 ] || last_success="$DATE"
+  if [ "${1:-$STATUS}" != failed ] && [ "$DRY_RUN" -eq 0 ]; then
+    last_success="$DATE"
+    [ "$X_FULL" = 1 ] && last_x_success="$DATE"
+  fi
   python3 - "$STATE" "$DATE" "$STATUS" "$SUMMARY" "$PR_URL" "$LOG" "$RUN_START" \
-    "$last_success" "$MARKER" "$BRANCH" "$CLEANUP_NOTE" "$OPEN_PR_URL" <<'PY'
+    "$last_success" "$MARKER" "$BRANCH" "$CLEANUP_NOTE" "$OPEN_PR_URL" "$last_x_success" <<'PY'
 import json, os, sys, time
-(p, date, status, summary, pr, log, start, last_ok, marker, branch, cleanup, open_pr) = sys.argv[1:]
+(p, date, status, summary, pr, log, start, last_ok, marker, branch, cleanup, open_pr, last_x) = sys.argv[1:]
 d = {"date": date, "status": status, "pr_url": pr or None, "summary": summary,
      "log": log, "finished_at": int(time.time()), "started_at": int(start),
-     "last_success": last_ok or None, "marker": marker, "branch": branch or None,
+     "last_success": last_ok or None, "last_x_success": last_x or None,
+     "marker": marker, "branch": branch or None,
      "cleanup": cleanup, "open_pr": open_pr or None}
 tmp = p + ".tmp"
 with open(tmp, "w") as f:
@@ -201,8 +238,8 @@ finish() {
       log "uncommitted worktree changes saved to $LOGDIR/$DATE.patch"
     fi
   fi
-  for a in grok-research.md second-review.md; do
-    [ -s "$ARTIFACTS/$a" ] && cp "$ARTIFACTS/$a" "$LOGDIR/$DATE.${a%%-*}.md"
+  for a in grok-research.md:grok grok-fallback.md:grok-fallback second-review.md:review; do
+    [ -s "$ARTIFACTS/${a%%:*}" ] && cp "$ARTIFACTS/${a%%:*}" "$LOGDIR/$DATE.${a##*:}.md"
   done
 
   # Workdirs this run owned: the scout worktree (the agent's own cwd — a bare
@@ -295,9 +332,18 @@ finish() {
   CLEANUP_NOTE=$(IFS='|'; echo "${notes[*]}" | sed 's/|/; /g')
   log "cleanup: $CLEANUP_NOTE"
   # The research outcome decides the next run's window; DEGRADED reasons (a
-  # failing sweep, routes still broken, grok without X) only make the run
-  # visible as failed — an open PR is still recorded in open_pr.
+  # failing sweep, routes still broken) only make the run visible as failed,
+  # RESEARCH_DEGRADED ones (no X search) as degraded — an open PR is still
+  # recorded in open_pr either way. failed wins over degraded.
   local research_status="$STATUS" why
+  if [ "${#RESEARCH_DEGRADED[@]}" -gt 0 ]; then
+    why=$(IFS='|'; echo "${RESEARCH_DEGRADED[*]}" | sed 's/|/; /g')
+    log "RESEARCH DEGRADED: $why"
+    case "$STATUS" in
+      no-change|pr) STATUS=degraded; SUMMARY="DEGRADED: $why — $SUMMARY" ;;
+      *) SUMMARY="$SUMMARY; DEGRADED: $why" ;;
+    esac
+  fi
   if [ "${#DEGRADED[@]}" -gt 0 ]; then
     why=$(IFS='|'; echo "${DEGRADED[*]}" | sed 's/|/; /g')
     log "DEGRADED: $why"
@@ -393,7 +439,7 @@ LIVE_HEALTH="${ROUTE_HEALTH_FILE:-$HOME/.claude/route-health.txt}"
 LIVE_TOOLS="${ROUTE_HEALTH_TOOLS:-$HOME/.claude/route-health-tools.txt}"
 export ROUTE_HEALTH_FILE="$ARTIFACTS/route-health.txt" ROUTE_HEALTH_TOOLS="$ARTIFACTS/route-health-tools.txt"
 export MODEL_SCOUT_MARKER="$MARKER" MODEL_SCOUT_TMP="$WORK_ROOT" MODEL_SCOUT_WORKDIRS="$REGISTRY"
-export MODEL_SCOUT_ARTIFACTS="$ARTIFACTS" MODEL_SCOUT_DATE="$DATE" MODEL_SCOUT_SINCE="$SINCE"
+export MODEL_SCOUT_ARTIFACTS="$ARTIFACTS" MODEL_SCOUT_DATE="$DATE" MODEL_SCOUT_SINCE="$SINCE" MODEL_SCOUT_X_SINCE="$X_SINCE"
 
 # ---------- deterministic pre-steps → signals ----------
 section "signals"
@@ -403,11 +449,12 @@ fence() { echo '```'; cat; echo '```'; }
   echo "## Run context (written by bin/model-scout.sh — values are literal, use them as-is)"
   echo
   echo "- Today: **$DATE**. Research window: **$SINCE → $DATE** (last successful scout run: ${PREV_SUCCESS:-none — first run, window is 14 days})."
+  [ "$X_SINCE" != "$SINCE" ] && echo "- X search window: **$X_SINCE → $DATE**"' (`$MODEL_SCOUT_X_SINCE`) — wider than the research window because the last run(s) had no X search; cover X chatter from that whole span.'
   echo "- Worktree (your cwd; edit ONLY here): \`$WT\`"
   echo "- Base: \`$BASE\` (\`${BASE_SHA:0:12}\`)${REUSE_URL:+ — this stacks on the still-open scout PR $REUSE_URL: its changes are already in the tree; extend its scout/last-report.md (new dated section on top) rather than replacing it}."
   echo "- Run marker: \`$MARKER\` — must appear in EVERY prompt you send to any model."
   echo "- Throwaway workdir root: \`$WORK_ROOT\` — make each workdir with \`w=\$(mktemp -d $WORK_ROOT/w.XXXXXX) && echo \"\$w\" >> $REGISTRY\`."
-  echo "- Artifacts dir: \`$ARTIFACTS\` — write \`grok-research.md\`, \`second-review.md\` and \`status\` here."
+  echo "- Artifacts dir: \`$ARTIFACTS\` — write \`grok-research.md\` (the x-recency pass), \`grok-fallback.md\` (only if x-recency failed), \`second-review.md\` and \`status\` here."
   echo "- Env already exported for every command you run: MODEL_RUN_EPHEMERAL=1, ROUTECHECK_MARKER=$MARKER, MODEL_SCOUT_* (same values as above)."
   echo
   echo "### CLI versions now (bin/cli-fingerprint.sh --versions)"
@@ -449,8 +496,21 @@ fi
 check_route_health() {
   [ -s "$ROUTE_HEALTH_FILE" ] || return 0
   grep -qE '^[0-9-]+ ok' "$ROUTE_HEALTH_FILE" && return 0
-  local auth=""
+  local auth="" fails xai_names others
+  # Only the xai route failing (auth:xai / its live smoke) = the XAI_API_KEY's
+  # account (rejected, out of credits, rate-limited) or xAI itself — nothing in
+  # the tree to fix, and the research already fell back without X. Degraded,
+  # not failed. Anything else failing alongside it still fails the run.
+  fails=$(cut -d' ' -f3- "$ROUTE_HEALTH_FILE")
+  xai_names="auth:xai $(awk -F'\t' '$1=="model" && $3=="xai" {printf "route:%s ", $2}' bin/routes.tsv 2>/dev/null)"
+  others=$(awk -v ids="$xai_names" 'BEGIN {n = split(ids, a, " "); for (i = 1; i <= n; i++) x[a[i]] = 1}
+    {for (i = 1; i <= NF; i++) if (!($i in x)) printf "%s ", $i}' <<<"$fails")
+  if [ -n "$fails" ] && [ -z "$others" ]; then
+    RESEARCH_DEGRADED+=("live routecheck fails only the xai route ($fails) — XAI_API_KEY rejected / out of xAI credits / rate-limited; fix the key in ~/.profile")
+    return 0
+  fi
   grep -qsF 'AUTH/QUOTA' "$RC_OUT" "$WORK_ROOT"/*/routecheck.txt && auth=" (AUTH/QUOTA errors: codex login / cursor-agent login)"
+  grep -qsE '^FAIL +auth:xai' "$RC_OUT" "$WORK_ROOT"/*/routecheck.txt && auth="$auth (XAI_API_KEY rejected / out of xAI credits — fix the key in ~/.profile)"
   DEGRADED+=("live routecheck still FAILS: $(cut -d' ' -f3- "$ROUTE_HEALTH_FILE" | head -c 200)$auth")
 }
 
@@ -566,31 +626,55 @@ case "$AGENT_STATUS" in
   blocked*) BLOCKED="${AGENT_STATUS#blocked}"; BLOCKED="${BLOCKED# }" ;;
   *) fail "agent wrote an unrecognised status line: $AGENT_STATUS" ;;
 esac
-# The grok recency pass is mandatory — no grok output means the research
-# never cross-checked X/web in real time; don't let a skipped step pass as "ok".
-# The file must be real model-run --task-type recency output (its stderr
-# `-> grok-` line), and not a failed call the agent copied and then ignored.
+# The grok pass is mandatory, and its X search is MEASURED, not self-reported:
+# grok-research.md must be real `model-run.sh --task-type x-recency` output
+# (stderr captured with it), whose `model-run: xai-tools x_search=<n>` line
+# comes from the xAI response's usage — printed only for a usable answer.
+#   x-recency ok, x_search >= 1          -> full research
+#   x-recency 75/73/124/other, or 0 X    -> the agent must have run the
+#     `--task-type recency` fallback (cursor grok, web only) into
+#     grok-fallback.md: the run is DEGRADED (status "degraded"), with the
+#     reason named (a 75 as "XAI_API_KEY rejected" etc.) — never silent
+#   no/foreign output, no fallback, or the fallback failed too -> BLOCKED
 GROK="$ARTIFACTS/grok-research.md"
+GROK_FB="$ARTIFACTS/grok-fallback.md"
+XERR_RE='^model-run: (AUTH/QUOTA ERROR|TRANSPORT ERROR|TIMEOUT|xAI |could not build|MODEL_RUN_XSEARCH)'
 if [ -z "$BLOCKED" ]; then
   if [ ! -s "$GROK" ]; then
-    BLOCKED="agent skipped the mandatory grok recency pass (no grok-research.md)"
-  elif g_err=$(grep -m1 -oE '^model-run: (AUTH/QUOTA ERROR|TRANSPORT ERROR|TIMEOUT)' "$GROK"); then
-    BLOCKED="grok recency pass failed (${g_err#model-run: }) but the agent reported ok"
-  elif ! grep -qE '^model-run: --task-type recency -> grok-' "$GROK"; then
-    BLOCKED="grok-research.md is not bin/model-run.sh --task-type recency output"
+    BLOCKED="agent skipped the mandatory grok x-recency pass (no grok-research.md)"
+  elif ! grep -qE '^model-run: --task-type x-recency -> ' "$GROK"; then
+    BLOCKED="grok-research.md is not bin/model-run.sh --task-type x-recency output"
+  else
+    xtools=$(grep -E '^model-run: xai-tools ' "$GROK" | tail -1)
+    xs=$(printf '%s' "$xtools" | grep -oE 'x_search=[0-9]+' | cut -d= -f2)
+    xerr=$(grep -m1 -E "$XERR_RE" "$GROK" | head -c 300)
+    if [ -z "$xerr" ] && [ -n "$xtools" ] && [ "${xs:-0}" -ge 1 ]; then
+      X_FULL=1
+      log "grok x-recency: FULL — ${xtools#model-run: xai-tools }"
+    else
+      case "$xerr" in
+        *"XAI_API_KEY not set"*) why="XAI_API_KEY not set (x-recency exit 75)" ;;
+        *"XAI_API_KEY rejected"*) why="XAI_API_KEY rejected (x-recency exit 75: $(printf '%s' "$xerr" | grep -oE '"error":"[^"]*"' | head -c 120))" ;;
+        *"AUTH/QUOTA"*) why="xAI credits / rate limit exhausted (x-recency exit 75)" ;;
+        *"TRANSPORT ERROR"*) why="xAI transport error (x-recency exit 73)" ;;
+        *"TIMEOUT"*) why="xAI timeout (x-recency exit 124)" ;;
+        ?*) why="x-recency failed: ${xerr#model-run: }" ;;
+        *) if [ -z "$xtools" ]; then why="x-recency produced no answer (no xai-tools line)"
+           else why="x-recency made 0 x_search calls"; fi ;;
+      esac
+      why=$(printf '%s' "$why" | head -c 200)
+      log "grok x-recency NOT full: $why"
+      if [ ! -s "$GROK_FB" ]; then
+        BLOCKED="$why, and the agent ran no --task-type recency fallback (no grok-fallback.md)"
+      elif ! grep -qE '^model-run: --task-type recency -> grok-' "$GROK_FB"; then
+        BLOCKED="$why; grok-fallback.md is not bin/model-run.sh --task-type recency output"
+      elif fb=$(grep -m1 -oE '^model-run: (AUTH/QUOTA ERROR|TRANSPORT ERROR|TIMEOUT)' "$GROK_FB"); then
+        BLOCKED="both grok passes failed: $why; cursor recency fallback ${fb#model-run: }"
+      else
+        RESEARCH_DEGRADED+=("no X search — $why; research fell back to cursor grok (web only)")
+      fi
+    fi
   fi
-fi
-# Web + X search is the point of the grok pass: the prompt makes grok end with
-# a `SEARCH-TOOLS-USED: web=<yes|no> x=<yes|no>` line. A pass without X (or
-# without the line) still yields verified edits — publish them — but the run
-# is recorded failed so the gap is visible, never silently accepted.
-if [ -z "$BLOCKED" ]; then
-  prov=$(grep -E 'SEARCH-TOOLS-USED' "$GROK" | tail -1)
-  case "$prov" in
-    "") DEGRADED+=("grok gave no SEARCH-TOOLS-USED line — its web/X search is unverified") ;;
-    *) printf '%s' "$prov" | grep -qiE 'x *= *yes' || DEGRADED+=("grok reported no X search ($(printf '%s' "$prov" | tr -d '*`' | head -c 80))")
-       printf '%s' "$prov" | grep -qiE 'web *= *yes' || DEGRADED+=("grok reported no web search") ;;
-  esac
 fi
 check_route_health
 AGENT_SUMMARY="${AGENT_STATUS#ok}"; AGENT_SUMMARY="${AGENT_SUMMARY#blocked}"; AGENT_SUMMARY="${AGENT_SUMMARY# }"
@@ -627,9 +711,12 @@ for f in $(git diff --cached --name-only --diff-filter=d -- '*.sh'); do
   bash -n "$f" || fail "syntax error in $f after agent edits"
 done
 [ -s scout/last-report.md ] || fail "agent changed files but wrote no scout/last-report.md"
-timeout 600 bash tests/routecheck.sh --no-live >"$ARTIFACTS/routecheck-gate.txt" 2>&1 9>&-
+# ROUTECHECK_XAI_SOFT: a rejected / out-of-credit XAI_API_KEY is the account,
+# not this diff — it must not block publishing verified routing edits (the run
+# is recorded degraded via check_route_health / the grok gate instead).
+ROUTECHECK_XAI_SOFT=1 timeout 600 bash tests/routecheck.sh --no-live >"$ARTIFACTS/routecheck-gate.txt" 2>&1 9>&-
 GATE_RC=$?
-grep -E '^FAIL ' "$ARTIFACTS/routecheck-gate.txt" | sed 's/^/  /'
+grep -E '^FAIL |^WARN .*ROUTECHECK_XAI_SOFT' "$ARTIFACTS/routecheck-gate.txt" | sed 's/^/  /'
 [ "$GATE_RC" -eq 0 ] || fail "routecheck --no-live fails on the agent's diff (exit $GATE_RC) — not publishing"
 [ -s "$ARTIFACTS/second-review.md" ] || AGENT_SUMMARY="${AGENT_SUMMARY:+$AGENT_SUMMARY; }NO second review"
 

@@ -255,7 +255,9 @@ the route-health, `[model-scout]` and `[alfred]` banners. See `README.md` there.
 - **Daily model scout (user crontab, not systemd):** one line tagged
   `# claude-model-scout`, installed idempotently by `install.sh` (opt out:
   `MODEL_SCOUT_CRON=0`, remembered in `~/.claude/model-scout/cron-disabled`), runs `bin/model-scout.sh` at 11:30 UTC. It researches
-  new model releases (grok via `bin/model-run.sh` + headless `claude -p` opus),
+  new model releases (grok via `bin/model-run.sh` — X + web search on the
+  direct xAI API, `--task-type x-recency`, key `XAI_API_KEY` from `~/.profile`,
+  which the cron line sources — + headless `claude -p` opus),
   updates the routing table/docs in its own worktree under
   `~/.cache/model-scout/`, and opens (or updates) ONE `claude/model-scout-*` PR
   against this repo's master — never pushes to master. State

@@ -76,13 +76,21 @@ catalog drift, and unrouted catalog ids. Read it first.
 4. **Auth or quota failure means stop, and never substitute.** If `model-run.sh`
    exits `75` (auth/quota):
    - Don't retry it with another model.
-   - If it was the grok recency pass or the second review, the run is
-     **blocked**. Write the status `blocked <which route> exit 75: <message>`
+   - **One sanctioned exception, the X pass (step 1a):** if `--task-type
+     x-recency` fails (exit `75`, `73`, `124` or anything else) or makes zero
+     X searches, run the `--task-type recency` fallback exactly as step 1a
+     says, and **announce it** at the top of the report. It keeps research
+     going; it is not a silent substitution. A `75` there means the xAI key
+     was rejected (or credits ran out): name it in the report and under
+     "Needs Dan", verbatim.
+   - If the recency fallback also fails, or the second review fails, the run is
+     **blocked**. Write the status `blocked <which route> exit <code>: <message>`
      (see step 7), make no research-driven edits, and finish the report.
      Repairs from step 4 may stay in the diff.
 
-   Exit `73` (transport) or `124` (timeout) means retry that call once after a
-   few minutes. If it still fails, the same blocked rule applies.
+   Exit `73` (transport) or `124` (timeout) on the fallback or the second
+   review means retry that call once after a few minutes. If it still fails,
+   the same blocked rule applies.
 5. **Evidence standard.** This is the same standard `model-selection.md` holds
    itself to.
    - Every number you write into a repo file needs a source and its
@@ -109,7 +117,8 @@ catalog drift, and unrouted catalog ids. Read it first.
    - If you are running long, drop the lowest-value work first: polishing notes
      for models that are already routed.
    - Never leave a half-edited tree. `bash tests/routecheck.sh --no-live` must
-     pass when you stop. Revert with `git checkout -- <file>` whatever you can't
+     pass when you stop (a `FAIL auth:xai` from a rejected key alone doesn't
+     count — see Step 4). Revert with `git checkout -- <file>` whatever you can't
      finish, and say so in the report.
 
 ---
@@ -147,36 +156,48 @@ applies:
 
 ## Step 1: Research
 
-### 1a. grok recency pass: MANDATORY, and FIRST
+### 1a. grok X + web pass (`x-recency`): MANDATORY, and FIRST
 
-Make a workdir `$w`. Write `$w/grok-prompt.md` and run:
+`--task-type x-recency` is grok on the **direct xAI API** with its server-side
+`web_search` **and** `x_search` tools: the only route here that can read X.
+(grok through Cursor, `--task-type recency`, has web search only.) Make a
+workdir `$w`. Write `$w/grok-prompt.md` and run:
 
 ```bash
-bash bin/model-run.sh --task-type recency "$w/grok-prompt.md" "$w" > "$w/grok-out.md" 2>&1; echo "exit=$?"
+MODEL_RUN_XSEARCH_FROM="${MODEL_SCOUT_X_SINCE:-$MODEL_SCOUT_SINCE}" bash bin/model-run.sh --task-type x-recency "$w/grok-prompt.md" "$w" > "$w/grok-out.md" 2>&1; echo "exit=$?"
+cp "$w/grok-out.md" "$MODEL_SCOUT_ARTIFACTS/grok-research.md"
 ```
 
 Use a Bash timeout of 660000 ms (the wrapper raised the Bash tool's cap to 30
-minutes, so this is allowed). Then copy the output to
-`$MODEL_SCOUT_ARTIFACTS/grok-research.md`, even if it failed. The wrapper checks
-that file: a missing file, a file that isn't this command's output, or a failed
-call (auth/transport/timeout) that you reported as `ok` marks the run failed.
+minutes, so this is allowed). Copy the output to
+`$MODEL_SCOUT_ARTIFACTS/grok-research.md` **even if it failed**. It holds
+model-run's own stderr lines, which the wrapper reads; never edit it.
 
-The prompt must start with the marker line. Fill in the placeholders, and paste
+The prompt must start with the marker line. Fill in the placeholders
+(`<X window start>` = `$MODEL_SCOUT_X_SINCE`: the research window start, or
+earlier when the last runs had no X search), and paste
 the unrouted catalog ids and drift lines from Run context into it, like this:
 
 ```
 [<run marker>]
-Today is <date>. Use your LIVE web search and X (Twitter) search tools. Do not
-answer from memory: every claim needs a citation you actually retrieved.
+Today is <date>. Use your LIVE X search and web search tools. Do not answer
+from memory: every claim needs a citation you actually retrieved.
 
-Report every AI model release, GA, price change, deprecation or retirement from
-<window start> to today, from: OpenAI, Anthropic (Claude), xAI (Grok), Google
-(Gemini), Cursor (Composer), Z.ai (GLM), Moonshot (Kimi), DeepSeek, Alibaba
-(Qwen), MiniMax, Mistral, Meta, Xiaomi (MiMo), and any other lab whose model
-shows up in the Cursor or Codex model pickers. Also report CLI releases in
-that window for Claude Code, OpenAI Codex CLI and Cursor CLI (cursor-agent),
-especially renamed/removed flags, output-format changes, or new
-session/persistence behavior.
+Part 1 — X (Twitter), search this FIRST. Hot takes and first-hand reports from
+<X window start> to today about new AI models, from practitioners (developers
+shipping with these models, eval/benchmark people) and from lab staff
+(OpenAI, Anthropic, xAI, Google DeepMind, Cursor, Z.ai, Moonshot, DeepSeek,
+Qwen, MiniMax, Mistral, Meta, Xiaomi). For each: @handle, date, one-line
+paraphrase, and the post URL (https://x.com/<handle>/status/<id>). Separate
+lab-staff posts from practitioner posts. Flag launch teasers, leaks and
+rumors as UNVERIFIED.
+
+Part 2 — web. Report every AI model release, GA, price change, deprecation or
+retirement in the same window from the labs above and any other lab whose
+model shows up in the Cursor or Codex model pickers. Also report CLI releases
+in that window for Claude Code, OpenAI Codex CLI and Cursor CLI
+(cursor-agent), especially renamed/removed flags, output-format changes, or
+new session/persistence behavior.
 
 These ids are in the live Cursor/Codex catalogs but not in our routing table —
 say what each one is: <paste --unrouted ids and drift lines>
@@ -184,23 +205,42 @@ say what each one is: <paste --unrouted ids and drift lines>
 Per model: exact API/CLI id(s); release date; price per Mtok (input / cached /
 output); context; benchmark results WITH the benchmark name and version
 (e.g. "AA Intelligence Index v4.3.2"); availability in Codex CLI and in Cursor
-CLI; what it supersedes. Then X sentiment and hot takes: developer reactions
-from the past days, with @handle, date, and post URL where you can get it.
-Every factual claim gets a citation: URL + publication date. Mark leaks,
-rumors and single-source claims as UNVERIFIED. If a search tool is unavailable
-to you (e.g. X search), say so explicitly instead of guessing.
-
-End your answer with exactly this line, filled in truthfully for the tools you
-actually invoked for this answer:
-SEARCH-TOOLS-USED: web=<yes|no> x=<yes|no>
+CLI; what it supersedes; and the X sentiment from Part 1 about it. Every
+factual claim gets a citation: URL + publication date. Mark leaks, rumors and
+single-source claims as UNVERIFIED.
 ```
 
-grok via Cursor sometimes has web search but no X search. Web **and** X search
-are mandatory for this pass: the wrapper reads the `SEARCH-TOOLS-USED` line and
-records the run as failed when X (or the line) is missing. Your verified edits
-are still published, so carry on. If the line is missing or says `x=no`, retry
-the grok call once with the instruction to use X search first. Record in the
-report which tools it said it used.
+**Did X actually get searched?** Don't ask grok: model-run prints a measured
+line to stderr (so it lands in `grok-out.md`):
+`model-run: xai-tools x_search=<n> web_search=<n> x_posts=<n> ... cost_usd=<n>`.
+It comes from the xAI response's usage, and it is printed only when the call
+returned an answer.
+
+- **Full:** exit 0 and `x_search` ≥ 1. Done; don't run the Cursor grok pass
+  as well (Claude's own search in 1b is the independent second opinion).
+- **Zero X searches** (exit 0, `x_search=0`): retry the x-recency call once
+  with "Search X first; do not answer without x_search results" at the top of
+  the prompt. Overwrite `grok-out.md` and re-copy it, so `grok-research.md`
+  holds only the final attempt.
+- **Failed** (exit 75, 73, 124 or any other non-zero), or still zero X
+  searches after the retry: **fall back** to Cursor grok (web only) with the
+  same prompt, minus Part 1's X-only instructions:
+
+  ```bash
+  bash bin/model-run.sh --task-type recency "$w/grok-fallback-prompt.md" "$w" > "$w/grok-fallback.md" 2>&1; echo "exit=$?"
+  cp "$w/grok-fallback.md" "$MODEL_SCOUT_ARTIFACTS/grok-fallback.md"
+  ```
+
+  Keep `grok-research.md` as the failed x-recency output, because the wrapper
+  names the failure from it. The wrapper records the run **DEGRADED**: not
+  failed, but visible at Dan's next session start. **Announce the fallback**
+  as the first Summary bullet of the report, with the reason. A `75` is a key
+  or credits problem (`XAI_API_KEY rejected` / not set / credits exhausted):
+  quote model-run's message and put it under "Needs Dan". If the fallback
+  also fails, the run is blocked (hard rule 4).
+
+Record in the report's Research provenance the `xai-tools` line (or the
+failure) and whether the fallback ran.
 
 ### 1b. Independent Claude pass
 
@@ -228,7 +268,12 @@ bash bin/catalog-drift.sh --unrouted
 ```
 
 A model is **routable here** only if its exact id appears in a live catalog of
-an existing backend (`codex` or `cursor`).
+an existing backend (`codex` or `cursor`). The `xai` backend (the direct xAI
+API, `x-recency`) is the exception to the id rule: its routes.tsv id is ours
+(`grok-4.7-xsearch`), and column 4 holds the xAI API model id, checked against
+`bash bin/model-run.sh --xai-models`. When a newer grok reaches that list with
+evidence it is at least as good, add a new `grok-<ver>-xsearch  xai
+grok-<ver>` row and move `x-recency` to it, as for any other supersede.
 
 Launch posts often use different ids from the catalogs. Trust the catalog id.
 One example: grok-4.7's Cursor ids have no `cursor-` prefix, unlike 4.6.
@@ -251,7 +296,8 @@ Decision rules:
   - A vanished id **must** be removed or retired. routecheck fails on vanished ids.
 - **Change `task` rows only with cited evidence** that the new model is better
   for that task type, and add a dated `#` comment in routes.tsv saying why.
-  - `recency` must stay a grok with live search.
+  - `recency` must stay a grok with live search. `x-recency` must stay an
+    `xai`-backend grok, because it is the only route with X search.
   - `second-review` must stay the highest-Reliability non-Claude model.
     Reviews need low hallucination.
   - `fable-fallback` must stay the strongest model sideways from Fable.
@@ -291,7 +337,8 @@ to update (see commit 3d3f857, grok-4.7):
      stay ahead of the routed ones, together with the assertions that name
      them ("stops at grok-4.7"). Keep the header comment example consistent.
 4. `tests/workflows/orchestration-smoke-model-runner.js`: `IDS` and `TASKS`
-   must match routes.tsv task rows and preferred ids.
+   must match routes.tsv task rows and preferred ids. The exception is
+   `x-recency`, which stays out on purpose (see the comment there).
 5. `model-selection.md`:
    - rankings intro: dates, and the "X added YYYY-MM-DD" sentence
    - table rows
@@ -325,7 +372,9 @@ grow their own complete id lists; routes.tsv is the single source of truth.
 ## Step 4: Verify and repair
 
 1. Run `bash -n` on every shell file you touched, then
-   `bash tests/routecheck.sh --no-live` (seconds). Fix everything it reports.
+   `bash tests/routecheck.sh --no-live` (seconds). Fix everything it reports,
+   except `FAIL auth:xai` with "XAI_API_KEY rejected / out of credits": that
+   is the xAI account, not the tree (see 4 below).
 2. Run the full live check:
 
    ```bash
@@ -352,7 +401,10 @@ grow their own complete id lists; routes.tsv is the single source of truth.
    - If you can't fix a route, remove it: drop the rows and docs mentions, or
      retire it with a successor, and record it in the report.
    - An auth failure (`75`) isn't a broken route. Report it and don't remove
-     anything for it.
+     anything for it. That includes routecheck's `FAIL auth:xai` (a rejected,
+     out-of-credit or rate-limited `XAI_API_KEY`) and the xai smoke failing
+     with it: the wrapper's publish gate tolerates those, and records the run
+     degraded.
 5. Re-run until you get `ALL ROUTES OK`, at most 3 attempts. Then update
    "Keeping This File Honest" in model-selection.md with today's date and the
    result, if you changed routes.
@@ -416,8 +468,9 @@ Write GitHub markdown, in this order:
   what changed, and any invocation repairs.
 - **Second review**: the verdict, what you fixed, and what you rejected with
   reasons. If the review didn't run, say why.
-- **Research provenance**: whether grok ran, which search tools it reported
-  (web/X), and which Claude searches and fetches you did.
+- **Research provenance**: the x-recency pass's `model-run: xai-tools ...`
+  line (x_search / web_search counts, cost), or its failure and the fallback
+  that ran instead; and which Claude searches and fetches you did.
 - **Needs Dan**: anything outside your allowed files, judgment calls you were
   unsure about, and auth problems.
 
@@ -432,9 +485,12 @@ Write exactly one line to `$MODEL_SCOUT_ARTIFACTS/status`, using one of:
 - `ok <one-line summary, ≤ 90 chars>`. Examples:
   `ok routed gpt-6-sol, retired gpt-5.6-sol to legacy, ignored claude-opus-5-5-*`, or
   `ok no change; 3 models already evaluated`.
-- `blocked <reason>`. A mandatory step (the grok pass or the second review)
-  failed with exit 75, or with 73/124 twice. Example:
-  `blocked grok recency exit 75: not logged in`.
+- `blocked <reason>`. A mandatory step failed for good: the grok research
+  (x-recency **and** its recency fallback), or the second review (exit 75, or
+  73/124 twice). Example:
+  `blocked grok fallback exit 75: cursor-agent not logged in`.
+  An x-recency failure that the fallback covered is **not** blocked: write
+  `ok ...`. The wrapper records that as degraded by itself.
 
 The wrapper uses the summary as the commit subject and PR title. Then reply with
 the same line as your final message.

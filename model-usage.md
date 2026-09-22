@@ -31,12 +31,14 @@ process.
 
 ```bash
 bash ~/dotfiles/claude/bin/model-run.sh <model-id> <promptfile> [workdir]
-bash ~/dotfiles/claude/bin/model-run.sh --task-type bulk|cheap|recency|second-review|fable-fallback <promptfile> [workdir]
+bash ~/dotfiles/claude/bin/model-run.sh --task-type bulk|cheap|recency|x-recency|second-review|fable-fallback <promptfile> [workdir]
 ```
 
 - `--task-type` resolves the model id deterministically from the table — prefer
   it when the task fits a class; pass an explicit id only when overriding.
-  Types: `bulk` · `cheap` · `recency` · `second-review` · `fable-fallback`
+  Types: `bulk` · `cheap` · `recency` (Cursor grok, web search) ·
+  `x-recency` (grok on the direct xAI API with **X + web search**, for social /
+  X sentiment; see "Direct xAI API" below) · `second-review` · `fable-fallback`
   (→ `gpt-6-astra`, for work a Fable subagent can no longer take — see
   model-selection.md).
 - Prompts are ALWAYS passed via file — the script rejects missing/empty files.
@@ -77,7 +79,9 @@ read the tsv. Codex: `gpt-6-astra` is the frontier tier (GPT-6, effort pinned to
 `high`); `gpt-5.6-terra` stays the bulk default. Grok: `grok-4.7-*` is
 the default (`--task-type recency` → `grok-4.7-high`; note these ids have no
 `cursor-` prefix, unlike the legacy ones); `cursor-grok-4.6-*` and
-`cursor-grok-4.5-*` are legacy but still routable.
+`cursor-grok-4.5-*` are legacy but still routable. `grok-4.7-xsearch`
+(`--task-type x-recency`) is the same model on the direct xAI API, the only
+route with X search.
 
 ## Claude Models (sonnet / opus / haiku / fable)
 
@@ -143,14 +147,66 @@ raw invocation can be reconstructed *with the user's explicit approval*:
 > **codex-plugin-cc**: evaluated and removed 2026-07-07 — hardcoded per-turn
 > sandbox modes incompatible with nested bwrap here.
 
-## Direct xAI API (grok) — UNWIRED, do not use
+## Direct xAI API (grok with X search) — `x-recency`
 
-**Status: not set up on this machine (`XAI_API_KEY` is not set). Do not attempt
-this route — use `grok-4.7-high` (or `--task-type recency`) via
-model-run.sh instead.** Kept only as wiring notes for if the user ever asks for
-it (written against grok-4.5; re-check ids/pricing for 4.7): OpenAI-compatible,
-base URL `https://api.x.ai/v1`, model id `grok-4.5`, key in `XAI_API_KEY` (docs:
-https://docs.x.ai/developers/grok-4-5). Live search = Agent Tools (`web_search`,
-`x_search`) on the Responses API, $5 per 1k successful invocations (the old
-Live Search `search_parameters` API is dead — HTTP 410). $2/$6 per Mtok, cached
-input $0.30, rates double past a 200k-token prompt.
+**Wired 2026-09-22.** The only route with **real X (Twitter) search**: grok
+via cursor-agent (`--task-type recency`) has web search only. Use it for
+social / X sentiment (see model-selection.md "Recent Information"):
+
+```bash
+bash ~/dotfiles/claude/bin/model-run.sh --task-type x-recency <promptfile> [workdir]
+MODEL_RUN_XSEARCH_FROM=2026-09-15 bash ~/dotfiles/claude/bin/model-run.sh grok-4.7-xsearch <promptfile>
+```
+
+- **Backend `xai`** in routes.tsv: `model grok-4.7-xsearch xai grok-4.7`. The
+  id is ours, and column 4 is the xAI API model it calls. model-run.sh `curl`s
+  `POST https://api.x.ai/v1/responses` with `{"model": "grok-4.7", "input":
+  [<prompt>], "tools": [{"type": "web_search"}, {"type": "x_search"}],
+  "store": false}`. `store: false` means xAI persists no conversation, so a
+  test call leaves nothing behind and needs no cleanup.
+  `MODEL_RUN_XSEARCH_FROM` / `MODEL_RUN_XSEARCH_TO` (`YYYY-MM-DD`, inclusive)
+  set `x_search`'s `from_date` / `to_date`.
+- **Output:** stdout is the answer, then a `Sources:` list of every cited URL
+  (the `url_citation` annotations and the response's `citations`). Stderr gets
+  exactly one `model-run: xai-tools x_search=<n> web_search=<n> x_posts=<n>
+  cited_urls=<n> status=... cost_usd=<n> store=false` line, from the
+  response's `usage.server_side_tool_usage_details` and `cost_in_usd_ticks`.
+  It is printed only when an answer came back, so `x_search>=1` there is
+  proof X was searched. grok's own claims about which tools it used are not
+  proof.
+- **Key:** `XAI_API_KEY`, taken from the environment, or else from what
+  `~/.profile` exports. That is the same source as the scout's cron line
+  (`. ~/.profile && ...`), so a Claude Code session that wasn't started from a
+  login shell still works. The key is sent as a header read from a
+  process-substitution fd. It never appears in argv (`ps`) or on disk. Never
+  print it.
+- **Exit codes, same contract:** key missing, or rejected (xAI answers a bad
+  key with HTTP 400 "Incorrect API key"), 401/403, 402/429 credits or rate
+  limit → `75` (STOP and surface: `XAI_API_KEY rejected` / `not set` /
+  `credits ... exhausted`). 5xx or no response (including a connect that
+  never completes within 20 s) → one retry, then `73`. A response that
+  doesn't arrive within `MODEL_RUN_TIMEOUT` → `124`. Other 4xx (e.g. 404 for an API model id
+  that no longer exists) → `1`, with xAI's error body.
+- **Catalog:** `bash ~/dotfiles/claude/bin/model-run.sh --xai-models` lists
+  the API model ids (`GET /v1/models`, zero tokens; exit 69 = no key; 75 =
+  key rejected / out of credits; 73 = a plain 429 rate limit or network error,
+  which routecheck's `auth:xai` only WARNs on).
+  `bin/catalog-drift.sh` uses it to flag a column-4 id that vanished. It
+  checks nothing else for xai: new groks surface through the Cursor catalog,
+  and without a key the xai check is skipped silently.
+- **Guarded:** route-guard denies raw `curl` to `api.x.ai/v1/responses` /
+  `chat/completions` (the catalog read `GET /v1/models` is allowed).
+- **Cost** (docs.x.ai models and pricing pages, fetched 2026-09-22):
+  grok-4.7 is $2 / $6 per Mtok in / out, with cached input $0.50. Past a
+  200k-token prompt that becomes $4 / $12 (cached $1). The context window is
+  500k. On top of tokens, `web_search` is $5 per 1k calls, and `x_search` is
+  billed **per item fetched**: $5 per 1k posts (parent and quoted posts count)
+  and $10 per 1k profiles. Two sentiment questions on 2026-09-22 (3 x_search
+  calls, 14–18 posts each) cost $0.10 and $0.14 each. routecheck's smoke tells
+  grok not to search, and costs under a cent.
+- **Quirk:** grok-4.7 on this API refuses "output exactly this line / token"
+  prompts ("I won't output exact phrases or tokens on demand": 6 of 7
+  attempts, 2026-09-22), so nonce-echo tests don't work on it. routecheck
+  asks it for a per-run random sum instead.
+- The old Live Search API (`search_parameters`) is dead (HTTP 410). Agent
+  Tools on the Responses API are the only search interface.

@@ -29,6 +29,10 @@ export const meta = {
 }
 const REPO = (args && args.repo) || '~/dotfiles/claude'
 const IDS = ['gpt-6-astra', 'gpt-5.6-terra', 'gpt-5.6-sol', 'composer-2.5', 'grok-4.7-high', 'glm-5.2-high']
+// x-recency (grok-4.7-xsearch, the direct xAI API) is deliberately NOT here:
+// grok-4.7 on the xAI API refuses "output exactly this line" nonce prompts
+// (2026-09-22), and the model-runner path is the same model-run.sh call —
+// tests/routecheck.sh smokes that route live with an arithmetic check instead.
 const TASKS = [['bulk', 'gpt-5.6-terra'], ['cheap', 'composer-2.5'], ['recency', 'grok-4.7-high'], ['second-review', 'gpt-6-astra'], ['fable-fallback', 'gpt-6-astra']]
 const SETUP = { type: 'object', properties: { workdir: { type: 'string' }, since: { type: 'integer' }, rand: { type: 'string' } }, required: ['workdir', 'since', 'rand'] }
 const setup = await agent(

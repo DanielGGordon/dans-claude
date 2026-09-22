@@ -1,6 +1,9 @@
 # Single source of truth for non-Claude model routing. Tab-separated.
-#   model	<id>	<backend>[	<effort>]  — routable model id; 4th field (codex
-#                                     only, optional) pins model_reasoning_effort
+#   model	<id>	<backend>[	<col4>]    — routable model id. 4th field:
+#                                     codex (optional) pins model_reasoning_effort;
+#                                     xai (required) is the xAI API model id
+#                                     the route calls (bin/model-run.sh
+#                                     --xai-models lists them)
 #   retired	<old-id>	<successor>    — rejected with pointer to successor
 #   task	<task-type>	<model-id>     — --task-type resolution
 #   ignore	<glob>	<reason>       — a catalog id seen and deliberately NOT
@@ -46,11 +49,20 @@ model	cursor-grok-4.5-medium	cursor
 model	cursor-grok-4.5-low	cursor
 model	glm-5.2-high	cursor
 model	glm-5.2-max	cursor
+# xai = the DIRECT xAI Responses API (curl, XAI_API_KEY from env/~/.profile,
+# store:false, tools web_search + x_search) — the only route with REAL X search
+# (grok via cursor-agent has web search only). The id is ours, not an xAI one
+# (xAI's is column 4), so it never collides with Cursor's grok-4.7-* ids.
+# Wired 2026-09-22 for the model scout's X hot-takes pass (task x-recency).
+model	grok-4.7-xsearch	xai	grok-4.7
 retired	grok-4.5-xhigh	cursor-grok-4.5-high
 retired	grok-4.5-fast-xhigh	cursor-grok-4.5-high-fast
 task	bulk	gpt-5.6-terra
 task	cheap	composer-2.5
 task	recency	grok-4.7-high
+# x-recency: social / X sentiment and hot takes (web + X search, post URLs);
+# recency stays the general-purpose, subscription-seat grok (web only).
+task	x-recency	grok-4.7-xsearch
 # second-review moved sol -> astra 2026-09-18 (half Sol's hallucination rate,
 # higher AA index, no METR eval-gaming finding); gpt-5.6-sol still routable by id.
 task	second-review	gpt-6-astra
