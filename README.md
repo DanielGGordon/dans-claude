@@ -47,7 +47,7 @@ Symlinked files take effect immediately. If `settings.partial.json` changed, re-
 ├── bin/
 │   ├── model-run.sh         # THE single entrypoint for non-Claude model calls: canonical flags, timeouts, one auto-retry on transient transport errors, distinct exit codes (64 bad-id / 73 transport-after-retry / 75 auth-quota / 124 timeout); accepts <model-id> or --task-type bulk|cheap|recency|second-review|fable-fallback; pins codex reasoning effort from routes.tsv (MODEL_RUN_EFFORT overrides)
 │   ├── cli-fingerprint.sh   # Zero-cost identity (resolved path+size+mtime, `--versions` adds `--version`) of claude / codex / cursor-agent — routecheck records it, the SessionStart banner diffs it to nag for a re-test after any CLI update
-│   ├── catalog-drift.sh     # Zero-token drift detector: diffs the live Cursor (`cursor-agent --list-models`) + Codex (`codex debug models`) catalogs against routes.tsv — reports a NEWER version of a routed family (e.g. cursor-grok-4.7-* when routes stop at 4.6) and routed ids that VANISHED; `--cached` (hook mode) reuses ~/.claude/catalog-<backend>.txt for 24h; fail-open
+│   ├── catalog-drift.sh     # Zero-token drift detector: diffs the live Cursor (`cursor-agent --list-models`) + Codex (`codex debug models`) catalogs against routes.tsv — reports a NEWER version of a routed family (e.g. grok-4.8-* when routes stop at 4.7) and routed ids that VANISHED; `--cached` (hook mode) reuses ~/.claude/catalog-<backend>.txt for 24h; fail-open
 │   ├── system-map-probe.sh  # Writes the cached [alfred] banner (~/.claude/system-map.state): `systemctl --user is-active` for Alfred's units + 1s health curls of second-brain :4820, brain-actions :8791 and todo-service :4821; fail-open
 │   └── routes.tsv           # Single source of truth: model ids, id→backend (+ optional codex reasoning effort in a 4th column), retired-id successors, task-type→id mappings (drives model-run.sh + routecheck + catalog-drift.sh)
 ├── agents/
@@ -126,7 +126,7 @@ After install, `~/.claude/` looks like:
 
 ## Model Routing & Orchestration
 
-How Claude Code sessions on this machine reach non-Anthropic models (gpt-6-astra / gpt-5.5 / gpt-5.6 via the Codex CLI, composer-2.5 / grok-4.6 (default grok; 4.5 legacy) / glm-5.2 via the Cursor CLI — both on subscription-seat auth, no API keys), and how that stays deterministic.
+How Claude Code sessions on this machine reach non-Anthropic models (gpt-6-astra / gpt-5.5 / gpt-5.6 via the Codex CLI, composer-2.5 / grok-4.7 (default grok; 4.6/4.5 legacy) / glm-5.2 via the Cursor CLI — both on subscription-seat auth, no API keys), and how that stays deterministic.
 
 ### The layers
 
@@ -165,7 +165,7 @@ Why: on 2026-08-19 a task asked for "Grok 4.6" while routes.tsv only knew `curso
 
 What it does (zero tokens, no model calls): reads the live catalogs — Cursor via `cursor-agent --list-models`, Codex via `codex debug models` (a local-cache read of `~/.codex/models_cache.json`, which Codex refreshes itself; both commands are allowed by route-guard) — parses each id into family + version (strip a leading `cursor-`, then `<family>-<N.N>[-variant]`: `cursor-grok-4.6-high-fast` → grok 4.6, `gpt-5.6-sol` → gpt 5.6, `composer-2.5` → composer 2.5) and compares against `bin/routes.tsv`:
 
-- **newer** — a family routed in routes.tsv has a higher version in its catalog than any routed row (`Cursor catalog has cursor-grok-4.7-* (7 ids) but routes.tsv stops at cursor-grok-4.6`). New *variants* of an already-routed version (e.g. `-xhigh-fast`) are deliberately not drift.
+- **newer** — a family routed in routes.tsv has a higher version in its catalog than any routed row (`Cursor catalog has grok-4.8-* (7 ids) but routes.tsv stops at grok-4.7`). New *variants* of an already-routed version (e.g. `-xhigh-fast`) are deliberately not drift.
 - **Known limitation (family-max semantics)** — comparison is per family against the *highest* routed version, so once a `gpt-6+` id is routed, a later `gpt-5.x` point release no longer warns. Routed-major-version regressions are the blind spot; the mock fixture in `tests/routecheck.sh` pins this behavior deliberately.
 - **vanished** — a routes.tsv id is no longer listed by its backend (`routes.tsv id cursor-grok-4.5-low is gone from the Cursor catalog`) — that route will hard-error or silently remap, fix it now.
 - **unavailable / stale** — a CLI is missing, times out, or isn't logged in: that backend is skipped (or served from a stale cache) and said so in one line. Never fatal, never blocks.
@@ -173,8 +173,8 @@ What it does (zero tokens, no model calls): reads the live catalogs — Cursor v
 Output is `<kind>\t<message>` lines; exit `0` no drift · `1` drift · `2` no catalog readable. `--cached` (what the hook uses) reuses `~/.claude/catalog-cursor.txt` / `catalog-codex.txt` when younger than 24h and remembers a failed fetch for 1h (`catalog-<backend>.failed`) so a broken CLI costs one timeout per hour, not per session. Env knobs: `CATALOG_DRIFT_CACHE_DIR`, `CATALOG_DRIFT_MAX_AGE`, `CATALOG_DRIFT_TIMEOUT`, `CATALOG_DRIFT_FAIL_TTL`.
 
 Where it runs:
-- **`routecheck`** (Tier 1.5, live fetch, refreshes the caches): a vanished id is a **FAIL**; a newer version is a **WARN** — advisory, listed in a `WARNINGS (advisory, not failures):` line, and the suite still ends `ALL ROUTES OK` because nothing is actually broken. The detector itself is unit-tested in the mock tier against a fake future catalog (grok 4.7 / gpt-5.7 present, `cursor-grok-4.5-low` gone) and a logged-out CLI (fail-open).
-- **SessionStart** (`hooks/route-health-banner.sh`, `--cached`): prints one line like `[route-health] Cursor catalog has cursor-grok-4.7-* (7 ids) but routes.tsv stops at cursor-grok-4.6 — run 'routecheck' / update bin/routes.tsv (then model-selection.md + model-usage.md).` or `[route-health] catalog drift check skipped — Cursor catalog unavailable (...)`. Silent when in sync.
+- **`routecheck`** (Tier 1.5, live fetch, refreshes the caches): a vanished id is a **FAIL**; a newer version is a **WARN** — advisory, listed in a `WARNINGS (advisory, not failures):` line, and the suite still ends `ALL ROUTES OK` because nothing is actually broken. The detector itself is unit-tested in the mock tier against a fake future catalog (grok 4.8 / gpt-5.7 present, `cursor-grok-4.5-low` gone) and a logged-out CLI (fail-open).
+- **SessionStart** (`hooks/route-health-banner.sh`, `--cached`): prints one line like `[route-health] Cursor catalog has grok-4.8-* (7 ids) but routes.tsv stops at grok-4.7 — run 'routecheck' / update bin/routes.tsv (then model-selection.md + model-usage.md).` or `[route-health] catalog drift check skipped — Cursor catalog unavailable (...)`. Silent when in sync.
 
 How to fix a drift warning: add the new ids as `model` rows in `bin/routes.tsv` (and move the default — e.g. `task recency` — if the new version should be the default), update the rankings/notes in `model-selection.md` (honestly: mark the row provisional until benchmarked) and any id mentions in `model-usage.md` / `agents/model-runner.md`, run `routecheck` (the live nonce smoke proves the new ids work), PR. For a vanished id: remove the row or convert it to a `retired <old> <successor>` row.
 
