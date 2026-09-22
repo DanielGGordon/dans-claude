@@ -69,10 +69,13 @@
 # out master), never from the worktree the agent was allowed to edit.
 #
 # State ~/.claude/model-scout/last-run.json (read by hooks/route-health-banner.sh):
-#   {date, status: "no-change"|"pr"|"degraded"|"failed", pr_url, summary, log,
-#    finished_at, started_at, last_success, last_x_success, marker, branch,
-#    cleanup, open_pr}
+#   {date, status: "no-change"|"pr"|"local-commit"|"degraded"|"failed", pr_url,
+#    summary, log, finished_at, started_at, last_success, last_x_success,
+#    marker, branch, cleanup, open_pr}
 # open_pr = a scout PR known to be open, kept across no-change runs.
+# "local-commit" = --no-pr (explicit, or forced by --base next to an open scout
+# PR) and the agent produced a commit: it sits on the local branch `branch`,
+# unpublished.
 # "degraded" = the run worked (any PR is published) but its research had no X
 # search (x-recency failed; the cursor-grok web-only fallback ran), or the live
 # routecheck fails ONLY the xai route (auth:xai / its smoke: a rejected,
@@ -83,7 +86,7 @@
 # over "degraded". last_success follows the research outcome, not those;
 # last_x_success advances only on a measured X search (it sets the next
 # x-recency from_date, so a degraded run's gap is searched later, ≤30 days).
-# Exit: 0 no-change / pr / degraded / dry-run · 1 failed · 0 (silently) when another run
+# Exit: 0 no-change / pr / local-commit / degraded / dry-run · 1 failed · 0 (silently) when another run
 # holds the lock. Auth/quota errors (model-run exit 75, claude login/usage
 # limits) fail loudly into last-run.json — never substituted.
 #
@@ -159,7 +162,7 @@ log "repo=$REPO base=${BASE:-auto} no_pr=$NO_PR dry_run=$DRY_RUN routecheck=$ROU
 PREV_SUCCESS=$(python3 -c 'import json,sys
 try: d=json.load(open(sys.argv[1]))
 except Exception: sys.exit()
-print(d["last_success"] or "" if "last_success" in d else (d.get("date") if d.get("status") in ("no-change","pr") else "") or "")' "$STATE" 2>/dev/null)
+print(d["last_success"] or "" if "last_success" in d else (d.get("date") if d.get("status") in ("no-change","pr","local-commit") else "") or "")' "$STATE" 2>/dev/null)
 SINCE="${PREV_SUCCESS:-$(date -d '14 days ago' +%F)}"
 # X has its own window: a degraded run (no X search) still advances
 # last_success — its web research counted — but not last_x_success, so the
@@ -340,7 +343,7 @@ finish() {
     why=$(IFS='|'; echo "${RESEARCH_DEGRADED[*]}" | sed 's/|/; /g')
     log "RESEARCH DEGRADED: $why"
     case "$STATUS" in
-      no-change|pr) STATUS=degraded; SUMMARY="DEGRADED: $why — $SUMMARY" ;;
+      no-change|pr|local-commit) STATUS=degraded; SUMMARY="DEGRADED: $why — $SUMMARY" ;;
       *) SUMMARY="$SUMMARY; DEGRADED: $why" ;;
     esac
   fi
@@ -753,7 +756,7 @@ if [ "$NO_PR" -eq 1 ]; then
   BRANCH=$(new_branch_name)
   git -C "$REPO" branch "$BRANCH" "$COMMIT" || fail "could not create local branch $BRANCH"
   log "--no-pr: committed locally on $BRANCH"
-  STATUS=no-change; [ -n "$BLOCKED" ] && STATUS=failed
+  STATUS=local-commit; [ -n "$BLOCKED" ] && STATUS=failed
   SUMMARY="${BLOCKED:+BLOCKED: $BLOCKED; }committed locally on $BRANCH (--no-pr): $AGENT_SUMMARY"
   exit 0
 fi

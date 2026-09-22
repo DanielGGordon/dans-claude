@@ -24,7 +24,8 @@
 #    when it's actionable: the last run failed, the last run was DEGRADED (its
 #    research had no X search — x-recency failed, e.g. XAI_API_KEY rejected,
 #    and the web-only cursor-grok fallback ran), a scout PR is waiting for
-#    review (`open_pr`, kept across later no-change runs), or the last run is
+#    review (`open_pr`, kept across later no-change runs), a `local-commit`
+#    run's (--no-pr) unpublished branch still exists in this repo, or the last run is
 #    >36h old while the cron line is installed (so opting out with
 #    MODEL_SCOUT_CRON=0 doesn't nag forever) — including a cron job that has
 #    never managed to write last-run.json at all. No network calls.
@@ -90,8 +91,8 @@ if [ ! -f "$SCOUT_STATE" ] && [ "$cron_on" = 1 ] && [ -d "$SCOUT_DIR" ]; then
   [ "$since_h" -gt 36 ] && echo "[model-scout] the daily cron job is installed but has never recorded a run (${since_h}h) — see $SCOUT_DIR/cron.log"
 fi
 if [ -f "$SCOUT_STATE" ]; then
-  python3 - "$SCOUT_STATE" "$cron_on" <<'PY' 2>/dev/null
-import json, sys, time
+  python3 - "$SCOUT_STATE" "$cron_on" "$REPO" <<'PY' 2>/dev/null
+import json, subprocess, sys, time
 d = json.load(open(sys.argv[1])); cron_on = sys.argv[2] == "1"
 parts = []
 status, date, summary = d.get("status"), d.get("date", "?"), (d.get("summary") or "")[:160]
@@ -101,6 +102,13 @@ if status == "failed":
 elif status == "degraded":
     why = (d.get("summary") or "").removeprefix("DEGRADED: ")[:160]
     parts.append(f"WARNING last run DEGRADED ({date}): {why} — log {d.get('log', '?')}")
+elif status == "local-commit" and d.get("branch"):
+    # --no-pr run: its commit is only on a local branch. Info, not a warning —
+    # and only while the branch exists (deleted = dealt with; the next run
+    # overwrites this state anyway).
+    b = d["branch"]
+    if subprocess.run(["git", "-C", sys.argv[3], "show-ref", "--verify", "--quiet", f"refs/heads/{b}"]).returncode == 0:
+        parts.append(f"unpublished routing commit on local branch {b} ({date}, --no-pr) — review, then push + PR or delete it")
 if open_pr:
     parts.append(f"routing PR awaiting review: {open_pr}" + (f" — {summary}" if status == "pr" else ""))
 age_h = (time.time() - (d.get("finished_at") or 0)) / 3600
