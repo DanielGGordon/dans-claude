@@ -9,7 +9,10 @@ use. A SessionStart hook warns when routing is broken, the last check is stale,
 or the live Cursor/Codex catalogs have drifted from `bin/routes.tsv` (a newer
 `cursor-grok-*` / `composer-*` / `glm-*` / `gpt-*` version, or a routed id that
 vanished — `bin/catalog-drift.sh`). If a route fails for you, run `routecheck`,
-then fix or remove the entry.
+then fix or remove the entry. catalog-drift also lists **unrouted** catalog ids
+(new tiers/families no routes.tsv row accounts for; `--unrouted`), and the daily
+model scout (`bin/model-scout.sh`, cron) researches them, updates routes.tsv +
+these docs, re-runs routecheck and opens a PR — see the README's "Model scout".
 
 ## The Canonical Path (non-Claude models)
 
@@ -109,7 +112,10 @@ raw invocation can be reconstructed *with the user's explicit approval*:
   — the bypass flag is required because Codex's bwrap sandbox cannot nest inside
   Claude Code's Bash sandbox (`bwrap: loopback: Failed RTM_NEWADDR`); Claude
   Code's own sandbox remains the outer boundary. Session continuation:
-  `codex exec ... resume --last "..."`.
+  `codex exec ... resume --last "..."`. With `MODEL_RUN_EPHEMERAL=1` it adds
+  `--ephemeral` (no session files / thread rows) — for **test** calls only
+  (routecheck, the model scout, the orchestration smoke); real delegations stay
+  persisted so their history is useful.
 - **Cursor:** `cursor-agent --print --trust --force --output-format text --model <id> "$(cat <promptfile>)"`
   — unknown ids hard-error with the full valid list, but *retired* ids can
   silently remap to a successor (e.g. `composer-2` → 2.5); model-run.sh and
@@ -118,7 +124,11 @@ raw invocation can be reconstructed *with the user's explicit approval*:
   allowed by the guard, as is `codex debug models`, the Codex catalog read).
   `bash ~/dotfiles/claude/bin/catalog-drift.sh` diffs those catalogs against
   routes.tsv. The Cursor catalog also exposes OpenAI/Anthropic/Google models —
-  route those through their native paths instead.
+  route those through their native paths instead (routes.tsv marks such ids
+  with `ignore <glob> <reason>` rows so they stop showing as unrouted). Cursor
+  has no ephemeral mode: its chats are keyed by cwd (`~/.cursor/chats/<md5(cwd)>`),
+  so a test call must use a throwaway `mktemp -d` workdir and then run
+  `bin/test-chat-cleanup.sh --since <epoch> --marker <str> --workdir <dir>`.
 - **Reviews via Codex:** same path — prompt asks for findings with **severity**,
   **file:line**, a **concrete failing scenario**, and a **SHIP / FIX-FIRST**
   verdict.

@@ -10,9 +10,20 @@
 # Also runs bin/catalog-drift.sh (zero tokens): a routed id missing from its
 # live catalog is a FAIL; a NEWER version of a routed family (e.g. grok-4.8
 # when routes.tsv stops at 4.7) is a WARN — nothing is broken, but update routes.tsv.
-# Writes ~/.claude/route-health.txt for the SessionStart banner hook.
+# Writes ~/.claude/route-health.txt for the SessionStart banner hook
+# (ROUTE_HEALTH_FILE / ROUTE_HEALTH_TOOLS override the paths).
 # If a route FAILs, fix bin/routes.tsv / the docs or remove the model — never
 # leave a documented route broken.
+#
+# Test-chat hygiene (2026-09-22: 97 Codex threads, 238 Cursor chats and several
+# T3 Code threads had piled up from earlier runs): every live call runs with
+# MODEL_RUN_EPHEMERAL=1 (codex --ephemeral), claude runs as `claude -p
+# --no-session-persistence` inside $WORK (never the caller's cwd, which T3's
+# importer would pick up), every prompt carries a per-run marker, and
+# bin/test-chat-cleanup.sh removes whatever the CLIs still persisted (Cursor has
+# no ephemeral mode) — explicitly before the verdict, and again from the EXIT
+# trap if the run dies early. A caller (the daily model scout) can share its own
+# marker via ROUTECHECK_MARKER=<string>.
 set -u
 
 # Resolve the repo from this script's location (not ~/dotfiles/claude) so a
@@ -24,13 +35,58 @@ FINGERPRINT="$DIR/bin/cli-fingerprint.sh"
 TABLE="$DIR/bin/routes.tsv"
 GUARD="$DIR/hooks/route-guard.sh"
 AGENT_MD="$DIR/agents/model-runner.md"
+CLEANUP="$DIR/bin/test-chat-cleanup.sh"
 NONCE="ROUTE-OK-$RANDOM$RANDOM"
+RUN_START=$(date +%s)
+MARKER="${ROUTECHECK_MARKER:-ROUTECHECK-$(date +%Y%m%d)-$RANDOM$RANDOM}"
+export MODEL_RUN_EPHEMERAL=1
 WORK=$(mktemp -d /tmp/routecheck.XXXXXX)
 OUT="$WORK/out"; mkdir -p "$OUT"
 git -C "$WORK" init -q 2>/dev/null || true
 PROMPTFILE="$WORK/prompt.md"
-echo "Output exactly this line and nothing else: $NONCE" > "$PROMPTFILE"
-HEALTH="$HOME/.claude/route-health.txt"
+printf 'Output exactly this line and nothing else: %s\n\n[test-run marker: %s]\n' "$NONCE" "$MARKER" > "$PROMPTFILE"
+# Every dir a live smoke runs in — cleanup matches chats by exact cwd.
+TEST_WORKDIRS=("$WORK" "$WORK/artifact-codex" "$WORK/artifact-cursor")
+CHATS_CLEANED=0
+clean_chats() { # runs at most once; prints test-chat-cleanup's lines + summary
+  [ "$CHATS_CLEANED" = 1 ] && return 0; CHATS_CLEANED=1
+  local wd=() w
+  for w in "${TEST_WORKDIRS[@]}"; do wd+=(--workdir "$w"); done
+  bash "$CLEANUP" --since "$RUN_START" --marker "$MARKER" "${wd[@]}" 2>&1
+}
+# Interrupted mid-Tier-2: stop EVERY smoke process before sweeping, or a CLI
+# still running writes its chat after the sweep. `kill $(jobs -p)` alone only
+# hit the subshells: model-run's inner `timeout` makes its own process group
+# and, once its parent dies, is reparented out of our tree with codex /
+# cursor-agent still running (review finding 2026-09-22). Every live prompt
+# carries this run's unique NONCE in argv, so `pgrep -f` finds them wherever
+# they were reparented to; TERM, wait up to 10s, then KILL.
+stop_smokes() {
+  local pids alive p i
+  pids=$( { jobs -p; pgrep -f -- "$NONCE"; } 2>/dev/null | grep -vx "$$" | sort -u)
+  [ -n "$pids" ] || return 0
+  kill -TERM $pids 2>/dev/null
+  for i in $(seq 1 20); do
+    alive=""; for p in $pids; do kill -0 "$p" 2>/dev/null && alive+=" $p"; done
+    [ -z "$alive" ] && return 0
+    sleep 0.5
+  done
+  kill -KILL $alive 2>/dev/null
+  sleep 0.5
+}
+on_exit() {
+  local st=$?
+  stop_smokes
+  clean_chats | grep -v 'deleted cursor=0 codex=0 claude=0$' | sed 's/^/CLEANUP  /'
+  rm -rf "$WORK"
+  exit "$st"
+}
+trap on_exit EXIT
+trap 'exit 130' INT TERM HUP
+# ROUTE_HEALTH_FILE / ROUTE_HEALTH_TOOLS redirect the result files: the model
+# scout checks UNDEPLOYED trees (its worktree), whose verdict must not become
+# the live banner's.
+HEALTH="${ROUTE_HEALTH_FILE:-$HOME/.claude/route-health.txt}"
 TOOLS="${ROUTE_HEALTH_TOOLS:-$HOME/.claude/route-health-tools.txt}"   # CLI versions this run verified against (SessionStart banner diffs them)
 TODAY=$(date +%F)
 declare -a FAILURES=()
@@ -57,6 +113,8 @@ expect_allow 'codex login status' "codex login status"
 expect_allow 'codex debug models' "codex debug models (catalog read)"
 expect_allow "bash $DRIFT --cached" "catalog-drift.sh call"
 expect_allow "bash $RUN gpt-5.6-terra /tmp/p.md" "model-run.sh call"
+expect_allow "bash $CLEANUP --since 1 --marker ROUTECHECK-x1 --workdir /tmp/routecheck.x" "test-chat-cleanup.sh call"
+expect_allow 'codex delete --force 01a0caf4-1d77-7590-910e-c3b8e692f185' "codex delete (test-chat cleanup)"
 expect_allow "grep 'codex exec' $RUN" "grep mentioning codex exec"
 expect_allow 'ls -la && git status' "unrelated command"
 # model-runner agent contract lints (free). Regression for 2026-08-24: the agent
@@ -77,9 +135,10 @@ cat > "$MOCKBIN/codex" <<'MOCK'
 # Catalog reads (used by the catalog-drift unit tests): a fake future catalog —
 # grok 4.8 / gpt-7-nova exist, cursor-grok-4.5-low is gone. gpt-6-astra is
 # present (so a routed id is NOT reported vanished); gpt-5.7-sol is included
-# deliberately and must NOT warn — routed gpt-6 outranks 5.7 under the
-# detector's family-max semantics (known limitation: once a gpt-6+ id is
-# routed, a future gpt-5.x point release goes undetected). All grok-4.7-* ids
+# deliberately and must NOT be "newer" — routed gpt-6 outranks 5.7 under the
+# detector's family-max semantics — but MUST be "unrouted" (that finding closes
+# the gap: a gpt-5.x point release or a new gpt-6 tier is still surfaced). auto,
+# grok-4.8-* and gpt-7-nova are the other unrouted ids. All grok-4.7-* ids
 # actually routed in routes.tsv are included so they are NOT reported vanished
 # — grok-4.8 is the hypothetical next bump used to exercise "newer".
 # MOCK_MODE=catalog-down simulates a logged-out/broken CLI for the fail-open test.
@@ -139,22 +198,115 @@ mock_args "$WORK/args-cursor.txt" composer-2.5 MODEL_RUN_EFFORT=high
 grep -q 'model_reasoning_effort' "$WORK/args-cursor.txt" \
   && bad "mock:effort-not-passed-to-cursor" "cursor got a codex-only flag" \
   || ok "mock:effort-not-passed-to-cursor"
+# MODEL_RUN_EPHEMERAL=1 (exported above for this whole run) -> codex --ephemeral;
+# unset/0 -> normal persisted delegation; never a flag for cursor.
+grep -q -- '--ephemeral' "$WORK/args-terra.txt" \
+  && ok "mock:ephemeral-reaches-codex" || bad "mock:ephemeral-reaches-codex" "codex argv: $(cat "$WORK/args-terra.txt" 2>/dev/null)"
+mock_args "$WORK/args-terra-persist.txt" gpt-5.6-terra MODEL_RUN_EPHEMERAL=0
+grep -q -- '--ephemeral' "$WORK/args-terra-persist.txt" \
+  && bad "mock:no-ephemeral-by-default" "MODEL_RUN_EPHEMERAL=0 still got --ephemeral" || ok "mock:no-ephemeral-by-default"
+grep -q -- '--ephemeral' "$WORK/args-cursor.txt" \
+  && bad "mock:ephemeral-not-passed-to-cursor" "cursor got a codex-only flag" || ok "mock:ephemeral-not-passed-to-cursor"
 
 # catalog-drift detector against the fake future catalog above (zero tokens, no network)
 mock_drift=$(CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_drift_st=$?
+mock_nv=$(grep $'^newer\t\|^vanished\t' <<<"$mock_drift")
 [ "$mock_drift_st" = 1 ] \
-  && grep -q $'^newer\t.*grok-4.8-\*.*stops at grok-4.7' <<<"$mock_drift" \
-  && grep -q $'^newer\t.*gpt-7-\*.*stops at gpt-6' <<<"$mock_drift" \
-  && grep -q $'^vanished\t.*cursor-grok-4.5-low' <<<"$mock_drift" \
-  && ! grep -q 'gpt-5.7' <<<"$mock_drift" \
-  && ! grep -q $'^vanished\t.*gpt-6-astra' <<<"$mock_drift" \
-  && ! grep -q 'glm\|composer' <<<"$mock_drift" \
+  && grep -q $'^newer\t.*grok-4.8-\*.*stops at grok-4.7' <<<"$mock_nv" \
+  && grep -q $'^newer\t.*gpt-7-\*.*stops at gpt-6' <<<"$mock_nv" \
+  && grep -q $'^vanished\t.*cursor-grok-4.5-low' <<<"$mock_nv" \
+  && ! grep -q 'gpt-5.7' <<<"$mock_nv" \
+  && ! grep -q $'^vanished\t.*gpt-6-astra' <<<"$mock_nv" \
+  && ! grep -q 'glm\|composer' <<<"$mock_nv" \
   && ok "mock:catalog-drift-detects-newer+vanished" \
   || bad "mock:catalog-drift-detects-newer+vanished" "exit $mock_drift_st: $(printf '%s' "$mock_drift" | tr '\n' '|')"
+# unrouted: ids no model/retired/ignore row accounts for. gpt-5.7-sol is exactly
+# the tier-at-an-old-version case version-max can't see; auto has no version.
+grep -q $'^unrouted\tCodex catalog has 2 unrouted ids: gpt-5.7-sol, gpt-7-nova' <<<"$mock_drift" \
+  && grep -q $'^unrouted\tCursor catalog has 3 unrouted ids: .*auto.*grok-4.8-high' <<<"$mock_drift" \
+  && ok "mock:catalog-drift-unrouted-summary" \
+  || bad "mock:catalog-drift-unrouted-summary" "$(grep unrouted <<<"$mock_drift" | tr '\n' '|')"
+mock_unr=$(CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" --unrouted 2>/dev/null); mock_unr_st=$?
+[ "$mock_unr_st" = 1 ] \
+  && [ "$(sort <<<"$mock_unr" | tr '\n' ' ')" = "$(printf 'codex\tgpt-5.7-sol\ncodex\tgpt-7-nova\ncursor\tauto\ncursor\tgrok-4.8-high\ncursor\tgrok-4.8-xhigh\n' | sort | tr '\n' ' ')" ] \
+  && ok "mock:catalog-drift--unrouted-lists-ids" \
+  || bad "mock:catalog-drift--unrouted-lists-ids" "exit $mock_unr_st: $(tr '\n' '|' <<<"$mock_unr")"
+# ignore rows: bare glob matches any backend; "<backend>:<glob>" only that one
+# (cursor:gpt-7-* must NOT hide Codex's gpt-7-nova). Needs its own routes.tsv,
+# so run a copy of the detector next to a patched table.
+IGN="$WORK/ignore-repo/bin"; mkdir -p "$IGN"; cp "$DRIFT" "$IGN/"
+{ cat "$TABLE"; printf 'ignore\tauto\tCursor meta-router, not a model\nignore\tcursor:grok-4.8-*\tmock: seen, not yet routed\nignore\tcursor:gpt-7-*\tmock: wrong-backend scope\n'; } > "$IGN/routes.tsv"
+mock_ign=$(CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$IGN/catalog-drift.sh" --unrouted 2>/dev/null)
+[ "$(sort <<<"$mock_ign" | tr '\n' ' ')" = "$(printf 'codex\tgpt-5.7-sol\ncodex\tgpt-7-nova\n' | tr '\n' ' ')" ] \
+  && ok "mock:catalog-drift-ignore-rows(+backend-scope)" \
+  || bad "mock:catalog-drift-ignore-rows(+backend-scope)" "$(tr '\n' '|' <<<"$mock_ign")"
 mock_nodrift=$(MOCK_MODE=catalog-down CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache2" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_nodrift_st=$?
 [ "$mock_nodrift_st" = 2 ] && grep -q $'^unavailable\t' <<<"$mock_nodrift" && ! grep -q $'^newer\|^vanished' <<<"$mock_nodrift" \
   && ok "mock:catalog-drift-fail-open-when-catalogs-down" \
   || bad "mock:catalog-drift-fail-open-when-catalogs-down" "exit $mock_nodrift_st: $(printf '%s' "$mock_nodrift" | tr '\n' '|')"
+
+# test-chat-cleanup against a FAKE home (TEST_CHAT_CLEANUP_HOME): records that
+# match (created >= since AND (cwd == a workdir OR marker in the FIRST user
+# message)) must go; look-alikes that fail either half must survive. Mock codex
+# has no `delete` subcommand, so this also covers the rollout-file fallback.
+FH="$WORK/fakehome"; FW="$WORK/fake-workdir"; FM="MOCKMARK-$RANDOM$RANDOM"
+python3 - "$FH" "$FW" "$FM" "$RUN_START" <<'PYEOF'
+import hashlib, json, os, re, sys, time
+from datetime import datetime, timezone
+fh, fw, fm, start = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")
+now, old = start + 5, start - 3600
+def w(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True); open(path, "w").write(text)
+def cursor_chat(cid, cwd, created, first_user):
+    w(f"{fh}/.cursor/chats/{hashlib.md5(cwd.encode()).hexdigest()}/{cid}/meta.json", json.dumps({"cwd": cwd, "createdAtMs": created * 1000}))
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", cwd).strip("-")
+    w(f"{fh}/.cursor/projects/{slug}/agent-transcripts/{cid}/{cid}.jsonl", json.dumps({"role": "user", "message": {"content": [{"type": "text", "text": first_user}]}}) + "\n")
+    w(f"{fh}/.cursor/projects/{slug}/.workspace-trusted", json.dumps({"workspacePath": cwd}))
+cursor_chat("c-wd-new", fw, now, "hi")                       # DELETE (cwd)
+cursor_chat("c-wd-old", "/x/older-wd", old, fm)              # keep (too old)
+cursor_chat("c-mark", "/x/other", now, f"say {fm}")          # DELETE (marker)
+cursor_chat("c-plain", "/x/other", now, "unrelated")         # keep
+def rollout(name, cwd, created, user):
+    w(f"{fh}/.codex/sessions/2026/01/01/rollout-{name}.jsonl",
+      json.dumps({"type": "session_meta", "timestamp": iso(created), "payload": {"id": name, "timestamp": iso(created), "cwd": cwd}}) + "\n"
+      + json.dumps({"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": user}]}}) + "\n")
+rollout("x-wd", fw, now, "hi")                               # DELETE (cwd)
+rollout("x-mark", "/x/other", now, fm)                       # DELETE (marker)
+rollout("x-plain", "/x/other", now, "unrelated")             # keep
+rollout("x-old", fw, old, fm)                                # keep (too old, though mtime is new)
+def transcript(sid, created, lines):
+    body = "".join(json.dumps({"type": "user", "timestamp": iso(created), "cwd": "/x/other", "message": {"role": "user", "content": t}}) + "\n" for t in lines)
+    w(f"{fh}/.claude/projects/-x-other/{sid}.jsonl", body)
+transcript("s-mark", now, [f"Output {fm}"])                  # DELETE (marker in first user msg)
+os.makedirs(f"{fh}/.claude/projects/-x-other/s-mark/subagents", exist_ok=True)
+transcript("s-later", now, ["real work", f"later mention {fm}"])  # keep (marker not in FIRST msg)
+transcript("s-old", old, [f"Output {fm}"])                   # keep (session predates since)
+enc = lambda p: re.sub(r"[^A-Za-z0-9]", "-", p)
+os.makedirs(f"{fh}/.claude/projects/{enc(fw)}/memory", exist_ok=True)   # DELETE (workdir's file-less dir)
+w(f"{fh}/.claude/projects/{enc(fw + '-kept')}/memory/MEMORY.md", "note") # keep (not a workdir)
+PYEOF
+tcc() { TEST_CHAT_CLEANUP_HOME="$FH" PATH="$MOCKBIN:$PATH" bash "$CLEANUP" --since "$RUN_START" --marker "$FM" --workdir "$FW" "$@" 2>/dev/null; }
+tcc_dry=$(tcc --dry-run); tcc_dry_st=$?
+survivors() { (cd "$FH" && find . -name meta.json -o -name 'rollout-*.jsonl' -o -path './.claude/projects/*' -name '*.jsonl' | sort | tr '\n' ' '); }
+before=$(survivors)
+[ "$tcc_dry_st" = 0 ] && [ "$(grep -c $'^would-delete\t' <<<"$tcc_dry")" = 7 ] && [ "$(survivors)" = "$before" ] \
+  && ok "mock:test-chat-cleanup-dry-run" || bad "mock:test-chat-cleanup-dry-run" "exit $tcc_dry_st: $(tr '\n' '|' <<<"$tcc_dry")"
+tcc_out=$(tcc); tcc_st=$?
+want=$(printf '%s\n' ./.claude/projects/-x-other/s-later.jsonl ./.claude/projects/-x-other/s-old.jsonl \
+  ./.codex/sessions/2026/01/01/rollout-x-old.jsonl ./.codex/sessions/2026/01/01/rollout-x-plain.jsonl \
+  "./.cursor/chats/$(printf %s /x/older-wd | md5sum | cut -c1-32)/c-wd-old/meta.json" \
+  "./.cursor/chats/$(printf %s /x/other | md5sum | cut -c1-32)/c-plain/meta.json" | sort | tr '\n' ' ')
+got=$(survivors)
+[ "$tcc_st" = 0 ] && [ "$got" = "$want" ] && [ ! -e "$FH/.claude/projects/-x-other/s-mark" ] \
+  && [ ! -e "$FH/.claude/projects/$(printf %s "$FW" | sed 's/[^A-Za-z0-9]/-/g')" ] \
+  && [ -f "$FH/.claude/projects/$(printf %s "$FW-kept" | sed 's/[^A-Za-z0-9]/-/g')/memory/MEMORY.md" ] \
+  && [ ! -d "$FH/.cursor/projects/$(printf %s "$FW" | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-//')" ] && [ -d "$FH/.cursor/projects/x-other/agent-transcripts/c-plain" ] \
+  && grep -q $'^note\tcodex\t.*unavailable' <<<"$tcc_out" \
+  && ok "mock:test-chat-cleanup-deletes-only-matches" \
+  || bad "mock:test-chat-cleanup-deletes-only-matches" "exit $tcc_st; left: $got; out: $(tr '\n' '|' <<<"$tcc_out")"
+TEST_CHAT_CLEANUP_HOME="$FH" bash "$CLEANUP" --since 1 --marker "$FM" --workdir /tmp >/dev/null 2>&1; [ $? = 64 ] \
+  && ok "mock:test-chat-cleanup-refuses-broad-workdir" || bad "mock:test-chat-cleanup-refuses-broad-workdir"
 
 # ---------- Tier 1: zero-token model-run/auth checks ----------
 cursor-agent status 2>&1 | grep -q "Logged in" && ok "auth:cursor-agent" || bad "auth:cursor-agent" "run: cursor-agent login"
@@ -165,6 +317,10 @@ codex login status 2>&1 | grep -qi "logged in" && ok "auth:codex" || bad "auth:c
 # reasoning-effort column: valid level, codex rows only
 bad_effort=$(awk -F'\t' '$1=="model" && $4!="" && ($3!="codex" || $4 !~ /^(low|medium|high|xhigh|max)$/) {print $2"="$4"("$3")"}' "$TABLE")
 [ -z "$bad_effort" ] && ok "table:effort-column-valid" || bad "table:effort-column-valid" "$bad_effort"
+# ignore rows: exactly <ignore> <glob> <reason>, reason mandatory (an ignore
+# row silences catalog-drift's `unrouted` finding — it has to say why)
+bad_ignore=$(awk -F'\t' '$1=="ignore" && (NF!=3 || $2=="" || $3 !~ /[^[:space:]]/) {print "line " NR ": " $0}' "$TABLE")
+[ -z "$bad_ignore" ] && ok "table:ignore-rows-valid" || bad "table:ignore-rows-valid" "$bad_ignore (want ignore<TAB><glob><TAB><reason>)"
 # every task type must resolve to a model id present in the table
 while IFS=$'\t' read -r _ tt mid; do
   awk -F'\t' -v m="$mid" '$1=="model" && $2==m {found=1} END {exit !found}' "$TABLE" \
@@ -189,6 +345,8 @@ done < <(awk -F'\t' '$1=="task"' "$TABLE")
 #   vanished id  -> FAIL (the route will hard-error or silently remap)
 #   newer family -> WARN (e.g. grok-4.8-* appeared; routes.tsv stops at 4.7 —
 #                   nothing is broken, but add the rows + update the docs)
+#   unrouted     -> WARN (catalog ids no model/retired/ignore row accounts for —
+#                   route them or add `ignore` rows; the daily scout triages these)
 #   unavailable  -> WARN (fail-open; auth tier above already flags login rot)
 drift_out=$(bash "$DRIFT" 2>&1); drift_st=$?
 drift_found=0
@@ -196,6 +354,7 @@ while IFS=$'\t' read -r kind msg; do
   case "$kind" in
     vanished)    bad  "drift:vanished" "$msg"; drift_found=1 ;;
     newer)       warn "drift:newer" "$msg (add rows to bin/routes.tsv, update model-selection.md/model-usage.md, rerun routecheck)"; drift_found=1 ;;
+    unrouted)    warn "drift:unrouted" "$msg"; drift_found=1 ;;
     stale)       warn "drift:stale-catalog" "$msg" ;;
     unavailable) warn "drift:unavailable" "$msg" ;;
     "") ;;
@@ -209,7 +368,6 @@ fi
 
 # ---------- Tier 2: nonce smokes for EVERY model row ----------
 if [ "${1:-}" = "--no-live" ]; then
-  rm -rf "$WORK"
   [ "${#WARNINGS[@]}" -gt 0 ] && echo "WARNINGS (advisory, not failures): ${WARNINGS[*]}"
   [ "${#FAILURES[@]}" -eq 0 ] && { echo "FREE TIERS OK (live smokes skipped; route-health.txt untouched)"; exit 0; }
   echo "FAILURES (free tiers): ${FAILURES[*]}"; exit 1
@@ -218,7 +376,10 @@ mapfile -t MODELS < <(awk -F'\t' '$1=="model"{print $2}' "$TABLE")
 for m in "${MODELS[@]}"; do
   "$RUN" "$m" "$PROMPTFILE" "$WORK" >"$OUT/$m.txt" 2>&1 &
 done
-timeout 300 claude -p --model haiku "$(cat "$PROMPTFILE")" >"$OUT/claude-haiku.txt" 2>&1 &
+# In $WORK, never the caller's cwd, and never persisted: a transcript would be
+# imported into T3 Code as a visible thread within 15 min (it happened: the
+# Aug-19/Sep-11/Sep-15 ROUTE-OK threads). Cleanup still sweeps $WORK's cwd.
+(cd "$WORK" && timeout 300 claude -p --no-session-persistence --model haiku "$(cat "$PROMPTFILE")") >"$OUT/claude-haiku.txt" 2>&1 &
 # One live smoke THROUGH --task-type (cheapest mapping) so the resolution path
 # is exercised end-to-end, not just at the arg-parsing layer.
 "$RUN" --task-type cheap "$PROMPTFILE" "$WORK" >"$OUT/task-cheap.txt" 2>&1 &
@@ -229,7 +390,7 @@ for pair in "codex:gpt-5.6-terra" "cursor:composer-2.5"; do
   be="${pair%%:*}"; m="${pair##*:}"
   ad="$WORK/artifact-$be"; mkdir -p "$ad"; git -C "$ad" init -q 2>/dev/null || true
   af="$WORK/artifact-$be-prompt.md"
-  echo "Create a file named artifact.txt in the current working directory containing exactly this line and nothing else: $NONCE — then output DONE." > "$af"
+  printf 'Create a file named artifact.txt in the current working directory containing exactly this line and nothing else: %s — then output DONE.\n\n[test-run marker: %s]\n' "$NONCE" "$MARKER" > "$af"
   "$RUN" "$m" "$af" "$ad" >"$OUT/artifact-$be.txt" 2>&1 &
 done
 wait
@@ -248,7 +409,29 @@ for be in codex cursor; do
   fi
 done
 
-rm -rf "$WORK"
+# ---------- Test-chat hygiene ----------
+# Delete what the CLIs persisted for this run, then prove nothing is left.
+# Expected: only Cursor chats (no ephemeral mode). A Codex or Claude deletion
+# means prevention regressed (e.g. a CLI update renamed --ephemeral /
+# --no-session-persistence) — cleaned anyway, but WARN so it gets fixed.
+clean_out=$(clean_chats); clean_st=$?
+grep -E $'^(deleted|note)\t' <<<"$clean_out" | awk -F'\t' '{c[$1" "$2]++} END {for (k in c) printf "      %s: %d\n", k, c[k]}' | sort
+[ "$clean_st" -eq 0 ] && ok "hygiene:test-chat-cleanup" || bad "hygiene:test-chat-cleanup" "exit $clean_st: $(tail -c 300 <<<"$clean_out" | tr '\n' '|')"
+grep -q $'^deleted\tcodex\t' <<<"$clean_out" && warn "hygiene:codex-not-ephemeral" "codex persisted test sessions despite MODEL_RUN_EPHEMERAL=1 — check model-run.sh --ephemeral against the installed codex"
+# (claude's file-less ~/.claude/projects/<enc($WORK)>/ dir is expected litter, not a transcript)
+grep -q $'^deleted\tclaude\ttranscript ' <<<"$clean_out" && warn "hygiene:claude-persisted" "claude -p --no-session-persistence still wrote a transcript — check the flag against the installed claude"
+# Independent re-check (not just the cleanup script's own matcher): no Codex
+# rollout since RUN_START mentions the marker, no Cursor chat store exists for
+# a test workdir, and a dry-run sweep finds nothing further.
+left=""
+for w in "${TEST_WORKDIRS[@]}"; do
+  [ -e "$HOME/.cursor/chats/$(printf %s "$w" | md5sum | cut -c1-32)" ] && left+="cursor:$w "
+done
+left+=$(find "${CODEX_HOME:-$HOME/.codex}/sessions" -name 'rollout-*.jsonl' -newermt "@$RUN_START" -exec grep -lF "$MARKER" {} + 2>/dev/null | sed 's/^/codex:/' | tr '\n' ' ')
+wd_args=(); for w in "${TEST_WORKDIRS[@]}"; do wd_args+=(--workdir "$w"); done
+left+=$(bash "$CLEANUP" --since "$RUN_START" --marker "$MARKER" "${wd_args[@]}" --dry-run 2>/dev/null | grep $'^would-delete\t' | cut -f2,3 | tr '\n' ' ')
+[ -z "$left" ] && ok "hygiene:no-test-chats-left" || bad "hygiene:no-test-chats-left" "$left"
+
 [ "${#WARNINGS[@]}" -gt 0 ] && echo "WARNINGS (advisory, not failures): ${WARNINGS[*]}"
 # Record which CLI builds this run verified against; the SessionStart banner
 # nags to re-run when claude / codex / cursor-agent changes underneath them.

@@ -30,16 +30,97 @@
 #   since ~/.claude.json is CC-managed and can't be handled by the settings
 #   merge. Currently: brain (second-brain semantic memory).
 #
+# Scheduled jobs (user crontab):
+#   Installs ONE line tagged "# claude-model-scout" that runs
+#   bin/model-scout.sh daily at 11:30 UTC (~7:30am ET) — the unattended scout
+#   that researches new models, updates routing and opens a PR. Idempotent: the
+#   tagged line is replaced, every other crontab line is preserved byte-for-byte.
+#   Opt out with MODEL_SCOUT_CRON=0 (removes the line and remembers the choice
+#   in ~/.claude/model-scout/cron-disabled, so later plain installs keep it
+#   off); MODEL_SCOUT_CRON=1 opts back in. `--cron-only` runs just this step
+#   (e.g. `MODEL_SCOUT_CRON=0 bash install.sh --cron-only`).
+#
 # Safe to re-run: existing symlinks are replaced; regular files are backed up
 # to *.bak before being overwritten.
 #
 # Usage:
 #   bash ~/dotfiles/claude/install.sh
+#   bash ~/dotfiles/claude/install.sh --cron-only   # only (re)install/remove the scout cron line
 #
 set -e
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLAUDE_DIR="$HOME/.claude"
+
+# The daily model scout's headless agent works in a throwaway worktree that is
+# deleted at the end of its run; installing from there would repoint every
+# ~/.claude symlink at a directory about to vanish. Its session exports
+# MODEL_SCOUT_MARKER — refuse outright (the scout prompt forbids it too).
+if [ -n "${MODEL_SCOUT_MARKER:-}" ]; then
+  echo "install.sh: refusing to run inside a model-scout session (MODEL_SCOUT_MARKER is set)." >&2
+  exit 1
+fi
+
+# --- Scheduled jobs (function; invoked near the end, or alone via --cron-only) ---
+#
+# The line always points at ~/dotfiles/claude (the canonical checkout), never at
+# $REPO_DIR: an install run from a worktree must not schedule a path that will
+# be deleted. The box's clock is UTC (timedatectl), so "30 11" = 11:30 UTC.
+# CRONTAB_CMD exists for testing against a fake crontab — never the real one.
+SCOUT_CRON_TAG="# claude-model-scout"
+SCOUT_CRON_LINE="30 11 * * * . ~/.profile && ~/dotfiles/claude/bin/model-scout.sh >> ~/.claude/model-scout/cron.log 2>&1 $SCOUT_CRON_TAG"
+# Ours = the tag as the line's LAST token. A plain substring match would also
+# swallow e.g. a user's `... # claude-model-scout-backup` line (review 2026-09-22).
+SCOUT_CRON_RE='(^|[[:space:]])# claude-model-scout[[:space:]]*$'
+SCOUT_CRON_OFF="$CLAUDE_DIR/model-scout/cron-disabled"   # persisted MODEL_SCOUT_CRON=0
+
+install_scout_cron() {
+  local crontab_cmd="${CRONTAB_CMD:-crontab}" cur new err want
+  # MODEL_SCOUT_CRON=0/1 is remembered; unset follows the remembered choice
+  # (default on). Without this, the next routine install silently re-enabled it.
+  case "${MODEL_SCOUT_CRON:-}" in
+    0) want=0; mkdir -p "$CLAUDE_DIR/model-scout"; : >"$SCOUT_CRON_OFF" ;;
+    "") want=1; [ -e "$SCOUT_CRON_OFF" ] && want=0 ;;
+    *) want=1; rm -f "$SCOUT_CRON_OFF" ;;
+  esac
+  if ! command -v "$crontab_cmd" >/dev/null 2>&1; then
+    echo "  WARNING: 'crontab' not found — skipping the model-scout cron job."
+    return 0
+  fi
+  cur=$(mktemp); new=$(mktemp); err=$(mktemp)
+  # `crontab -l` exits 1 both for "no crontab for <user>" (fine: start empty)
+  # and for real errors — only the former may proceed, or a transient failure
+  # would make us overwrite the whole crontab with just our line.
+  if ! "$crontab_cmd" -l >"$cur" 2>"$err"; then
+    if grep -qi "no crontab" "$err"; then
+      : >"$cur"
+    else
+      echo "  WARNING: 'crontab -l' failed ($(head -c 200 "$err")) — leaving the crontab untouched."
+      rm -f "$cur" "$new" "$err"; return 0
+    fi
+  fi
+  grep -vE "$SCOUT_CRON_RE" "$cur" >"$new" || true
+  if [ "$want" = 1 ]; then
+    mkdir -p "$CLAUDE_DIR/model-scout"   # cron.log's directory must exist before the first run
+    echo "$SCOUT_CRON_LINE" >>"$new"
+  fi
+  if cmp -s "$cur" "$new"; then
+    if [ "$want" = 0 ]; then echo "  model-scout cron job not installed (opted out: $SCOUT_CRON_OFF; MODEL_SCOUT_CRON=1 re-enables)."
+    else echo "  model-scout cron job already installed (daily 11:30 UTC)."; fi
+  elif "$crontab_cmd" "$new"; then
+    if [ "$want" = 0 ]; then echo "  Removed model-scout cron job (opted out; remembered in $SCOUT_CRON_OFF)."
+    else echo "  Installed model-scout cron job (daily 11:30 UTC) → bin/model-scout.sh"; fi
+  else
+    echo "  WARNING: writing the crontab failed — model-scout cron job unchanged."
+  fi
+  rm -f "$cur" "$new" "$err"
+}
+
+if [ "${1:-}" = "--cron-only" ]; then
+  echo "Scheduling model-scout..."
+  install_scout_cron
+  exit 0
+fi
 
 echo "Installing dans-claude from $REPO_DIR"
 echo "Target: $CLAUDE_DIR"
@@ -204,6 +285,12 @@ if ! grep -qF "$SOURCE_LINE" "$ALIASES_FILE" 2>/dev/null; then
 else
   echo "  $ALIASES_FILE already sources aliases.sh"
 fi
+
+# --- Scheduled jobs ---
+
+echo ""
+echo "Scheduling model-scout..."
+install_scout_cron
 
 echo ""
 echo "Done. Restart Claude Code and run 'source ~/.bash_aliases' to pick up changes."

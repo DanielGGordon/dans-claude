@@ -295,7 +295,17 @@ Models with no runnable route on this machine do not get table rows. Catalog
 drift (a newer grok/composer/glm/gpt version, or a routed id disappearing) is
 detected by `bin/catalog-drift.sh` — `routecheck` runs it live and the
 SessionStart hook runs it from a 24h cache — so a new version is surfaced
-before anyone asks for it. When a benchmark or price claim matters to a
-decision, re-verify it — grok with citations is the cheap way to do that.
+before anyone asks for it. Since 2026-09-22 it also reports **unrouted** ids
+(a new tier like `gpt-6-sol` or a new family like `claude-opus-5-5-*` that no
+`model` / `retired` / `ignore` row in routes.tsv accounts for), and the **daily
+model scout** (`bin/model-scout.sh`, cron 11:30 UTC) turns all of that into a
+PR: grok recency research with live web + X search, independent WebSearch
+confirmation of every claim it writes here, table/notes/routes updates under
+this file's evidence rules (provisional `*` when thin, pinned benchmark index
+versions), a live routecheck, and a gpt-6-astra second review. Models it has
+judged — including not-routable ones — are logged in `scout/evaluated.tsv`.
+Review its PRs like any other: it proposes, Dan merges. When a benchmark or
+price claim matters to a decision, re-verify it — grok with citations is the
+cheap way to do that.
 
 Follow these rules strictly unless the user explicitly says otherwise.

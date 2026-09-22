@@ -9,12 +9,17 @@
 #
 # Prints the model's output to stdout. Exit codes:
 #   0   success
-#   64  usage error (bad model id / task type, missing prompt file)
+#   64  usage error (bad model id / task type, missing or >128 KiB prompt file)
 #   73  transport error persisting after one automatic retry — retry later
 #   75  auth/quota error — STOP and surface to the user; never substitute a model
 #   124 timeout
 # Env: MODEL_RUN_TIMEOUT=<secs> (default 600) · MODEL_RUN_EFFORT=<low|medium|
-# high|xhigh|max> overrides the codex reasoning effort pinned in routes.tsv
+# high|xhigh|max> overrides the codex reasoning effort pinned in routes.tsv ·
+# MODEL_RUN_EPHEMERAL=1 marks a TEST call: codex gets `--ephemeral` (no session
+# files / thread rows, so nothing shows in `codex resume` or the Codex app).
+# Cursor has no equivalent flag — test callers must pass a throwaway mktemp
+# workdir and run bin/test-chat-cleanup.sh for it afterwards. Unset = normal,
+# persisted delegations (their history is useful; only tests opt out).
 # Claude models (sonnet/opus/haiku/fable) are NOT served here — use the Agent
 # tool's `model` param (see ~/.claude/model-usage.md).
 set -u
@@ -49,6 +54,12 @@ PROMPTFILE="${1:-}"; WORKDIR="${2:-$PWD}"
 [ -n "$MODEL" ] && [ -n "$PROMPTFILE" ] || usage
 [ -s "$PROMPTFILE" ] || { echo "model-run: prompt file missing or empty: $PROMPTFILE (always pass prompts via file, never inline)" >&2; exit 64; }
 [ -d "$WORKDIR" ] || { echo "model-run: workdir does not exist: $WORKDIR" >&2; exit 64; }
+# Both backends get the prompt as ONE argv string, and Linux caps a single
+# argument at 128 KiB (MAX_ARG_STRLEN): a bigger prompt dies in execve (E2BIG,
+# exit 126) with no useful message — e.g. a big diff pasted inline into a
+# second-review prompt (2026-09-22). Reference large inputs by path instead.
+PROMPT_BYTES=$(wc -c <"$PROMPTFILE")
+[ "$PROMPT_BYTES" -lt 131000 ] || { echo "model-run: prompt file is $PROMPT_BYTES bytes — over the 128 KiB single-argument limit. Put large inputs (diffs, logs) in files inside the workdir and reference them by relative path in the prompt." >&2; exit 64; }
 TIMEOUT="${MODEL_RUN_TIMEOUT:-600}"
 
 case "$MODEL" in
@@ -76,6 +87,11 @@ run_codex() {
   # MODEL_RUN_EFFORT. Codex otherwise uses each model's catalog default, which
   # for the frontier tiers (gpt-6-astra, gpt-5.6-sol) is "low".
   [ -n "$EFFORT" ] && args+=(-c "model_reasoning_effort=\"$EFFORT\"")
+  # Test runs (routecheck, the daily model scout) must not leave chats behind:
+  # before 2026-09-22 every routecheck left ~5 rollouts + state_5 thread rows
+  # (97 ROUTE-OK threads had piled up). `--ephemeral` = "Run without persisting
+  # session files to disk" (codex-cli 0.155.1).
+  [ "${MODEL_RUN_EPHEMERAL:-0}" = 1 ] && args+=(--ephemeral)
   timeout "$TIMEOUT" codex exec --dangerously-bypass-approvals-and-sandbox \
     -C "$WORKDIR" "${args[@]}" "$(cat "$PROMPTFILE")" 2>&1
 }

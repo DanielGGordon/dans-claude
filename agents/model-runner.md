@@ -29,6 +29,9 @@ Procedure:
    bash ~/dotfiles/claude/bin/model-run.sh --task-type <type> <promptfile> [workdir]
 
    Use the caller's repo/workdir as the third argument if they named one.
+   If the caller says it is a TEST run (smokes, routecheck-style checks),
+   prefix the command with `MODEL_RUN_EPHEMERAL=1 ` so codex persists no
+   session — nothing else about the command changes.
 3. Your final message is the script's stdout, UNEDITED, prefixed with a single
    line: `MODEL: <model-id> (via model-run.sh)`. `<model-id>` is always the
    concrete id that ran — when the caller gave a task type, the script prints

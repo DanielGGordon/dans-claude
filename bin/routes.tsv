@@ -3,6 +3,15 @@
 #                                     only, optional) pins model_reasoning_effort
 #   retired	<old-id>	<successor>    — rejected with pointer to successor
 #   task	<task-type>	<model-id>     — --task-type resolution
+#   ignore	<glob>	<reason>       — a catalog id seen and deliberately NOT
+#                                     routed (shell glob; matched against the
+#                                     bare id and "<backend>:<id>", so
+#                                     "cursor:gpt-*" scopes it to one backend).
+#                                     Silences catalog-drift's `unrouted`
+#                                     finding; reason is mandatory (routecheck).
+#                                     Prefer version-specific globs
+#                                     (claude-opus-4-*) so a NEW version still
+#                                     surfaces instead of being ignored forever.
 # Consumed by bin/model-run.sh (routing + errors), tests/routecheck.sh
 # (test matrix) and bin/catalog-drift.sh (live-catalog drift detection).
 # model-usage.md/model-selection.md point here; don't let the markdown grow

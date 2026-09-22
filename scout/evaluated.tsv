@@ -1,0 +1,6 @@
+# Models the daily scout (bin/model-scout.sh + scout/prompt.md) has already
+# judged, so they are not re-researched every day. Append-only, tab-separated.
+# verdict: routed | supersedes:<old-id> | retired | ignore | not-routable | watch
+# (watch = announced / not in any catalog yet — re-checked on later runs).
+# note: key reason + main source (URL, publication date).
+date	vendor	model	verdict	note
