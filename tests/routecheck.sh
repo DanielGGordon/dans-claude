@@ -8,8 +8,8 @@
 #
 # A route passes only if the model echoes a nonce back. ~100 tokens per route.
 # Also runs bin/catalog-drift.sh (zero tokens): a routed id missing from its
-# live catalog is a FAIL; a NEWER version of a routed family (e.g. cursor-grok-4.7
-# when routes.tsv stops at 4.6) is a WARN — nothing is broken, but update routes.tsv.
+# live catalog is a FAIL; a NEWER version of a routed family (e.g. grok-4.8
+# when routes.tsv stops at 4.7) is a WARN — nothing is broken, but update routes.tsv.
 # Writes ~/.claude/route-health.txt for the SessionStart banner hook.
 # If a route FAILs, fix bin/routes.tsv / the docs or remove the model — never
 # leave a documented route broken.
@@ -75,16 +75,19 @@ MOCKBIN="$WORK/mockbin"; mkdir -p "$MOCKBIN"
 cat > "$MOCKBIN/codex" <<'MOCK'
 #!/usr/bin/env bash
 # Catalog reads (used by the catalog-drift unit tests): a fake future catalog —
-# grok 4.7 / gpt-7-nova exist, cursor-grok-4.5-low is gone. gpt-6-astra is
+# grok 4.8 / gpt-7-nova exist, cursor-grok-4.5-low is gone. gpt-6-astra is
 # present (so a routed id is NOT reported vanished); gpt-5.7-sol is included
 # deliberately and must NOT warn — routed gpt-6 outranks 5.7 under the
 # detector's family-max semantics (known limitation: once a gpt-6+ id is
-# routed, a future gpt-5.x point release goes undetected). MOCK_MODE=catalog-down
-# simulates a logged-out/broken CLI for the fail-open test.
+# routed, a future gpt-5.x point release goes undetected). All grok-4.7-* ids
+# actually routed in routes.tsv are included so they are NOT reported vanished
+# — grok-4.8 is the hypothetical next bump used to exercise "newer".
+# MOCK_MODE=catalog-down simulates a logged-out/broken CLI for the fail-open test.
 [ "${MOCK_MODE:-ok}" = catalog-down ] && { echo "Not logged in"; exit 1; }
 if [ "${1:-}" = "--list-models" ]; then
   printf 'Available models\n\nauto - Auto (default)\n'
-  for id in cursor-grok-4.7-high cursor-grok-4.7-xhigh cursor-grok-4.6-high cursor-grok-4.6-high-fast \
+  for id in grok-4.8-high grok-4.8-xhigh grok-4.7-high grok-4.7-high-fast grok-4.7-xhigh grok-4.7-medium grok-4.7-low \
+            cursor-grok-4.6-high cursor-grok-4.6-high-fast \
             cursor-grok-4.6-xhigh cursor-grok-4.6-medium cursor-grok-4.6-low cursor-grok-4.5-high \
             cursor-grok-4.5-high-fast cursor-grok-4.5-medium composer-2.5 composer-2.5-fast glm-5.2-high glm-5.2-max; do
     echo "$id - Mock"; done; exit 0
@@ -140,7 +143,7 @@ grep -q 'model_reasoning_effort' "$WORK/args-cursor.txt" \
 # catalog-drift detector against the fake future catalog above (zero tokens, no network)
 mock_drift=$(CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_drift_st=$?
 [ "$mock_drift_st" = 1 ] \
-  && grep -q $'^newer\t.*cursor-grok-4.7-\*.*stops at cursor-grok-4.6' <<<"$mock_drift" \
+  && grep -q $'^newer\t.*grok-4.8-\*.*stops at grok-4.7' <<<"$mock_drift" \
   && grep -q $'^newer\t.*gpt-7-\*.*stops at gpt-6' <<<"$mock_drift" \
   && grep -q $'^vanished\t.*cursor-grok-4.5-low' <<<"$mock_drift" \
   && ! grep -q 'gpt-5.7' <<<"$mock_drift" \
@@ -184,7 +187,7 @@ done < <(awk -F'\t' '$1=="task"' "$TABLE")
 # ---------- Tier 1.5: live catalog drift (zero tokens) ----------
 # bin/catalog-drift.sh: Cursor --list-models + Codex debug models vs routes.tsv.
 #   vanished id  -> FAIL (the route will hard-error or silently remap)
-#   newer family -> WARN (e.g. cursor-grok-4.7-* appeared; routes.tsv stops at 4.6 —
+#   newer family -> WARN (e.g. grok-4.8-* appeared; routes.tsv stops at 4.7 —
 #                   nothing is broken, but add the rows + update the docs)
 #   unavailable  -> WARN (fail-open; auth tier above already flags login rot)
 drift_out=$(bash "$DRIFT" 2>&1); drift_st=$?

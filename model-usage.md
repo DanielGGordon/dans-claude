@@ -71,9 +71,10 @@ messages, routecheck's test matrix and the catalog-drift check all derive from
 it. When the catalog changes, edit routes.tsv (only), then run `routecheck`.
 Current ids: run `bash ~/dotfiles/claude/bin/model-run.sh` with no args, or
 read the tsv. Codex: `gpt-6-astra` is the frontier tier (GPT-6, effort pinned to
-`high`); `gpt-5.6-terra` stays the bulk default. Grok: `cursor-grok-4.6-*` is
-the default (`--task-type recency` → `cursor-grok-4.6-high`);
-`cursor-grok-4.5-*` is legacy but still routable.
+`high`); `gpt-5.6-terra` stays the bulk default. Grok: `grok-4.7-*` is
+the default (`--task-type recency` → `grok-4.7-high`; note these ids have no
+`cursor-` prefix, unlike the legacy ones); `cursor-grok-4.6-*` and
+`cursor-grok-4.5-*` are legacy but still routable.
 
 ## Claude Models (sonnet / opus / haiku / fable)
 
@@ -135,9 +136,9 @@ raw invocation can be reconstructed *with the user's explicit approval*:
 ## Direct xAI API (grok) — UNWIRED, do not use
 
 **Status: not set up on this machine (`XAI_API_KEY` is not set). Do not attempt
-this route — use `cursor-grok-4.6-high` (or `--task-type recency`) via
+this route — use `grok-4.7-high` (or `--task-type recency`) via
 model-run.sh instead.** Kept only as wiring notes for if the user ever asks for
-it (written against grok-4.5; re-check ids/pricing for 4.6): OpenAI-compatible,
+it (written against grok-4.5; re-check ids/pricing for 4.7): OpenAI-compatible,
 base URL `https://api.x.ai/v1`, model id `grok-4.5`, key in `XAI_API_KEY` (docs:
 https://docs.x.ai/developers/grok-4-5). Live search = Agent Tools (`web_search`,
 `x_search`) on the Responses API, $5 per 1k successful invocations (the old
