@@ -174,8 +174,9 @@ cat > "$MOCKBIN/codex" <<'MOCK'
 # present (so a routed id is NOT reported vanished); gpt-5.7-sol is included
 # deliberately and must NOT be "newer" — routed gpt-6 outranks 5.7 under the
 # detector's family-max semantics — but MUST be "unrouted" (that finding closes
-# the gap: a gpt-5.x point release or a new gpt-6 tier is still surfaced). auto,
-# grok-4.8-* and gpt-7-nova are the other unrouted ids. All grok-4.7-* ids
+# the gap: a gpt-5.x point release or a new gpt-6 tier is still surfaced).
+# grok-4.8-* and gpt-7-nova are the other unrouted ids; auto is listed but
+# matched by routes.tsv's `ignore auto` row (2026-09-22), so it must NOT be. All grok-4.7-* ids
 # actually routed in routes.tsv are included so they are NOT reported vanished
 # — grok-4.8 is the hypothetical next bump used to exercise "newer".
 # MOCK_MODE=catalog-down simulates a logged-out/broken CLI for the fail-open test.
@@ -189,7 +190,7 @@ if [ "${1:-}" = "--list-models" ]; then
     echo "$id - Mock"; done; exit 0
 fi
 if [ "${1:-}" = "debug" ]; then
-  echo '{"models":[{"slug":"gpt-7-nova","visibility":"list"},{"slug":"gpt-6-astra","visibility":"list"},{"slug":"gpt-5.7-sol","visibility":"list"},{"slug":"gpt-5.6-sol","visibility":"list"},{"slug":"gpt-5.6-terra","visibility":"list"},{"slug":"gpt-5.6-luna","visibility":"list"},{"slug":"gpt-5.5","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}'; exit 0
+  echo '{"models":[{"slug":"gpt-7-nova","visibility":"list"},{"slug":"gpt-6-astra","visibility":"list"},{"slug":"gpt-6-sol","visibility":"list"},{"slug":"gpt-6-luna","visibility":"list"},{"slug":"gpt-5.7-sol","visibility":"list"},{"slug":"gpt-5.6-sol","visibility":"list"},{"slug":"gpt-5.6-terra","visibility":"list"},{"slug":"gpt-5.6-luna","visibility":"list"},{"slug":"gpt-5.5","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}'; exit 0
 fi
 printf '%s\n' "$*" > "${MOCK_ARGS:-/dev/null}"
 case "${MOCK_MODE:-ok}" in
@@ -347,14 +348,16 @@ mock_nv=$(grep $'^newer\t\|^vanished\t' <<<"$mock_drift")
   && ok "mock:catalog-drift-detects-newer+vanished" \
   || bad "mock:catalog-drift-detects-newer+vanished" "exit $mock_drift_st: $(printf '%s' "$mock_drift" | tr '\n' '|')"
 # unrouted: ids no model/retired/ignore row accounts for. gpt-5.7-sol is exactly
-# the tier-at-an-old-version case version-max can't see; auto has no version.
+# the tier-at-an-old-version case version-max can't see; auto is ignored by the
+# real table's `ignore auto` row, so it must not show.
 grep -q $'^unrouted\tCodex catalog has 2 unrouted ids: gpt-5.7-sol, gpt-7-nova' <<<"$mock_drift" \
-  && grep -q $'^unrouted\tCursor catalog has 3 unrouted ids: .*auto.*grok-4.8-high' <<<"$mock_drift" \
+  && grep -q $'^unrouted\tCursor catalog has 2 unrouted ids: .*grok-4.8-high' <<<"$mock_drift" \
+  && ! grep -q $'^unrouted\t.*auto' <<<"$mock_drift" \
   && ok "mock:catalog-drift-unrouted-summary" \
   || bad "mock:catalog-drift-unrouted-summary" "$(grep unrouted <<<"$mock_drift" | tr '\n' '|')"
 mock_unr=$(XAI_API_KEY=mock-key CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" --unrouted 2>/dev/null); mock_unr_st=$?
 [ "$mock_unr_st" = 1 ] \
-  && [ "$(sort <<<"$mock_unr" | tr '\n' ' ')" = "$(printf 'codex\tgpt-5.7-sol\ncodex\tgpt-7-nova\ncursor\tauto\ncursor\tgrok-4.8-high\ncursor\tgrok-4.8-xhigh\n' | sort | tr '\n' ' ')" ] \
+  && [ "$(sort <<<"$mock_unr" | tr '\n' ' ')" = "$(printf 'codex\tgpt-5.7-sol\ncodex\tgpt-7-nova\ncursor\tgrok-4.8-high\ncursor\tgrok-4.8-xhigh\n' | sort | tr '\n' ' ')" ] \
   && ok "mock:catalog-drift--unrouted-lists-ids" \
   || bad "mock:catalog-drift--unrouted-lists-ids" "exit $mock_unr_st: $(tr '\n' '|' <<<"$mock_unr")"
 # ignore rows: bare glob matches any backend; "<backend>:<glob>" only that one

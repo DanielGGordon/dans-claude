@@ -28,7 +28,7 @@ export const meta = {
   ],
 }
 const REPO = (args && args.repo) || '~/dotfiles/claude'
-const IDS = ['gpt-6-astra', 'gpt-5.6-terra', 'gpt-5.6-sol', 'composer-2.5', 'grok-4.7-high', 'glm-5.2-high']
+const IDS = ['gpt-6-astra', 'gpt-6-sol', 'gpt-5.6-terra', 'composer-2.5', 'grok-4.7-high', 'glm-5.2-high']
 // x-recency (grok-4.7-xsearch, the direct xAI API) is deliberately NOT here:
 // grok-4.7 on the xAI API refuses "output exactly this line" nonce prompts
 // (2026-09-22), and the model-runner path is the same model-run.sh call —

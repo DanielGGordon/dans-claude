@@ -4,3 +4,19 @@
 # (watch = announced / not in any catalog yet — re-checked on later runs).
 # note: key reason + main source (URL, publication date).
 date	vendor	model	verdict	note
+2026-09-22	OpenAI	gpt-6-sol	supersedes:gpt-5.6-sol	GA 2026-09-22; $2/$10 vs 5.6-sol $4/$20; AA v4.3.2 48 vs 47; bulk stays Terra pending per-task cost (developers.openai.com pricing + AA model page, 2026-09-22)
+2026-09-22	OpenAI	gpt-6-luna	supersedes:gpt-5.6-luna	GA 2026-09-22; $0.10/$0.50 vs 5.6-luna $0.20/$1.20; AA v4.3.2 37 = 5.6-luna (developers.openai.com pricing + AA comparison page, 2026-09-22)
+2026-09-22	Anthropic	claude-opus-5-5	routed	native Claude (opus alias since Claude Code 2.1.280); AA index 58, #1; $4/$20; Cursor claude-opus-5-5-* ignored (anthropic.com/news/claude-opus-5-5 + AA article, 2026-09-22)
+2026-09-22	Anthropic	claude-fable-5-1	routed	native Claude (fable alias); released 2026-09-01; AA v4.3.2 53; AA-Omniscience hallucination 72.6% flagged; Cursor ids ignored (platform.claude.com + AA, 2026-09-01)
+2026-09-22	Anthropic	cursor:claude-* (opus-5, fable-5, sonnet-5, opus-4.8/4.7, 4.x)	ignore	Claude runs natively, never via cursor-agent; one ignore glob per family version
+2026-09-22	xAI	grok-4.7	routed	already routed; re-benchmarked: AA v4.3.2 46, AA-Omniscience hallucination 29% (4.6 34%) -> Int 7, Rel 5*; -fast variants ignored (AA "Benchmarking Grok 4.7", 2026-09-21)
+2026-09-22	Google	gemini-3.8-flash	ignore	2026-09-02; AA v4.3.2 41 at $0.75/$3.75 intro; leads no axis vs grok-4.7/gpt-6-sol/luna (blog.google 2026-09-02, AA model page)
+2026-09-22	Google	gemini-3.7/3.6/3.5/3-flash, gemini-3.1-pro	ignore	superseded Flash tiers; 3.1 Pro still Google's newest Pro (ai.google.dev pricing, 2026-09-22)
+2026-09-22	Moonshot	kimi-k3	ignore	AA v4.3.2 44 at $3/$15, dominated by gpt-6-sol (platform.kimi.ai pricing, AA model page)
+2026-09-22	Moonshot	kimi-k2.7-code	ignore	AA v4.3.2 26; no role (AA model page)
+2026-09-22	Meta	muse-spark-1.3	watch	2026-09-02; AA v4.3.2 48 (max, limited safety-testing access) at $1.25/$4.25; no hallucination / per-task cost data; ignore row until evidence (research.meta.ai 2026-09-02, AA)
+2026-09-22	Cursor	auto	ignore	Cursor's router, not a model
+2026-09-22	Z.ai	glm-5.3	not-routable	GLM-5.3 (2026-08-18) / 5.3-Flash not in Cursor's catalog; re-check (docs.z.ai release notes)
+2026-09-22	DeepSeek	deepseek-v4.1-flash	not-routable	GA 2026-09-10; not in Cursor/Codex catalogs (AA changelog)
+2026-09-22	Xiaomi	mimo-v2.6-pro	not-routable	2026-09-21/22, MIT weights; not in any catalog (AA changelog, mimo.mi.com)
+2026-09-22	Alibaba	qwen3.8-max / qwen3.8-omni-flash	not-routable	Sep 2026; not in any catalog (AA changelog)

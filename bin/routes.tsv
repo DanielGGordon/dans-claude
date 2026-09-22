@@ -22,6 +22,16 @@
 # gpt-6-astra: OpenAI's frontier tier (Codex catalog default effort is LOW —
 # the 4th column pins it to high; override per-call with MODEL_RUN_EFFORT).
 model	gpt-6-astra	codex	high
+# gpt-6-sol / gpt-6-luna (GA 2026-09-22, API + Codex): half or less of GPT-5.6
+# Sol/Luna's list price at >= their AA Intelligence Index v4.3.2 score (Sol 48 vs 47, Luna
+# 37 vs 37). Catalog default effort is medium (not low), so no pin. They
+# supersede gpt-5.6-sol / gpt-5.6-luna, which stay routable as legacy (Codex:
+# "remain available during GPT-6 rollout"). No GPT-6 Terra exists; bulk stays on
+# gpt-5.6-terra until an independent per-task cost comparison says otherwise.
+model	gpt-6-sol	codex
+model	gpt-6-luna	codex
+# gpt-5.5 leaves Codex for ChatGPT sign-in (= this machine's seat auth) on
+# 2026-10-14 (learn.chatgpt.com/docs/models); catalog-drift should then flag it vanished.
 model	gpt-5.5	codex
 model	gpt-5.6-sol	codex
 model	gpt-5.6-terra	codex
@@ -55,6 +65,40 @@ model	glm-5.2-max	cursor
 # (xAI's is column 4), so it never collides with Cursor's grok-4.7-* ids.
 # Wired 2026-09-22 for the model scout's X hot-takes pass (task x-recency).
 model	grok-4.7-xsearch	xai	grok-4.7
+# ignore rows (model scout 2026-09-22): catalog ids seen and deliberately not
+# routed. Claude globs are one per family VERSION so the next Claude release
+# still surfaces as unrouted ([lmhx]* = low/medium/high/xhigh/max, so
+# claude-opus-5-[lmhx]* does not swallow a future claude-opus-5-6-*).
+ignore	auto	Cursor's router, not a model (picks its own model per request)
+ignore	cursor:gpt-*	OpenAI models route through Codex (native, seat auth), never cursor-agent
+ignore	cursor:claude-opus-5-5-*	Claude runs natively (Agent tool / claude CLI), never via cursor-agent
+ignore	cursor:claude-opus-5-[lmhx]*	Claude runs natively, never via cursor-agent
+ignore	cursor:claude-opus-5-thinking-*	Claude runs natively, never via cursor-agent
+ignore	cursor:claude-fable-5-1-*	Claude runs natively, never via cursor-agent
+ignore	cursor:claude-fable-5-[lmhx]*	Claude runs natively, never via cursor-agent
+ignore	cursor:claude-fable-5-thinking-*	Claude runs natively, never via cursor-agent
+ignore	cursor:claude-sonnet-5-[lmhx]*	Claude runs natively, never via cursor-agent
+ignore	cursor:claude-sonnet-5-thinking-*	Claude runs natively, never via cursor-agent
+ignore	cursor:claude-opus-4-8-*	Claude runs natively, never via cursor-agent
+ignore	cursor:claude-opus-4-7-*	Claude runs natively, never via cursor-agent
+ignore	cursor:claude-4.6-*	Claude runs natively, never via cursor-agent
+ignore	cursor:claude-4.5-*	Claude runs natively, never via cursor-agent
+ignore	cursor:claude-4-sonnet*	Claude runs natively, never via cursor-agent
+ignore	cursor:grok-4.7-[lmx]*-fast	grok-4.7 fast-mode variants (2x price) beyond the routed grok-4.7-high-fast; no separate role
+ignore	cursor:cursor-grok-4.6-[lmx]*-fast	legacy grok-4.6 fast-mode variants; 4.7 is the default grok
+ignore	cursor:cursor-grok-4.5-[lm]*-fast	legacy grok-4.5 fast-mode variants; 4.7 is the default grok
+# Non-routed families in the Cursor catalog, one glob per version (AA
+# Intelligence Index v4.3.2 scores from artificialanalysis.ai model pages,
+# fetched 2026-09-22; a newer version still surfaces as unrouted):
+ignore	cursor:gemini-3.8-flash-*	Gemini 3.8 Flash (2026-09-02): AA v4.3.2 41 at $0.75/$3.75 intro; below grok-4.7 (46) and gpt-6-sol (48), 7x gpt-6-luna's price; no role here
+ignore	cursor:gemini-3.7-flash-*	Gemini 3.7 Flash, superseded by 3.8 Flash (AA v4.3.2 39)
+ignore	cursor:gemini-3.6-flash-*	older Gemini Flash, superseded by 3.8 Flash
+ignore	cursor:gemini-3.5-flash	older Gemini Flash, superseded by 3.8 Flash
+ignore	cursor:gemini-3-flash	older Gemini Flash, superseded by 3.8 Flash
+ignore	cursor:gemini-3.1-pro	Gemini 3.1 Pro (still Google's newest Pro per ai.google.dev pricing, 2026-09-22): a preview, older than every frontier tier routed here
+ignore	cursor:kimi-k3-*	Kimi K3 (2026-07-16): AA v4.3.2 44 at $3/$15, dominated by gpt-6-sol (48 at $2/$10)
+ignore	cursor:kimi-k2.7-*	Kimi K2.7 Code (2026-06-12): AA v4.3.2 26; no role
+ignore	cursor:muse-spark-1.3-*	watch: Meta Muse Spark 1.3 (2026-09-02) AA v4.3.2 48 (max, still in limited safety testing) at $1.25/$4.25; no hallucination or per-task cost data yet
 retired	grok-4.5-xhigh	cursor-grok-4.5-high
 retired	grok-4.5-fast-xhigh	cursor-grok-4.5-high-fast
 task	bulk	gpt-5.6-terra

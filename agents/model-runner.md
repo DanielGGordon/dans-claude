@@ -1,6 +1,6 @@
 ---
 name: model-runner
-description: Deterministic wrapper that runs a prompt on a non-Claude model (gpt-6-astra, gpt-5.5, gpt-5.6-sol/terra/luna, composer-2.5, grok-4.7-* (default grok; cursor-grok-4.6-*/4.5-* legacy), grok-4.7-xsearch (direct xAI API, X + web search), glm-5.2-*) via model-run.sh and returns the output verbatim. Use this agent for ALL delegations to non-Claude models — never hand-roll codex/cursor-agent commands.
+description: Deterministic wrapper that runs a prompt on a non-Claude model (gpt-6-astra, gpt-6-sol/luna, gpt-5.5, gpt-5.6-sol/terra/luna (legacy sol/luna), composer-2.5, grok-4.7-* (default grok; cursor-grok-4.6-*/4.5-* legacy), grok-4.7-xsearch (direct xAI API, X + web search), glm-5.2-*) via model-run.sh and returns the output verbatim. Use this agent for ALL delegations to non-Claude models — never hand-roll codex/cursor-agent commands.
 tools: Bash, Write
 model: sonnet
 ---

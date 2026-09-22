@@ -134,7 +134,7 @@ After install, `~/.claude/` looks like:
 
 ## Model Routing & Orchestration
 
-How Claude Code sessions on this machine reach non-Anthropic models (gpt-6-astra / gpt-5.5 / gpt-5.6 via the Codex CLI, composer-2.5 / grok-4.7 (default grok; 4.6/4.5 legacy) / glm-5.2 via the Cursor CLI — both on subscription-seat auth — plus one pay-per-use API route: `grok-4.7-xsearch` (`--task-type x-recency`), grok on the direct xAI API, the only route with real X search, keyed by `XAI_API_KEY`), and how that stays deterministic.
+How Claude Code sessions on this machine reach non-Anthropic models (gpt-6-astra / gpt-6-sol / gpt-6-luna / gpt-5.5 / gpt-5.6 via the Codex CLI, composer-2.5 / grok-4.7 (default grok; 4.6/4.5 legacy) / glm-5.2 via the Cursor CLI — both on subscription-seat auth — plus one pay-per-use API route: `grok-4.7-xsearch` (`--task-type x-recency`), grok on the direct xAI API, the only route with real X search, keyed by `XAI_API_KEY`), and how that stays deterministic.
 
 ### The layers
 

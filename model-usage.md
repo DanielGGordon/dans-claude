@@ -76,7 +76,10 @@ messages, routecheck's test matrix and the catalog-drift check all derive from
 it. When the catalog changes, edit routes.tsv (only), then run `routecheck`.
 Current ids: run `bash ~/dotfiles/claude/bin/model-run.sh` with no args, or
 read the tsv. Codex: `gpt-6-astra` is the frontier tier (GPT-6, effort pinned to
-`high`); `gpt-5.6-terra` stays the bulk default. Grok: `grok-4.7-*` is
+`high`); `gpt-6-sol` / `gpt-6-luna` (2026-09-22, catalog default effort
+`medium`, no pin) supersede `gpt-5.6-sol` / `gpt-5.6-luna`, which stay routable
+as legacy; `gpt-5.6-terra` stays the bulk default (there is no GPT-6 Terra).
+`gpt-5.5` leaves Codex for ChatGPT sign-in on 2026-10-14. Grok: `grok-4.7-*` is
 the default (`--task-type recency` → `grok-4.7-high`; note these ids have no
 `cursor-` prefix, unlike the legacy ones); `cursor-grok-4.6-*` and
 `cursor-grok-4.5-*` are legacy but still routable. `grok-4.7-xsearch`
@@ -91,9 +94,15 @@ Native to Claude Code — no CLI, no wrapper, not model-run.sh's job:
 | --------- | ----------------------- |
 | **Agent tool** (subagents) | `model` parameter: `"sonnet"`, `"opus"`, `"haiku"`, or `"fable"`. |
 | **Workflow scripts** | `agent(prompt, { model: 'sonnet', effort: 'low' })`. |
-| **Default (no `model`)** | Inherits the session model — a Fable-5 session fans out Fable-5 workers unless overridden. |
+| **Default (no `model`)** | Inherits the session model — a Fable session fans out Fable workers unless overridden. |
 
-- `effort` per call: `'low' | 'medium' | 'high' | 'xhigh' | 'max'`.
+- Aliases (Claude Code 2.1.280, code.claude.com model-config, 2026-09-22):
+  `opus` → **Opus 5.5** (`claude-opus-5-5`, also Claude Code's default model),
+  `fable` → **Fable 5.1**, `sonnet` → Sonnet 5, `haiku` → Haiku 4.5 (on the
+  Anthropic API; Bedrock/Vertex/Foundry map some aliases to older models).
+- `effort` per call: `'low' | 'medium' | 'high' | 'xhigh' | 'max'`. New models
+  such as Opus 5.5 start at their own default (Opus 5.5: `medium`), not an
+  effort level saved before `/effort` became per-model.
 - **Do not use `claude -p --model <model>` from Bash** for routing — nested
   session, separate context/permissions, stdout parsing. Reserve `claude -p`
   for genuinely detached background jobs.
@@ -102,9 +111,11 @@ Native to Claude Code — no CLI, no wrapper, not model-run.sh's job:
   retry on opus or sonnet. Re-dispatch that subagent's prompt through the
   `model-runner` agent with `--task-type fable-fallback` (→ `gpt-6-astra`),
   keeping the same success criteria and output format, and tell the user which
-  model actually ran. Why `model-run.sh` and not a Claude retry: Astra is the
-  only other model in this stack at Fable's intelligence tier, and the routing
-  table makes the substitution auditable instead of ad hoc. If Astra's own
+  model actually ran. Why `model-run.sh` and not a Claude retry: Astra is tied
+  with Fable 5.1 on AA's index and doesn't share Claude's quota pool, and the
+  routing table makes the substitution auditable instead of ad hoc. (Since
+  2026-09-22 `opus` = Opus 5.5 outscores both, so an announced re-dispatch on
+  `opus` is also acceptable — see model-selection.md; never sonnet.) If Astra's own
   backend then errors 75 (auth/quota), stop and surface — no third hop.
 
 ## Under the Hood (reference only — route-guard blocks running these directly)
