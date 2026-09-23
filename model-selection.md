@@ -24,7 +24,12 @@ re-rated gpt-5.6-sol's Intelligence against AA v4.3.2. A same-day
 verification pass re-fetched the AA pages and corrected three scores against
 their own evidence: gpt-6-sol CE 8\* → 9\* (AA per-task cost), fable-5.1
 Reliability 9\* → 6\* (AA-Omniscience hallucination 72.6%), grok-4.6
-Reliability 3\* → 4\* (hallucination 34%).
+Reliability 3\* → 4\* (hallucination 34%). **2026-09-23 scout:** opus-5.5 CE
+4\* → 6\* from AA's per-effort pages (high effort: v4.3.2 54 at $1.82 per
+index task), and gpt-6-sol/luna's AA-Omniscience hallucination rates (60% /
+77%) and Coding Agent Index moved from UNVERIFIED to sourced (AA's
+Sol/Luna article, 2026-09-22); gpt-6-luna Reliability 4\* → 3\* on that rate,
+gpt-6-sol's 5\* kept with its justification now in the note.
 
 - **Cost efficiency** = cost **per completed task**, not per token. (Per-token
   intuition inverts rankings: measured 2026-07-21, sonnet-5 had cheaper tokens
@@ -42,7 +47,7 @@ Reliability 3\* → 4\* (hallucination 34%).
 | composer-2.5 | 10              | 6            | 4*    | 5*          |
 | gpt-6-astra  | 6               | 9            | 8     | 6           |
 | gpt-6-sol    | 9*              | 8            | 6*    | 5*          |
-| gpt-6-luna   | 10*             | 5*           | 4*    | 4*          |
+| gpt-6-luna   | 10*             | 5*           | 4*    | 3*          |
 | grok-4.7     | 10*             | 7            | 4*    | 5*          |
 | grok-4.6*    | 10*             | 7*           | 4*    | 4*          |
 | grok-4.5     | 10              | 7            | 4     | 3           |
@@ -50,7 +55,7 @@ Reliability 3\* → 4\* (hallucination 34%).
 | gpt-5.6-terra| 8               | 7            | 6     | 7           |
 | gpt-5.6-sol  | 7               | 8            | 6     | 5           |
 | gpt-5.5      | 6               | 7            | 5     | 7           |
-| opus-5.5     | 4*              | 10*          | 8*    | 9*          |
+| opus-5.5     | 6*              | 10*          | 8*    | 9*          |
 | sonnet-5     | 4               | 7            | 7     | 8           |
 | fable-5.1    | 2               | 9            | 9*    | 6*          |
 
@@ -167,18 +172,29 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
     Intelligence Index task** vs gpt-5.6-sol $1.99 and gpt-5.6-terra $1.40
     (31k vs Terra's 39k output tokens/task), i.e. cheaper per task than Terra
     *and* 6 points higher; provisional because it is one AA measurement at max
-    effort, one day old. **Taste 6\*** and **Reliability 5\*** copied from
-    gpt-5.6-sol — its Omniscience gain is real but it is still well below
-    Astra there, AA's hallucination rate for it is unconfirmed (see below),
-    and METR has not evaluated it. Judge its output as you would Sol's.
+    effort, one day old. AA Coding Agent Index **57** (max, Codex harness;
+    5.6-sol 55). **Taste 6\*** copied from gpt-5.6-sol. **Reliability 5\***:
+    AA measured its AA-Omniscience **hallucination rate at 60%** (max; 5.6-sol
+    92%), bought by abstaining more — it attempts 83% of questions vs 99%, so
+    accuracy *fell* 59% → 54%. A real gain over 5.6-sol (5), but still worse
+    than Astra's 51% (6), and METR has not evaluated it: 5 stays, provisional.
+    It sits above grok-4.5's 3 (54%) despite the higher rate because of
+    honesty-side evidence grok lacks: the measured abstention gain (it now
+    declines 17% of questions rather than guessing) and OpenAI's "about half
+    as many mistakes as its predecessor" on its internal factuality eval (a
+    vendor claim). Judge its output as you would Sol's.
   - **gpt-6-luna: Intelligence 5\*** — AA v4.3.2 **37**, level with
     gpt-5.6-luna (37) at half the input and ~42% of the output price, and
     **$0.07 per AA index task vs 5.6-luna's $0.18** (max effort) → CE 10\*;
-    Omniscience Index 1 (5.6-luna −10).
+    Omniscience Index 1 (5.6-luna −10); AA-Omniscience hallucination **77%**
+    (max; 5.6-luna 93%, accuracy 44% vs 43%); Coding Agent Index **41** (max,
+    −2 vs 5.6-luna).
     OpenAI pitches it for "focused, high-volume tasks, including summarization,
     extraction, and focused coding" — a fast-draft / extraction tier, not an
-    agent for open-ended work. Taste and Reliability are unmeasured guesses
-    below Sol's.
+    agent for open-ended work. Taste is an unmeasured guess below Sol's;
+    **Reliability 3\*** (4\* → 3\* on 2026-09-23): its 77% hallucination rate is
+    worse than grok-4.5's 54% (Reliability 3) and no honesty evidence offsets
+    it, so it cannot sit above 3.
   - Sources: OpenAI launch post openai.com/index/introducing-gpt-6-sol-and-luna
     and developer-community announcement (2026-09-22); OpenAI API model pages
     and pricing page (developers.openai.com, fetched 2026-09-22); Codex
@@ -186,11 +202,10 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
     Analysis model page for gpt-6-sol and comparison pages
     gpt-6-sol-vs-gpt-5-6-sol, gpt-6-sol-vs-gpt-5-6-terra, gpt-6-sol-vs-gpt-6-astra,
     gpt-6-luna-vs-gpt-5-6-luna (artificialanalysis.ai/models/comparisons/…,
-    undated; fetched 2026-09-22) — the per-task costs are printed there.
-  - **UNVERIFIED — do not quote:** AA-Omniscience hallucination rates (Sol
-    60%, Luna 77%) and Coding Agent Index (Sol 57, Luna 41) — seen only in an
-    AA X post snippet and a wccftech write-up (2026-09-22), not on a fetched
-    AA page.
+    undated; fetched 2026-09-22) — the per-task costs are printed there; AA
+    article "GPT-6 Sol and Luna push the cost efficiency frontier"
+    (2026-09-22, fetched 2026-09-23) — hallucination rates, attempt rate,
+    accuracy and Coding Agent Index.
 
 - **grok-4.5** — $2/$6 per Mtok (cached input $0.30; 2× rates past 200k prompt),
   AA Intelligence 53.8 (#4). Reliability 3: **54% hallucination on
@@ -236,23 +251,40 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
     Terminal-Bench 4.0 66.4% vs Fable 5.1 55.8% / Astra 57.9%, FrontierCode
     v1.1 54.4%, CursorBench 4.0 57.8%. Provisional only because it is one day
     old.
-  - **CE 4\*** — cheaper tokens than Opus 5 (20% less), but ~**119k output
-    tokens per AA index task**, **$5.98 per index task** on AA's model page:
-    between Astra and Fable 5.1, far above Terra/Sol for work that doesn't
-    need it.
-  - **Taste 8\*, Reliability 9\*** copied from opus-4.8: not yet on Design
-    Arena or LMArena; AA-Omniscience Index **46, the highest measured** (Omniscience
-    board: Opus 5.5 (max) 46, Astra (high) 44, Fable 5.1 (max) 43), but AA gives
-    no hallucination rate for it. The 9 is the least-evidenced score in this
+  - **CE 6\*** (4\* → 6\* on 2026-09-23) — at **max** effort it burns ~**119k
+    output tokens per AA index task**, **$5.98 per index task** (between Astra
+    and Fable 5.1), but the max number is not how it runs here. AA's
+    per-effort pages (v4.3.2, fetched 2026-09-23): **high 54 at $1.82/task**
+    (53M output tokens for the index), **medium 51 at $1.34/task** (38M;
+    `medium` is its API default). At high it still out-scores Astra (max) and
+    Fable 5.1 (max), both 53, at ~56% of Astra's $3.26 and under a quarter of
+    Fable's $7.63 — so it is no worse than Astra's 6 per completed task. Not
+    higher: gpt-6-sol does 48 for $1.06 and Terra 42 for $1.40 (both max).
+    Provisional: one AA measurement per effort, one day old.
+  - **Taste 8\*, Reliability 9\*** copied from opus-4.8. Taste: not on
+    LMArena yet; Design Arena shows a **67% overall win rate over 98
+    tournaments** (no Elo yet; Fable 5.1: 62%) — a good early sign, one
+    source. Reliability: AA-Omniscience Index **46, the highest measured**
+    (Omniscience board: Opus 5.5 (max) 46, Astra (high) 44, Fable 5.1 (max)
+    43), but AA prints no hallucination rate for it on any page fetched
+    through 2026-09-23. Anthropic calls it "our strongest model on most
+    measures of honesty", with boundary-circumvention attempts "around 85%
+    less often than Opus 5 or Claude Mythos 5.1" (launch post) — vendor
+    claims, not independent. The 9 is the least-evidenced score in this
     row: Fable 5.1 sits only 3 Index points lower and hallucinates 72.6%, so if
     AA publishes a comparable rate for Opus 5.5, re-score it the same way.
   - Sources: anthropic.com/news/claude-opus-5-5 and
     platform.claude.com/docs (models overview + pricing), code.claude.com
     model-config, Claude Code CHANGELOG 2.1.280 (all 2026-09-22); AA article
     "Claude Opus 5.5" (2026-09-22), AA model page and Omniscience page (fetched
-    2026-09-22).
+    2026-09-22); AA per-effort pages artificialanalysis.ai/models/
+    claude-opus-5-5-high and …-medium and designarena.ai/models/claude-opus-5-5
+    (undated; fetched 2026-09-23).
   - **UNVERIFIED — do not quote:** a SWE-bench Pro 89.9% (search snippet
-    only; Anthropic published no SWE-bench number), any LMArena score.
+    only; Anthropic published no SWE-bench number), any LMArena score, and
+    an AA-Omniscience hallucination rate of 58.6% (benchlm.ai, "last updated
+    2026-09-22", credited to AA, no effort label; not on any AA page fetched
+    2026-09-23).
 - **fable-5.1** (Claude Fable 5.1, `claude-fable-5-1`, released 2026-09-01; the
   `fable` alias) — $10/$50 (cache reads $0.25), 1M context, default effort
   `high`. AA Intelligence Index **v4.3.2 53**, tied with Astra and now **5
@@ -312,9 +344,10 @@ still Reliability 5\* — see the rankings note).
 **cheaper per task than Terra ($1.06 vs $1.40) and smarter (v4.3.2 48 vs 42)**,
 both at max effort — but `bulk` stays on Terra because bulk work runs with
 light review and Sol's **Reliability 5\*** is under the ≥7 unsupervised bar,
-where Terra's is 7. Sol's 5\* is a copy of gpt-5.6-sol's (METR eval-gaming)
-and its own hallucination rate is not yet on a fetched AA page; reconsider the
-switch once Sol's hallucination and reliability data firms up.
+where Terra's is 7. AA has since measured Sol's hallucination rate at **60%**
+(max; 5.6-sol 92%, Astra 51%): better than its predecessor, still worse than
+Astra's Reliability-6 figure, so the 5\* holds. Reconsider the switch if an
+honesty or instruction-adherence eval (METR or similar) lands for it.
 **gpt-6-luna** ($0.10/$0.50) is the fast-draft / extraction / summarization
 tier; don't hand it open-ended agent work.
 
@@ -468,8 +501,8 @@ The table above is a snapshot; model catalogs and pricing drift. Every routable
 model documented here and in model-usage.md is live-verified by
 `bash ~/dotfiles/claude/tests/routecheck.sh` (alias `routecheck`) — it invokes
 each route with a nonce prompt and fails loudly on any broken id, syntax, or
-auth (last run 2026-09-22 by the model scout, incl. the new gpt-6-sol /
-gpt-6-luna routes: ALL ROUTES OK, no drift or unrouted warnings). If a route fails, fix the id/syntax
+auth (last run 2026-09-23 by the model scout on codex-cli 0.156.0: ALL
+ROUTES OK, no drift or unrouted warnings). If a route fails, fix the id/syntax
 or remove the model from these files — never leave a documented route broken.
 Models with no runnable route on this machine do not get table rows. Catalog
 drift (a newer grok/composer/glm/gpt version, or a routed id disappearing) is
