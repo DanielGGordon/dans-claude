@@ -9,7 +9,10 @@ use. A SessionStart hook warns when routing is broken, the last check is stale,
 or the live Cursor/Codex catalogs have drifted from `bin/routes.tsv` (a newer
 `cursor-grok-*` / `composer-*` / `glm-*` / `gpt-*` version, or a routed id that
 vanished — `bin/catalog-drift.sh`). If a route fails for you, run `routecheck`,
-then fix or remove the entry.
+then fix or remove the entry. catalog-drift also lists **unrouted** catalog ids
+(new tiers/families no routes.tsv row accounts for; `--unrouted`), and the daily
+model scout (`bin/model-scout.sh`, cron) researches them, updates routes.tsv +
+these docs, re-runs routecheck and opens a PR — see the README's "Model scout".
 
 ## The Canonical Path (non-Claude models)
 
@@ -28,12 +31,14 @@ process.
 
 ```bash
 bash ~/dotfiles/claude/bin/model-run.sh <model-id> <promptfile> [workdir]
-bash ~/dotfiles/claude/bin/model-run.sh --task-type bulk|cheap|recency|second-review|fable-fallback <promptfile> [workdir]
+bash ~/dotfiles/claude/bin/model-run.sh --task-type bulk|cheap|recency|x-recency|second-review|fable-fallback <promptfile> [workdir]
 ```
 
 - `--task-type` resolves the model id deterministically from the table — prefer
   it when the task fits a class; pass an explicit id only when overriding.
-  Types: `bulk` · `cheap` · `recency` · `second-review` · `fable-fallback`
+  Types: `bulk` · `cheap` · `recency` (Cursor grok, web search) ·
+  `x-recency` (grok on the direct xAI API with **X + web search**, for social /
+  X sentiment; see "Direct xAI API" below) · `second-review` · `fable-fallback`
   (→ `gpt-6-astra`, for work a Fable subagent can no longer take — see
   model-selection.md).
 - Prompts are ALWAYS passed via file — the script rejects missing/empty files.
@@ -71,10 +76,15 @@ messages, routecheck's test matrix and the catalog-drift check all derive from
 it. When the catalog changes, edit routes.tsv (only), then run `routecheck`.
 Current ids: run `bash ~/dotfiles/claude/bin/model-run.sh` with no args, or
 read the tsv. Codex: `gpt-6-astra` is the frontier tier (GPT-6, effort pinned to
-`high`); `gpt-5.6-terra` stays the bulk default. Grok: `grok-4.7-*` is
+`high`); `gpt-6-sol` / `gpt-6-luna` (2026-09-22, catalog default effort
+`medium`, no pin) supersede `gpt-5.6-sol` / `gpt-5.6-luna`, which stay routable
+as legacy; `gpt-5.6-terra` stays the bulk default (there is no GPT-6 Terra).
+`gpt-5.5` leaves Codex for ChatGPT sign-in on 2026-10-14. Grok: `grok-4.7-*` is
 the default (`--task-type recency` → `grok-4.7-high`; note these ids have no
 `cursor-` prefix, unlike the legacy ones); `cursor-grok-4.6-*` and
-`cursor-grok-4.5-*` are legacy but still routable.
+`cursor-grok-4.5-*` are legacy but still routable. `grok-4.7-xsearch`
+(`--task-type x-recency`) is the same model on the direct xAI API, the only
+route with X search.
 
 ## Claude Models (sonnet / opus / haiku / fable)
 
@@ -84,9 +94,15 @@ Native to Claude Code — no CLI, no wrapper, not model-run.sh's job:
 | --------- | ----------------------- |
 | **Agent tool** (subagents) | `model` parameter: `"sonnet"`, `"opus"`, `"haiku"`, or `"fable"`. |
 | **Workflow scripts** | `agent(prompt, { model: 'sonnet', effort: 'low' })`. |
-| **Default (no `model`)** | Inherits the session model — a Fable-5 session fans out Fable-5 workers unless overridden. |
+| **Default (no `model`)** | Inherits the session model — a Fable session fans out Fable workers unless overridden. |
 
-- `effort` per call: `'low' | 'medium' | 'high' | 'xhigh' | 'max'`.
+- Aliases (Claude Code 2.1.280, code.claude.com model-config, 2026-09-22):
+  `opus` → **Opus 5.5** (`claude-opus-5-5`, also Claude Code's default model),
+  `fable` → **Fable 5.1**, `sonnet` → Sonnet 5, `haiku` → Haiku 4.5 (on the
+  Anthropic API; Bedrock/Vertex/Foundry map some aliases to older models).
+- `effort` per call: `'low' | 'medium' | 'high' | 'xhigh' | 'max'`. New models
+  such as Opus 5.5 start at their own default (Opus 5.5: `medium`), not an
+  effort level saved before `/effort` became per-model.
 - **Do not use `claude -p --model <model>` from Bash** for routing — nested
   session, separate context/permissions, stdout parsing. Reserve `claude -p`
   for genuinely detached background jobs.
@@ -95,9 +111,11 @@ Native to Claude Code — no CLI, no wrapper, not model-run.sh's job:
   retry on opus or sonnet. Re-dispatch that subagent's prompt through the
   `model-runner` agent with `--task-type fable-fallback` (→ `gpt-6-astra`),
   keeping the same success criteria and output format, and tell the user which
-  model actually ran. Why `model-run.sh` and not a Claude retry: Astra is the
-  only other model in this stack at Fable's intelligence tier, and the routing
-  table makes the substitution auditable instead of ad hoc. If Astra's own
+  model actually ran. Why `model-run.sh` and not a Claude retry: Astra is tied
+  with Fable 5.1 on AA's index and doesn't share Claude's quota pool, and the
+  routing table makes the substitution auditable instead of ad hoc. (Since
+  2026-09-22 `opus` = Opus 5.5 outscores both, so an announced re-dispatch on
+  `opus` is also acceptable — see model-selection.md; never sonnet.) If Astra's own
   backend then errors 75 (auth/quota), stop and surface — no third hop.
 
 ## Under the Hood (reference only — route-guard blocks running these directly)
@@ -109,7 +127,10 @@ raw invocation can be reconstructed *with the user's explicit approval*:
   — the bypass flag is required because Codex's bwrap sandbox cannot nest inside
   Claude Code's Bash sandbox (`bwrap: loopback: Failed RTM_NEWADDR`); Claude
   Code's own sandbox remains the outer boundary. Session continuation:
-  `codex exec ... resume --last "..."`.
+  `codex exec ... resume --last "..."`. With `MODEL_RUN_EPHEMERAL=1` it adds
+  `--ephemeral` (no session files / thread rows) — for **test** calls only
+  (routecheck, the model scout, the orchestration smoke); real delegations stay
+  persisted so their history is useful.
 - **Cursor:** `cursor-agent --print --trust --force --output-format text --model <id> "$(cat <promptfile>)"`
   — unknown ids hard-error with the full valid list, but *retired* ids can
   silently remap to a successor (e.g. `composer-2` → 2.5); model-run.sh and
@@ -118,7 +139,11 @@ raw invocation can be reconstructed *with the user's explicit approval*:
   allowed by the guard, as is `codex debug models`, the Codex catalog read).
   `bash ~/dotfiles/claude/bin/catalog-drift.sh` diffs those catalogs against
   routes.tsv. The Cursor catalog also exposes OpenAI/Anthropic/Google models —
-  route those through their native paths instead.
+  route those through their native paths instead (routes.tsv marks such ids
+  with `ignore <glob> <reason>` rows so they stop showing as unrouted). Cursor
+  has no ephemeral mode: its chats are keyed by cwd (`~/.cursor/chats/<md5(cwd)>`),
+  so a test call must use a throwaway `mktemp -d` workdir and then run
+  `bin/test-chat-cleanup.sh --since <epoch> --marker <str> --workdir <dir>`.
 - **Reviews via Codex:** same path — prompt asks for findings with **severity**,
   **file:line**, a **concrete failing scenario**, and a **SHIP / FIX-FIRST**
   verdict.
@@ -133,14 +158,66 @@ raw invocation can be reconstructed *with the user's explicit approval*:
 > **codex-plugin-cc**: evaluated and removed 2026-07-07 — hardcoded per-turn
 > sandbox modes incompatible with nested bwrap here.
 
-## Direct xAI API (grok) — UNWIRED, do not use
+## Direct xAI API (grok with X search) — `x-recency`
 
-**Status: not set up on this machine (`XAI_API_KEY` is not set). Do not attempt
-this route — use `grok-4.7-high` (or `--task-type recency`) via
-model-run.sh instead.** Kept only as wiring notes for if the user ever asks for
-it (written against grok-4.5; re-check ids/pricing for 4.7): OpenAI-compatible,
-base URL `https://api.x.ai/v1`, model id `grok-4.5`, key in `XAI_API_KEY` (docs:
-https://docs.x.ai/developers/grok-4-5). Live search = Agent Tools (`web_search`,
-`x_search`) on the Responses API, $5 per 1k successful invocations (the old
-Live Search `search_parameters` API is dead — HTTP 410). $2/$6 per Mtok, cached
-input $0.30, rates double past a 200k-token prompt.
+**Wired 2026-09-22.** The only route with **real X (Twitter) search**: grok
+via cursor-agent (`--task-type recency`) has web search only. Use it for
+social / X sentiment (see model-selection.md "Recent Information"):
+
+```bash
+bash ~/dotfiles/claude/bin/model-run.sh --task-type x-recency <promptfile> [workdir]
+MODEL_RUN_XSEARCH_FROM=2026-09-15 bash ~/dotfiles/claude/bin/model-run.sh grok-4.7-xsearch <promptfile>
+```
+
+- **Backend `xai`** in routes.tsv: `model grok-4.7-xsearch xai grok-4.7`. The
+  id is ours, and column 4 is the xAI API model it calls. model-run.sh `curl`s
+  `POST https://api.x.ai/v1/responses` with `{"model": "grok-4.7", "input":
+  [<prompt>], "tools": [{"type": "web_search"}, {"type": "x_search"}],
+  "store": false}`. `store: false` means xAI persists no conversation, so a
+  test call leaves nothing behind and needs no cleanup.
+  `MODEL_RUN_XSEARCH_FROM` / `MODEL_RUN_XSEARCH_TO` (`YYYY-MM-DD`, inclusive)
+  set `x_search`'s `from_date` / `to_date`.
+- **Output:** stdout is the answer, then a `Sources:` list of every cited URL
+  (the `url_citation` annotations and the response's `citations`). Stderr gets
+  exactly one `model-run: xai-tools x_search=<n> web_search=<n> x_posts=<n>
+  cited_urls=<n> status=... cost_usd=<n> store=false` line, from the
+  response's `usage.server_side_tool_usage_details` and `cost_in_usd_ticks`.
+  It is printed only when an answer came back, so `x_search>=1` there is
+  proof X was searched. grok's own claims about which tools it used are not
+  proof.
+- **Key:** `XAI_API_KEY`, taken from the environment, or else from what
+  `~/.profile` exports. That is the same source as the scout's cron line
+  (`. ~/.profile && ...`), so a Claude Code session that wasn't started from a
+  login shell still works. The key is sent as a header read from a
+  process-substitution fd. It never appears in argv (`ps`) or on disk. Never
+  print it.
+- **Exit codes, same contract:** key missing, or rejected (xAI answers a bad
+  key with HTTP 400 "Incorrect API key"), 401/403, 402/429 credits or rate
+  limit → `75` (STOP and surface: `XAI_API_KEY rejected` / `not set` /
+  `credits ... exhausted`). 5xx or no response (including a connect that
+  never completes within 20 s) → one retry, then `73`. A response that
+  doesn't arrive within `MODEL_RUN_TIMEOUT` → `124`. Other 4xx (e.g. 404 for an API model id
+  that no longer exists) → `1`, with xAI's error body.
+- **Catalog:** `bash ~/dotfiles/claude/bin/model-run.sh --xai-models` lists
+  the API model ids (`GET /v1/models`, zero tokens; exit 69 = no key; 75 =
+  key rejected / out of credits; 73 = a plain 429 rate limit or network error,
+  which routecheck's `auth:xai` only WARNs on).
+  `bin/catalog-drift.sh` uses it to flag a column-4 id that vanished. It
+  checks nothing else for xai: new groks surface through the Cursor catalog,
+  and without a key the xai check is skipped silently.
+- **Guarded:** route-guard denies raw `curl` to `api.x.ai/v1/responses` /
+  `chat/completions` (the catalog read `GET /v1/models` is allowed).
+- **Cost** (docs.x.ai models and pricing pages, fetched 2026-09-22):
+  grok-4.7 is $2 / $6 per Mtok in / out, with cached input $0.50. Past a
+  200k-token prompt that becomes $4 / $12 (cached $1). The context window is
+  500k. On top of tokens, `web_search` is $5 per 1k calls, and `x_search` is
+  billed **per item fetched**: $5 per 1k posts (parent and quoted posts count)
+  and $10 per 1k profiles. Two sentiment questions on 2026-09-22 (3 x_search
+  calls, 14–18 posts each) cost $0.10 and $0.14 each. routecheck's smoke tells
+  grok not to search, and costs under a cent.
+- **Quirk:** grok-4.7 on this API refuses "output exactly this line / token"
+  prompts ("I won't output exact phrases or tokens on demand": 6 of 7
+  attempts, 2026-09-22), so nonce-echo tests don't work on it. routecheck
+  asks it for a per-run random sum instead.
+- The old Live Search API (`search_parameters`) is dead (HTTP 410). Agent
+  Tools on the Responses API are the only search interface.

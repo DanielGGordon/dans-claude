@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# route-health-banner — SessionStart hook. Three cheap checks, always exit 0:
+# route-health-banner — SessionStart hook. Four cheap checks, always exit 0:
 #
 # 1. Never runs tests; only reads the cached result that tests/routecheck.sh
 #    wrote to ~/.claude/route-health.txt (format: "<YYYY-MM-DD> <ok|FAIL>
@@ -15,7 +15,20 @@
 #    ~/.claude/catalog-<backend>.txt, failed fetches remembered 1h) and prints
 #    ONE line if a routed family has a newer version in a catalog (e.g.
 #    cursor-grok-4.7-* while routes.tsv stops at 4.6) or a routed id vanished.
+#    `unrouted` ids (catalog ids no routes.tsv row accounts for — hundreds until
+#    triaged) are the daily model scout's input, so they're NOT shown while its
+#    cron line is installed; without the scout they get a one-line count.
 #    Fail-open: a missing/slow/unauthenticated CLI gets one line, never a block.
+# 4. Model scout: reads ~/.claude/model-scout/last-run.json (written by the
+#    daily bin/model-scout.sh cron job) and prints ONE [model-scout] line only
+#    when it's actionable: the last run failed, the last run was DEGRADED (its
+#    research had no X search — x-recency failed, e.g. XAI_API_KEY rejected,
+#    and the web-only cursor-grok fallback ran), a scout PR is waiting for
+#    review (`open_pr`, kept across later no-change runs), a `local-commit`
+#    run's (--no-pr) unpublished branch still exists in this repo, or the last run is
+#    >36h old while the cron line is installed (so opting out with
+#    MODEL_SCOUT_CRON=0 doesn't nag forever) — including a cron job that has
+#    never managed to write last-run.json at all. No network calls.
 set -u
 f="$HOME/.claude/route-health.txt"
 if [ -f "$f" ]; then
@@ -50,12 +63,59 @@ if [ -x "$FP" ] && [ -f "$TOOLS" ]; then
   [ -n "$changed" ] && echo "[route-health] CLI changed since last routecheck ($(cut -d' ' -f1 "$HOME/.claude/route-health.txt" 2>/dev/null)): $changed — run 'routecheck', then the orchestration smoke workflows (tests/workflows/) to re-verify delegation."
 fi
 
+# Is the daily model scout scheduled? (checks 3 and 4; local crontab read only)
+cron_on=0
+crontab -l 2>/dev/null | grep -qE '(^|[[:space:]])# claude-model-scout[[:space:]]*$' && cron_on=1
+
 # --- catalog drift (see header) ---
 DRIFT="$REPO/bin/catalog-drift.sh"
-[ -x "$DRIFT" ] || exit 0
-out=$(bash "$DRIFT" --cached </dev/null 2>/dev/null)
-drift=$(printf '%s\n' "$out" | awk -F'\t' '$1=="newer"||$1=="vanished"{print $2}' | paste -sd';' - | sed 's/;/; /g')
-unavail=$(printf '%s\n' "$out" | awk -F'\t' '$1=="unavailable"{print $2}' | paste -sd';' - | sed 's/;/; /g')
-[ -n "$drift" ]   && echo "[route-health] $drift — run 'routecheck' / update bin/routes.tsv (then model-selection.md + model-usage.md)."
-[ -n "$unavail" ] && echo "[route-health] catalog drift check skipped — $unavail"
+if [ -x "$DRIFT" ]; then
+  out=$(bash "$DRIFT" --cached </dev/null 2>/dev/null)
+  drift=$(printf '%s\n' "$out" | awk -F'\t' '$1=="newer"||$1=="vanished"{print $2}' | paste -sd';' - | sed 's/;/; /g')
+  unavail=$(printf '%s\n' "$out" | awk -F'\t' '$1=="unavailable"{print $2}' | paste -sd';' - | sed 's/;/; /g')
+  [ -n "$drift" ]   && echo "[route-health] $drift — run 'routecheck' / update bin/routes.tsv (then model-selection.md + model-usage.md)."
+  [ -n "$unavail" ] && echo "[route-health] catalog drift check skipped — $unavail"
+  if [ "$cron_on" = 0 ]; then
+    unr=$(printf '%s\n' "$out" | awk -F'\t' '$1=="unrouted"{split($2, a, " unrouted id"); n=a[1]; sub(/.* /, "", n); t+=n} END {if (t) print t}')
+    [ -n "$unr" ] && echo "[route-health] $unr catalog id(s) are neither routed nor ignored in bin/routes.tsv (the daily model scout is not scheduled) — list: bin/catalog-drift.sh --unrouted --cached"
+  fi
+fi
+
+# --- model scout (see header) ---
+SCOUT_DIR="${MODEL_SCOUT_HOME:-$HOME/.claude/model-scout}"
+SCOUT_STATE="$SCOUT_DIR/last-run.json"
+if [ ! -f "$SCOUT_STATE" ] && [ "$cron_on" = 1 ] && [ -d "$SCOUT_DIR" ]; then
+  # install.sh made the dir when it scheduled the job; >36h later with no state
+  # file, the job has never completed a run (wrong checkout, dies before its trap…).
+  since_h=$(( ($(date +%s) - $(stat -c %Y "$SCOUT_DIR")) / 3600 ))
+  [ "$since_h" -gt 36 ] && echo "[model-scout] the daily cron job is installed but has never recorded a run (${since_h}h) — see $SCOUT_DIR/cron.log"
+fi
+if [ -f "$SCOUT_STATE" ]; then
+  python3 - "$SCOUT_STATE" "$cron_on" "$REPO" <<'PY' 2>/dev/null
+import json, subprocess, sys, time
+d = json.load(open(sys.argv[1])); cron_on = sys.argv[2] == "1"
+parts = []
+status, date, summary = d.get("status"), d.get("date", "?"), (d.get("summary") or "")[:160]
+open_pr = d.get("open_pr") or (d.get("pr_url") if status == "pr" else None)
+if status == "failed":
+    parts.append(f"last run FAILED ({date}): {summary} — log {d.get('log', '?')}")
+elif status == "degraded":
+    why = (d.get("summary") or "").removeprefix("DEGRADED: ")[:160]
+    parts.append(f"WARNING last run DEGRADED ({date}): {why} — log {d.get('log', '?')}")
+elif status == "local-commit" and d.get("branch"):
+    # --no-pr run: its commit is only on a local branch. Info, not a warning —
+    # and only while the branch exists (deleted = dealt with; the next run
+    # overwrites this state anyway).
+    b = d["branch"]
+    if subprocess.run(["git", "-C", sys.argv[3], "show-ref", "--verify", "--quiet", f"refs/heads/{b}"]).returncode == 0:
+        parts.append(f"unpublished routing commit on local branch {b} ({date}, --no-pr) — review, then push + PR or delete it")
+if open_pr:
+    parts.append(f"routing PR awaiting review: {open_pr}" + (f" — {summary}" if status == "pr" else ""))
+age_h = (time.time() - (d.get("finished_at") or 0)) / 3600
+if cron_on and age_h > 36:
+    parts.append(f"last run was {date} ({age_h:.0f}h ago) — the daily cron job isn't running; see ~/.claude/model-scout/cron.log")
+if parts:
+    print("[model-scout] " + "; ".join(parts))
+PY
+fi
 exit 0

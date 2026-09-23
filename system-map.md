@@ -184,7 +184,9 @@ The agent UI/runtime every other surface dispatches into.
   transcript paths).
 - **Orchestration API** (used by brain-actions): `/api/orchestration/shell` for
   the workspace snapshot — **not** `/snapshot`, which is ~194 MB — plus dispatch
-  of `project.create`, `thread.create`, `thread.turn.start`.
+  of `project.create`, `thread.create`, `thread.turn.start`. The daily model scout
+  (see "Claude config") also dispatches `thread.delete` / `project.delete` via
+  `~/dotfiles/claude/bin/t3-purge-test-threads.sh`, only for imported test threads.
 - **Also on the box:** `~/projects/meta/t3code` (older checkout) and the test
   pool units `t3-test-7446` / `t3-test-7448` (ports 3776/3778 HTTP, 7446/7448
   HTTPS). Don't point production traffic at those.
@@ -248,7 +250,32 @@ Global `CLAUDE.md`, hooks, agents, skills, model-routing layer, and the referenc
 docs symlinked into `~/.claude/`: `android.md`, `model-selection.md`,
 `model-usage.md`, `t3-conversations.md`, `playwright.md`, **`system-map.md`**
 (this file). Its SessionEnd hook feeds second-brain; its SessionStart hooks print
-the route-health and `[alfred]` banners. See `README.md` there.
+the route-health, `[model-scout]` and `[alfred]` banners. See `README.md` there.
+
+- **Daily model scout (user crontab, not systemd):** one line tagged
+  `# claude-model-scout`, installed idempotently by `install.sh` (opt out:
+  `MODEL_SCOUT_CRON=0`, remembered in `~/.claude/model-scout/cron-disabled`), runs `bin/model-scout.sh` at 11:30 UTC. It researches
+  new model releases (grok via `bin/model-run.sh` — X + web search on the
+  direct xAI API, `--task-type x-recency`, key `XAI_API_KEY` from `~/.profile`,
+  which the cron line sources — + headless `claude -p` opus),
+  updates the routing table/docs in its own worktree under
+  `~/.cache/model-scout/`, and opens (or updates) ONE `claude/model-scout-*` PR
+  against this repo's master — never pushes to master. State
+  `~/.claude/model-scout/last-run.json` (read by the `[model-scout]` banner),
+  logs `~/.claude/model-scout/logs/` (30 days), cron output
+  `~/.claude/model-scout/cron.log`.
+- **How it touches T3 Code:** only as cleanup. Its test chats are
+  non-persisted/ephemeral; at the END of each run (up to ~90 min, so the
+  15-min `t3-claude-import.timer` may already have imported a leaked
+  transcript) `bin/test-chat-cleanup.sh` removes any Codex / Cursor / Claude
+  session left in the run's throwaway workdirs, and
+  `bin/t3-purge-test-threads.sh --apply` deletes any already-imported thread
+  whose first message carries the run marker (plus the empty `/tmp` projects
+  the importer made) through T3's orchestration dispatch (`thread.delete` /
+  `project.delete`, with a short-lived session from T3's own CLI) — never SQL.
+  If either fails (e.g. `t3code` down: purge exit 3) the run is marked failed
+  and its marker/window is queued in `~/.claude/model-scout/pending-cleanup.tsv`,
+  retried at the start of every later run's cleanup until it succeeds.
 
 ### android-framework — `~/projects/android-framework`
 
@@ -285,6 +312,8 @@ Timers: `second-brain-ingest.timer`, `second-brain-callcards.timer`,
 **`alive-ping.timer`** (Alfred's own, every 5 min: curls the shim's aggregate
 `/healthz` and logs a journald WARNING when it is not ok — `bin/alive-ping.sh`
 also pings `HEALTHCHECKS_URL` when that lands), `t3-claude-import.timer`.
+Cron (user crontab): `# claude-model-scout` — daily 11:30 UTC
+`~/dotfiles/claude/bin/model-scout.sh` (see "Claude config").
 System (`sudo systemctl`, not `--user`): `caddy` — public HTTPS front for
 `:6443`/`:7443`/`:8443`/`:9443`/`:7444`-`:7453` (see "Caddy" above); `restart`,
 not `reload`.
