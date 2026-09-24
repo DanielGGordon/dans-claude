@@ -281,6 +281,9 @@ as written **except** the points below. Project doc: `~/projects/alfred/android/
 
 **Live since:** v0.1.0 (versionCode 1) 2026-09-16, **v1.0.0 (versionCode 2)** the same day.
 
+**Alfred updates itself from v1.4.0 on** — see "In-app updates" below. It is the only
+project on this machine that does; every other one is still a browser sideload.
+
 ### Divergences from the reference layout
 
 1. **No `android/reverse-proxy/`.** Alfred does not own a Caddy config. Its `:6443`
@@ -318,6 +321,7 @@ bash ~/projects/alfred/android/scripts/publish-apk.sh    # builds assembleDebug,
   | `alfred-latest.apk` | what the phone downloads |
   | `alfred-previous.apk` | the previous `alfred-latest.apk` — rollback by re-sideloading it |
   | `index.html` | generated install page: version, versionCode, size, SHA-256, build time, the sideload steps, and the upgrade-in-place note |
+  | `latest.json` | the update manifest installed phones poll (v1.4.0+, see below) |
 
 - **Server base URL (pairing):** `https://15.204.108.12:7443/alfred` — also the
   default for `bin/alfred-pair-link.mjs --base`, for the same phone-content-filter
@@ -335,6 +339,41 @@ bash ~/projects/alfred/android/scripts/publish-apk.sh    # builds assembleDebug,
   curl -skI https://15.204.108.12:7443/alfred/downloads/alfred-latest.apk   # 200 (primary)
   sha256sum /var/lib/alfred-apk/alfred-latest.apk                           # matches the page
   ```
+
+### In-app updates (v1.4.0+, Alfred only)
+
+The sideload page is no longer how a *new* build reaches a phone that already has
+Alfred. `publish-apk.sh` writes one more file and the app does the rest:
+
+```json
+// /var/lib/alfred-apk/latest.json — served at <base>/downloads/latest.json
+{ "versionCode": 8, "versionName": "1.4.0", "apk": "alfred-1.4.0.apk",
+  "sha256": "…64 hex…", "sizeBytes": 13004112,
+  "builtAt": "2026-09-20 16:40 UTC", "notes": "In-app updates." }
+```
+
+- **No new service and no new route.** The manifest sits in the directory Caddy already
+  serves, so publishing is still a file copy — no sudo, no reload. `NOTES="…"` on the
+  publish command puts a line in the notification and on the download page.
+- **The phone checks three ways**: the 15-minute briefing beat (`work/BriefingWorker`),
+  every `onResume` of Home (throttled to 10 minutes), and Settings → *Check for updates*.
+  Only a strictly greater `versionCode` counts; the manifest is rejected unless `apk` is
+  a bare `*.apk` file name and `sha256` is 64 hex.
+- **One notification per `versionCode`**, on its own channel. Tapping it opens Settings,
+  which downloads the APK, **verifies the SHA-256 before anything else sees the file**,
+  and hands it to the system installer through a `FileProvider` `content://` URI.
+- **`REQUEST_INSTALL_PACKAGES` is declared**, and the first update stops at Android's
+  "allow this app to install apps" toggle for Alfred's own row. That grant is one-time
+  and the app deep-links to it.
+- `apk` is deliberately the versioned file name, not `alfred-latest.apk`: the phone
+  checksums what it downloads, and a `latest` overwritten mid-download would fail that
+  check for no reason.
+
+Porting this to another project is mostly copying `android/scripts/publish-apk.sh`'s
+manifest step and `app/src/main/java/com/dgordon/alfred/update/` (three files, no
+dependencies beyond OkHttp) — the only project-specific parts are the base URL and the
+`FileProvider` authority. Do not add it to a project whose APKs are release-signed by a
+key that might rotate.
 
 ### Signing and upgrades
 
@@ -373,7 +412,9 @@ genuinely cannot be. Each entry names its reason; keep that rule when adding one
 - **Notification tap-through from a lock screen** — the shade, the lock screen and
   Samsung's own grouping.
 - **The OEM installer** — the browser cert warning, "install unknown apps", and
-  **installing over the previous build**.
+  **installing over the previous build** — including the in-app update path end to end:
+  notification → Settings → download → Samsung's *Update* dialog → pairing and outbox
+  still intact.
 - **Which apps linkify `alfred://`** — a phone question, not an emulator one.
 - **TLS from Dan's carrier** — the emulator proves the trust anchor; the phone proves
   Techloq/DNS.
