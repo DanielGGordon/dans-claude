@@ -29,7 +29,11 @@ Reliability 3\* → 4\* (hallucination 34%). **2026-09-23 scout:** opus-5.5 CE
 index task), and gpt-6-sol/luna's AA-Omniscience hallucination rates (60% /
 77%) and Coding Agent Index moved from UNVERIFIED to sourced (AA's
 Sol/Luna article, 2026-09-22); gpt-6-luna Reliability 4\* → 3\* on that rate,
-gpt-6-sol's 5\* kept with its justification now in the note.
+gpt-6-sol's 5\* kept with its justification now in the note. **2026-09-24
+scout:** opus-5.5 Reliability 9\* → 7\*. AA prints its AA-Omniscience Index (46)
+and accuracy (66%), which with AA's own metric definitions put its
+hallucination rate at **~59%** (derived, not AA-printed; see its note), level
+with gpt-6-sol's 60%.
 
 - **Cost efficiency** = cost **per completed task**, not per token. (Per-token
   intuition inverts rankings: measured 2026-07-21, sonnet-5 had cheaper tokens
@@ -55,7 +59,7 @@ gpt-6-sol's 5\* kept with its justification now in the note.
 | gpt-5.6-terra| 8               | 7            | 6     | 7           |
 | gpt-5.6-sol  | 7               | 8            | 6     | 5           |
 | gpt-5.5      | 6               | 7            | 5     | 7           |
-| opus-5.5     | 6*              | 10*          | 8*    | 9*          |
+| opus-5.5     | 6*              | 10*          | 8*    | 7*          |
 | sonnet-5     | 4               | 7            | 7     | 8           |
 | fable-5.1    | 2               | 9            | 9*    | 6*          |
 
@@ -261,30 +265,49 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
     Fable's $7.63 — so it is no worse than Astra's 6 per completed task. Not
     higher: gpt-6-sol does 48 for $1.06 and Terra 42 for $1.40 (both max).
     Provisional: one AA measurement per effort, one day old.
-  - **Taste 8\*, Reliability 9\*** copied from opus-4.8. Taste: not on
-    LMArena yet; Design Arena shows a **67% overall win rate over 98
-    tournaments** (no Elo yet; Fable 5.1: 62%) — a good early sign, one
-    source. Reliability: AA-Omniscience Index **46, the highest measured**
-    (Omniscience board: Opus 5.5 (max) 46, Astra (high) 44, Fable 5.1 (max)
-    43), but AA prints no hallucination rate for it on any page fetched
-    through 2026-09-23. Anthropic calls it "our strongest model on most
-    measures of honesty", with boundary-circumvention attempts "around 85%
-    less often than Opus 5 or Claude Mythos 5.1" (launch post) — vendor
-    claims, not independent. The 9 is the least-evidenced score in this
-    row: Fable 5.1 sits only 3 Index points lower and hallucinates 72.6%, so if
-    AA publishes a comparable rate for Opus 5.5, re-score it the same way.
+  - **Taste 8\*** copied from opus-4.8: not on LMArena yet; Design Arena
+    shows a **67% overall win rate over 98 tournaments** (no Elo yet; Fable
+    5.1: 62%) — a good early sign, one source.
+  - **Reliability 7\*** (9\*, copied from opus-4.8, → 7\* on 2026-09-24).
+    AA's Omniscience board (fetched 2026-09-24) prints Opus 5.5 (max) at
+    AA-Omniscience Index **46, the highest measured** (Astra (high) 44, Fable
+    5.1 (max) 43) and **accuracy 66%** (Fable 5.1 67%), but no hallucination
+    rate on any AA page fetched through 2026-09-24. AA defines the Index so that
+    0 means as many correct as incorrect answers (Index = correct − incorrect)
+    and the hallucination rate as incorrect / all non-correct responses, so
+    66% correct and 46 net put it at 20% incorrect of 34% non-correct: **~59%
+    derived** (55–63% given integer rounding). The same arithmetic reproduces
+    every rate AA does print within 2 points (Fable 5.1 67/43 → 72.7% vs 72.6%;
+    gpt-6-sol 54/27 → 59% vs 60%; gpt-6-luna 44/1 → 77% vs 77%; gpt-5.6-sol
+    59/22 → 90% vs 92%). ~59% is level with gpt-6-sol (5\*) and worse than
+    Astra's 51% (6). Against Sol it has a real edge: it knows far more, so it
+    is wrong on ~20% of all questions vs Sol's ~27%. Against Astra it has
+    none on this benchmark: Astra's 51% at Index 43–44 is ~19% wrong overall,
+    level with Opus, and the Index lead (46) is 2–3 points. So the hallucination
+    evidence alone supports at most 6. The seventh point rests on Anthropic
+    calling it "our strongest model on most measures of honesty", with
+    boundary-circumvention attempts "around 85% less often than Opus 5 or
+    Claude Mythos 5.1" (launch post) — vendor claims, not independent, and a
+    judgment call (Astra's own honesty evidence is vendor-side too). METR's
+    report (metr.org, 2026-09-22) "does not attempt to assess whether Claude
+    Opus 5.5 has or does not have particular alignment properties". Provisional: a derived rate from one AA run at max
+    effort; re-score if AA prints the rate. As with Fable, check its unsourced
+    factual claims.
   - Sources: anthropic.com/news/claude-opus-5-5 and
     platform.claude.com/docs (models overview + pricing), code.claude.com
     model-config, Claude Code CHANGELOG 2.1.280 (all 2026-09-22); AA article
     "Claude Opus 5.5" (2026-09-22), AA model page and Omniscience page (fetched
     2026-09-22); AA per-effort pages artificialanalysis.ai/models/
     claude-opus-5-5-high and …-medium and designarena.ai/models/claude-opus-5-5
-    (undated; fetched 2026-09-23).
+    (undated; fetched 2026-09-23); artificialanalysis.ai/evaluations/omniscience
+    (Index, accuracy and metric definitions; undated, fetched 2026-09-24) and
+    metr.org/blog/2026-09-22-claude-opus-5-5 (2026-09-22).
   - **UNVERIFIED — do not quote:** a SWE-bench Pro 89.9% (search snippet
     only; Anthropic published no SWE-bench number), any LMArena score, and
     an AA-Omniscience hallucination rate of 58.6% (benchlm.ai, "last updated
     2026-09-22", credited to AA, no effort label; not on any AA page fetched
-    2026-09-23).
+    through 2026-09-24 — consistent with the ~59% derived above, but quote the
+    derivation, not this figure).
 - **fable-5.1** (Claude Fable 5.1, `claude-fable-5-1`, released 2026-09-01; the
   `fable` alias) — $10/$50 (cache reads $0.25), 1M context, default effort
   `high`. AA Intelligence Index **v4.3.2 53**, tied with Astra and now **5
@@ -389,8 +412,9 @@ and measurably worse than Sol on presentation.
 
 **opus-5.5** or **fable-5.1** — prefer opus-5.5 when the review turns on
 recalled facts (API semantics, versions, prices): Fable 5.1 is Reliability 6\*
-on a 72.6% hallucination rate. For higher confidence add a non-Claude second
-opinion: **gpt-6-astra** (`--task-type second-review`) is now the default there,
+on a 72.6% hallucination rate, Opus 5.5 7\* on a derived ~59%. For higher
+confidence add a non-Claude second opinion: **gpt-6-astra**
+(`--task-type second-review`) is now the default there,
 having replaced gpt-5.6-sol on 2026-09-18 — same reviewer role, half the
 hallucination rate (AA-Omniscience 51% vs Sol's 92%), higher intelligence, and
 no METR eval-gaming finding against it. It stays there after 2026-09-22:
@@ -456,8 +480,9 @@ you announce it.
 ## Subagent & Workflow Guidelines
 
 - Main orchestrator: **opus-5.5** or **fable-5.1** at high effort (opus-5.5
-  now leads AA's index at a lower price and has the higher Reliability, 9\* vs
-  6\*; fable-5.1 keeps the edge on prose and product taste).
+  leads AA's index at a lower price — 58 at max, and still 54 at high vs
+  Fable 5.1's 53 at max — and has the higher Reliability, 7\* vs 6\*, both
+  measured at max; fable-5.1 keeps the edge on prose and product taste).
 - Delegations to non-Claude models go through the **`model-runner`** named
   agent (a sonnet wrapper installed from this repo) — give it a model id OR a
   task type (`bulk` / `cheap` / `recency` / `x-recency` / `second-review` / `fable-fallback`)
@@ -501,8 +526,9 @@ The table above is a snapshot; model catalogs and pricing drift. Every routable
 model documented here and in model-usage.md is live-verified by
 `bash ~/dotfiles/claude/tests/routecheck.sh` (alias `routecheck`) — it invokes
 each route with a nonce prompt and fails loudly on any broken id, syntax, or
-auth (last run 2026-09-23 by the model scout on codex-cli 0.156.0: ALL
-ROUTES OK, no drift or unrouted warnings). If a route fails, fix the id/syntax
+auth (last run 2026-09-24 by the model scout on codex-cli 0.156.0 and
+cursor-agent 2026.09.23-86fc751: ALL ROUTES OK, no drift or unrouted
+warnings). If a route fails, fix the id/syntax
 or remove the model from these files — never leave a documented route broken.
 Models with no runnable route on this machine do not get table rows. Catalog
 drift (a newer grok/composer/glm/gpt version, or a routed id disappearing) is
