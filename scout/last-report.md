@@ -1,6 +1,132 @@
-# Model scout 2026-09-24: no routing change; opus-5.5 Reliability 9\*→7\* on a derived ~59% hallucination rate
+# Model scout 2026-09-25: no routing change; opus-5.5 note gains AA Coding Agent Index 66 (v1.5, max)
 
-## 2026-09-24
+## 2026-09-25
+
+### Summary
+
+- **A third quiet day with no new routable model.** The live catalogs show no drift and no unrouted ids. No LLM from any lab reached GA, changed price or retired in the window (2026-09-24 → 09-25). Three models are now `watch` because they were announced but not shipped: GPT-6 Cyber, Gemini 4 and Qwen 4. The x-recency pass searched X (`x_search=10`), so no fallback was needed.
+- **The opus-5.5 note gains AA's Coding Agent Index v1.5 result: 66** (max effort, Claude Code harness, #1). In the same AA post Opus 5 scores 60 and Fable 5.1 62. It costs **$13.04 per CAI task** vs Opus 5's $10.79 because it uses more tokens. That fits CE 6\* (max is expensive, and the routes here run lower effort), so **no score changes**.
+- **Second-review fixes to the same note:**
+  - Anthropic's Terminal-Bench 4.0 66.4% was run at **xhigh** and Astra's 57.9% at **high**, not max as the note said.
+  - The note now warns that the file's older CAI numbers have no version label and must not be ranked against v1.5.
+- **Route health:** the live routecheck is ALL ROUTES OK (124 PASS). Claude Code 2.1.280 → 2.1.282 and codex-cli 0.156.0 → 0.156.1 were installed since the last full check, and no repair was needed. **Codex CLI 0.157.0** came out today and is not installed yet; see Needs Dan.
+- **The second review finished on its first attempt this time** (100 s, exit 0). The first-attempt hang from the last three runs did not happen.
+
+### Routing changes
+
+- **`bin/routes.tsv`**: no change. Nothing was added, retired, moved to legacy or ignored, and no task rows moved.
+- **`model-selection.md`**
+  - **opus-5.5 note, Intelligence bullet:**
+    - Adds AA Coding Agent Index v1.5 = 66 (max, Claude Code) and its three sub-scores.
+    - Separates AA's Claude Code Terminal-Bench 4.0 result (63.1%) from the Intelligence Index harness's 59.6%.
+    - Corrects the effort labels on Anthropic's Terminal-Bench numbers (Opus xhigh, Astra high).
+    - Says which CAI numbers in the file are comparable and which aren't.
+    - The provisional reason changes from "one day old" to "three days old, and every independent number is from AA".
+  - **opus-5.5 note, CE bullet:** adds the $13.04 per CAI task at max (vs Opus 5's $10.79) and notes that AA has published no CAI rows at lower effort.
+  - **opus-5.5 note, Sources:** adds AA's CAI post and the orcarouter write-up it was read through.
+  - **"Keeping This File Honest":** routecheck date and CLI versions updated to 2026-09-25.
+- **`scout/evaluated.tsv`**: 5 rows.
+- **Not touched:** `hooks/*`, `tests/*`, `model-usage.md`, `agents/model-runner.md`, `README.md` and `system-map.md`. No ids changed.
+
+### Models evaluated
+
+| Model | Vendor | Released | Verdict | Why |
+|---|---|---|---|---|
+| claude-opus-5-5 (re-check) | Anthropic | 2026-09-22 | routed (native) | AA CAI v1.5 66 at $13.04/task (max). Added to the note; scores unchanged. Still no AA-printed hallucination rate. |
+| grok-build-0.1 | xAI | May 2026 | ignore (evaluated.tsv only) | In the xAI API model list only. It's a $1/$2 agentic-coding model, not a newer general grok. catalog-drift checks the xai backend for vanished ids only, so no routes.tsv row is needed. |
+| gpt-6-cyber | OpenAI | preview "coming weeks" | watch | Possibly at DevDay 2026-09-29. No id, price or score yet. |
+| gemini-4 | Google | — | watch | In post-training with no date. |
+| qwen-4-\* (re-check) | Alibaba | — | watch | Alibaba says it is "currently in training". No id, price or score yet. |
+
+Checked with nothing new: OpenAI (no model or price change), Anthropic (no Sonnet 5.5 or Haiku 5.5 yet; pricing and deprecation pages unchanged), xAI (no grok newer than 4.7 in `--xai-models`), Cursor (changelog's newest entry is 2026-09-23; CLI changelog's is 2026-08-26), Z.ai, Moonshot, DeepSeek, MiniMax, Mistral, Meta and Xiaomi. AA published no new article in the window.
+
+### Evidence
+
+- **Opus 5.5 Coding Agent Index 66, sub-scores, $13.04/task and ~15.6M vs ~11.4M tokens:** Artificial Analysis on X, https://x.com/ArtificialAnlys/status/2102932119995756613 (2026-09-24).
+  - A WebFetch of X returned HTTP 402. The post text shows in the search results, and grok retrieved it through x_search.
+  - I read the numbers on https://www.orcarouter.ai/blog/claude-opus-5-5-coding-agent-index (2026-09-24, fetched 2026-09-25), which quotes the AA post and says "Artificial Analysis has not published Coding Agent Index rows at the lower settings."
+  - The index version, "Coding Agent Index v1.5", is from https://artificialanalysis.ai/agents/coding-agents (undated, fetched 2026-09-25). The table itself renders client-side.
+- **Conflict: comparison rows.** orcarouter lists "GPT-6 Astra 53, GPT-6 Sol 48" as CAI comparisons. Those are their AA *Intelligence Index* v4.3.2 scores, not CAI scores, so I didn't use them. The note quotes only the Opus 5 (60) and Fable 5.1 (62) comparisons from AA's own post.
+- **Effort labels on Anthropic's Terminal-Bench numbers:** https://www.anthropic.com/news/claude-opus-5-5 (2026-09-22, re-fetched 2026-09-25).
+  - Opus 5.5 at 66.4% is "xhigh effort" and Astra at 57.9% is "high effort", with Astra's "figures … as reported by OpenAI".
+  - The page's general rule: "Unless otherwise noted, all Claude Opus 5.5 results use adaptive thinking at max effort."
+- **grok-build-0.1:** https://x.ai/news/grok-build-0-1 (2026-05-29): $1/$2 per Mtok, "a coding model specifically trained for agentic coding tasks".
+  - **Conflict:** a KuCoin news summary says the beta launched 2026-05-20. The row says "May 2026".
+- **GPT-6 Cyber preview:** fortune.com/2026/09/24/openai-launching-gpt-6-cyber-model-and-security-product-devday/ (2026-09-24). Logged in evaluated.tsv only.
+- **Gemini 4 in post-training:** 9to5google.com (2026-09-24), quoting Koray Kavukcuoglu. Logged in evaluated.tsv only.
+- **Qwen 4 "currently in training":** techafricanews.com (2026-09-24). Logged in evaluated.tsv only.
+- **CLI:**
+  - Claude Code 2.1.281 (2026-09-23) and 2.1.282 (2026-09-24), from github.com/anthropics/claude-code/releases and code.claude.com/docs/en/changelog: no changes to aliases, the default model, `-p`, `--no-session-persistence`, output formats, the Agent `model` param or Workflow.
+  - Codex 0.157.0 (2026-09-25, github.com/openai/codex/releases/tag/rust-v0.157.0) adds GPT-6 Sol/Luna on Bedrock, turns on fullscreen transcripts by default, starts a background server automatically for eligible *interactive* sessions, and applies network policy across redirects. It lists no `codex exec` flag or output changes.
+
+### Unverified — not quoted
+
+- **AA Terminal-Bench-Science 0.1** (@ArtificialAnlys, 2026-09-24): Astra (max) 63%, Opus 5.5 (xhigh) 62% / (max) 59%. A new benchmark, seen in the X post only.
+- **Opus 5.5 CAI comparisons "Astra 53 / Sol 48"** (orcarouter): these are its Intelligence Index numbers mislabelled as CAI (see Evidence).
+- **@AhamdMurad99471 (2026-09-25): "Grok 4.7 High Fast just dropped in Cursor."** Wrong: `grok-4.7-high-fast` has been routed since 2026-09-22.
+- **Practitioner sentiment on Opus 5.5** (@DanielZambrini, @MUSICAHT, @makwired, 2026-09-24/25): "much better than Opus 5", "distilled Fable". Anecdote only.
+- **Rumors:**
+  - Gemini 4 Pro "in the next three days" (@Priyannkaaaa)
+  - a $500 Codex plan (@eidzoku)
+  - Grok 5 at 6T parameters (@buildwith_yash)
+  - Qwen3.8-Max going from AA 40 to 45 through self-improvement cycles (Alibaba's own claim, not an AA publication)
+
+### Route health
+
+- **Before:** the wrapper's live routecheck gave ALL ROUTES OK, with no drift and no unrouted ids.
+- **After:** the live `routecheck` gave **ALL ROUTES OK** (124 PASS, 0 FAIL, 0 WARN, hygiene PASS, 22 Cursor test chats deleted). `routecheck --no-live` gives FREE TIERS OK both after the edits and after the review fixes.
+- **CLI versions:**
+  - claude 2.1.280 → **2.1.282**
+  - codex-cli 0.156.0 → **0.156.1**
+  - cursor-agent 2026.09.23-86fc751 (unchanged)
+
+  All routes pass on these versions, and no invocation repairs were needed.
+
+### Second review
+
+**Reviewer: gpt-6-astra** (`--task-type second-review`). Exit 0 on the first attempt, in about 100 s (11:37:25 → 11:39:05 UTC), using about 71k tokens.
+
+**Verdict: FIX-FIRST.** I fixed both findings:
+
+- **P2, mixed CAI versions:** the new v1.5 score of 66 sat near older unversioned CAI numbers (composer-2.5 62, gpt-5.6-sol 80, Astra 62, gpt-6-sol 57), so a reader could rank 5.6-sol above Opus.
+  - The note now limits the comparison to the two models in AA's post and marks the others as unversioned.
+  - It also notes that 5.6-sol's 80 is OpenAI's own claim.
+  - Astra had said "AA changed the suite" and cited AA's methodology page. I didn't fetch that page, so I wrote "may come from an earlier suite" instead.
+- **P2, effort labels:** Anthropic's Terminal-Bench 66.4% is xhigh and Astra's 57.9% is high, not max. I confirmed this by re-fetching the launch post, and the note is corrected.
+
+I rejected nothing.
+
+### Research provenance
+
+- **x-recency:** `model-run: xai-tools x_search=10 web_search=30 x_posts=61 cited_urls=20 status=completed cost_usd=1.8901 store=false`, exit 0. It was the first pass, with no retry and no fallback. The output is in `grok-research.md`.
+- **Claude checks:**
+  - Two parallel WebSearch/WebFetch subagents (sonnet): one for OpenAI, Cursor, xAI, Google and the other labs plus AA and the Codex/Cursor CLIs; one for Anthropic, the Claude Code 2.1.281/282 releases and AA/METR/Arena on Opus 5.5.
+  - My own fetches:
+    - AA's Opus 5.5 model page and coding-agents page
+    - the orcarouter CAI write-up
+    - the Anthropic launch post (effort footnotes)
+    - x.ai/news/grok-build-0-1
+    - the Codex 0.157.0 release
+- **Live catalogs:**
+  - `cursor-agent --list-models`: unchanged
+  - `codex debug models`: 9 slugs; `gpt-reserve` and `codex-auto-review` hidden
+  - `bin/model-run.sh --xai-models`: grok-4.7 is still the newest general grok, alongside grok-build-0.1
+  - `catalog-drift.sh --unrouted`: none
+
+### Needs Dan
+
+- **Codex CLI 0.157.0 (2026-09-25) isn't installed yet.** It turns on **automatic background-server startup** for eligible interactive sessions. The notes don't mention `codex exec`, but a persistent daemon could matter to the ephemeral/no-test-chats hygiene. After it lands, check the first routecheck's `hygiene:no-test-chats-left` and `artifact:codex` lines.
+- **opus-5.5's CAI entry rests on an X post read through a third-party write-up.** AA's CAI page renders client-side and X blocks fetches. Re-check the numbers against AA's page when it's readable.
+- **Still open from earlier runs:**
+  - Opus 5.5 at Reliability 7\* vs 6\* (judgment call; 2026-09-24).
+  - The Reliability axis has no single anchor.
+  - `bulk` stays on Terra until Sol has an honesty or METR eval.
+  - gpt-5.5 leaves Codex on 2026-10-14.
+  - The second-review first-attempt hang, which didn't happen today (1 of 4 runs clean).
+  - cursor-agent auto-updates silently.
+- **Connectors:** claude.ai Gmail and Google Drive need authorizing in the claude.ai connector settings. This run didn't need them.
+
+## 2026-09-24 — Model scout 2026-09-24: no routing change; opus-5.5 Reliability 9\*→7\* on a derived ~59% hallucination rate
 
 ### Summary
 

@@ -251,10 +251,19 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
     effort; AA model page: "#1 out of 212 models"), "the highest score we have
     measured by several points", where Fable 5.1 and Astra sit at 53 (both
     max); AA-measured Terminal-Bench 4.0
-    59.6%, HLE 61.4%, GDPval-AA v2.1 1846. Anthropic's own table (max effort):
-    Terminal-Bench 4.0 66.4% vs Fable 5.1 55.8% / Astra 57.9%, FrontierCode
-    v1.1 54.4%, CursorBench 4.0 57.8%. Provisional only because it is one day
-    old.
+    59.6%, HLE 61.4%, GDPval-AA v2.1 1846. Anthropic's own table (max effort
+    unless noted): Terminal-Bench 4.0 66.4% (**xhigh**) vs Fable 5.1 55.8% /
+    Astra 57.9% (high, as reported by OpenAI), FrontierCode v1.1 54.4%,
+    CursorBench 4.0 57.8%. AA's **Coding Agent Index v1.5 = 66**
+    (max, Claude Code harness; AA post 2026-09-24): "the highest score we have
+    measured", vs Opus 5 60 and Fable 5.1 62 in the same post; in that
+    Claude Code harness Terminal-Bench 4.0 is 63.1% (not the Intelligence
+    Index harness's 59.6% above), DeepSWE v1.1 68.4%, SWE-Atlas-QnA 66.4%.
+    Compare it only with those two: the other CAI numbers in this file
+    (composer-2.5 62, gpt-5.6-sol 80, Astra 62, gpt-6-sol 57) carry no index
+    version, so they may come from an earlier suite (gpt-5.6-sol's 80 is
+    OpenAI's own claim, not AA's).
+    Provisional: three days old, and every independent number is from AA.
   - **CE 6\*** (4\* → 6\* on 2026-09-23) — at **max** effort it burns ~**119k
     output tokens per AA index task**, **$5.98 per index task** (between Astra
     and Fable 5.1), but the max number is not how it runs here. AA's
@@ -264,7 +273,11 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
     Fable 5.1 (max), both 53, at ~56% of Astra's $3.26 and under a quarter of
     Fable's $7.63 — so it is no worse than Astra's 6 per completed task. Not
     higher: gpt-6-sol does 48 for $1.06 and Terra 42 for $1.40 (both max).
-    Provisional: one AA measurement per effort, one day old.
+    AA's coding-agent run confirms the max-effort cost: **$13.04 per Coding
+    Agent Index task** vs Opus 5's $10.79, despite its lower list price,
+    because it uses ~15.6M tokens per task vs ~11.4M (AA post, 2026-09-24).
+    AA has published no lower-effort CAI rows. Provisional: one AA
+    measurement per effort.
   - **Taste 8\*** copied from opus-4.8: not on LMArena yet; Design Arena
     shows a **67% overall win rate over 98 tournaments** (no Elo yet; Fable
     5.1: 62%) — a good early sign, one source.
@@ -301,7 +314,10 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
     claude-opus-5-5-high and …-medium and designarena.ai/models/claude-opus-5-5
     (undated; fetched 2026-09-23); artificialanalysis.ai/evaluations/omniscience
     (Index, accuracy and metric definitions; undated, fetched 2026-09-24) and
-    metr.org/blog/2026-09-22-claude-opus-5-5 (2026-09-22).
+    metr.org/blog/2026-09-22-claude-opus-5-5 (2026-09-22); AA's Coding Agent
+    Index post x.com/ArtificialAnlys/status/2102932119995756613 (2026-09-24;
+    read via orcarouter.ai/blog/claude-opus-5-5-coding-agent-index, same day —
+    AA's coding-agents page renders its table client-side).
   - **UNVERIFIED — do not quote:** a SWE-bench Pro 89.9% (search snippet
     only; Anthropic published no SWE-bench number), any LMArena score, and
     an AA-Omniscience hallucination rate of 58.6% (benchlm.ai, "last updated
@@ -526,9 +542,9 @@ The table above is a snapshot; model catalogs and pricing drift. Every routable
 model documented here and in model-usage.md is live-verified by
 `bash ~/dotfiles/claude/tests/routecheck.sh` (alias `routecheck`) — it invokes
 each route with a nonce prompt and fails loudly on any broken id, syntax, or
-auth (last run 2026-09-24 by the model scout on codex-cli 0.156.0 and
-cursor-agent 2026.09.23-86fc751: ALL ROUTES OK, no drift or unrouted
-warnings). If a route fails, fix the id/syntax
+auth (last run 2026-09-25 by the model scout on Claude Code 2.1.282,
+codex-cli 0.156.1 and cursor-agent 2026.09.23-86fc751: ALL ROUTES OK, no
+drift or unrouted warnings). If a route fails, fix the id/syntax
 or remove the model from these files — never leave a documented route broken.
 Models with no runnable route on this machine do not get table rows. Catalog
 drift (a newer grok/composer/glm/gpt version, or a routed id disappearing) is
