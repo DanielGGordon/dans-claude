@@ -34,3 +34,6 @@ date	vendor	model	verdict	note
 2026-09-25	OpenAI	gpt-6-cyber	watch	preview 'in the coming weeks', possibly DevDay 2026-09-29; no id, price or score; not in Codex catalog (fortune.com 2026-09-24)
 2026-09-25	Google	gemini-4	watch	in post-training, 'early output' planned 'as soon as possible'; no date, id or price (9to5google 2026-09-24)
 2026-09-25	Alibaba	qwen-4-*	watch	re-check: still 'in training' per Alibaba 2026-09-24; no id, price or score; not in any catalog (techafricanews 2026-09-24)
+2026-09-26	OpenAI	gpt-5.6-cyber	not-routable	on the API pricing page under 'Cyber models' ($12.50 / $1.25 cached / $75 per Mtok); not in the Codex catalog (codex debug models) or Cursor's (developers.openai.com/api/docs/pricing, fetched 2026-09-26)
+2026-09-26	OpenAI	gpt-6-cyber	watch	re-check: still no id; a 'Daybreak Red' alpha and a possible DevDay preview 2026-09-29 per secondary reports; the pricing page lists only gpt-5.6-cyber (technology.org 2026-09-25; developers.openai.com pricing, fetched 2026-09-26)
+2026-09-26	Moonshot	kimi-k2.8-preview	not-routable	released 2026-09-11 (missed by earlier runs); mid-tier between K2.7 Code and K3, 1M context; no own id in Cursor's catalog (still lists kimi-k2.7-code, ignored); no price or AA score (llm-stats.com/models/kimi-k2.8, fetched 2026-09-26)

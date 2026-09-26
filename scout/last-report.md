@@ -1,4 +1,111 @@
-# Model scout 2026-09-25: no routing change; opus-5.5 note gains AA Coding Agent Index 66 (v1.5, max)
+# Model scout 2026-09-26: no routing change; 3 models logged (gpt-5.6-cyber, kimi-k2.8-preview not-routable; gpt-6-cyber watch)
+
+## 2026-09-26
+
+### Summary
+
+- **This is the fourth quiet day in a row with no new routable model.** The live catalogs show no drift and no unrouted ids. No lab shipped a model to GA, changed a price or retired a model in the window (2026-09-25 → 09-26). The x-recency pass searched X (`x_search=6`), so no fallback was needed.
+- **Three models were logged in `scout/evaluated.tsv` only:**
+  - **gpt-5.6-cyber** is on OpenAI's API pricing page but in neither catalog, so it's `not-routable`.
+  - **kimi-k2.8-preview** was released 2026-09-11 and missed by earlier runs. It has no id of its own in Cursor's catalog, so it's `not-routable`.
+  - **gpt-6-cyber** stays `watch`. It still has no id, and a preview may come at DevDay on 2026-09-29.
+- **Route health:** the live routecheck is ALL ROUTES OK (124 PASS). **cursor-agent auto-updated** from 2026.09.23-86fc751 to **2026.09.26-dd393fe**, and every Cursor route passes on it. No repair was needed. Claude Code **2.1.283** and Codex **0.157.0 / 0.157.1** are out but not installed; see Needs Dan.
+- **The second review hung on its first attempt again** (exit 124 after 600 s, empty output). The retry finished with **SHIP** and no findings.
+
+### Routing changes
+
+- **`bin/routes.tsv`**: no change. Nothing was added, retired, moved to legacy or ignored, and no task rows moved.
+- **`model-selection.md`**: in "Keeping This File Honest", the routecheck date is now 2026-09-26 and the cursor-agent version is 2026.09.26-dd393fe. Nothing else changed.
+- **`scout/evaluated.tsv`**: 3 rows added.
+- **Not touched:** `hooks/*`, `tests/*`, `model-usage.md`, `agents/model-runner.md`, `README.md` and `system-map.md`.
+
+### Models evaluated
+
+| Model | Vendor | Released | Verdict | Why |
+|---|---|---|---|---|
+| gpt-5.6-cyber | OpenAI | unknown | not-routable | Listed under "Cyber models" on the API pricing page at $12.50 input / $1.25 cached / $75 output per Mtok. Not in `codex debug models` or in Cursor's catalog. |
+| gpt-6-cyber (re-check) | OpenAI | — | watch | Still no id. Secondary reports mention a "Daybreak Red" alpha and a possible DevDay preview on 2026-09-29. |
+| kimi-k2.8-preview | Moonshot | 2026-09-11 | not-routable | A mid-tier model between K2.7 Code and K3 with 1M context. Cursor's catalog still lists only `kimi-k2.7-code` and `kimi-k3-*`, which existing ignore rows cover. No price or AA score. |
+
+These were checked and had nothing new:
+- **Anthropic:** news, the deprecations page, and Claude Opus 5.5 still missing from LMArena.
+- **AA:** no new article or index version. The Omniscience board still prints Opus 5.5 at Index 46 / accuracy 66% (max) and gives no hallucination rate, so the derived ~59% stands.
+- **Other labs:** xAI (`--xai-models` is unchanged and grok-4.7 is still the newest general grok), Google (Gemini API changelog), Cursor (changelog and CLI changelog), Z.ai, DeepSeek, Qwen, MiniMax, Mistral, Meta and Xiaomi.
+
+### Evidence
+
+- **gpt-5.6-cyber:** https://developers.openai.com/api/docs/pricing (undated, fetched 2026-09-26). The row reads "gpt-5.6-cyber | $12.50 | $1.25 | $15.625 | $75.00".
+  - $15.625 is the cache-write column (1.25× input, the same ratio as gpt-6-sol's $2 input → $2.50 cache write). It is not cached input. Astra's review agreed.
+  - Not in the live Codex catalog, which has 9 slugs, `gpt-reserve` and `codex-auto-review` hidden. Not in Cursor's `--list-models`.
+- **gpt-6-cyber:** technology.org/2026/09/25/openai-gpt-6-cyber-preview-daybreak-devday/ (2026-09-25). This came from grok's and a subagent's search results, and I didn't fetch it myself. It is logged in evaluated.tsv only, as `watch`.
+- **Kimi K2.8 Preview:** https://llm-stats.com/models/kimi-k2.8 (fetched 2026-09-26). Released 2026-09-11, 1M context, "mid-tier coding and agentic model, positioned between the flagship Kimi K3 and Kimi K2.7 Code". No price or benchmark.
+  - **Conflict:** search snippets from Medium and MagicShot say K2.8 Preview "keeps the same API model ID as K2.7 Code". I didn't confirm that on a primary page, since pandaily and kimi.com wouldn't render. If it's true, Cursor's `kimi-k2.7-code` may now serve K2.8. Either way it is covered by the `cursor:kimi-k2.7-*` ignore row, and the evaluated.tsv note says only "no own id".
+- **Claude Code 2.1.283** (2026-09-25 21:50): https://github.com/anthropics/claude-code/releases/tag/v2.1.283 (fetched). Relevant lines:
+  - "Fixed dynamic workflows started during a model fallback running every agent on the fallback model instead of retrying the configured model"
+  - "`claude -p` … no longer load[s] the interactive UI"
+  - new `availableModelsMatch` ("exact") and `deniedModels` managed settings
+
+  There's no change to aliases, the default model, `--no-session-persistence`, output formats or the Agent `model` param.
+- **Codex 0.157.1** (2026-09-26 01:02 UTC): github.com/openai/codex/releases/tag/rust-v0.157.1. A maintenance tag with no notes; @Codex_Changelog calls it a version bump. The 0.157.0 notes (background-server autostart) are in the 2026-09-25 section.
+
+### Unverified — not quoted
+
+- **@MagicPower21M (2026-09-26), a "leaked DevDay list":** GPT-6.1 Astra, GPT-6 Cyber, "Aeon", "BEL" and a $500 Pro Max tier. It comes from one account.
+- **@AI_Screening via @ItsGoharr (2026-09-26):** Gemini 4 Pro is in an arena and beat Opus 5.5 on a 3D sim. This is a rumor.
+- **@amn_baluni (2026-09-26):** says, from hallway talk, that DevDay includes a cyber GPT-6.
+- **Practitioner anecdotes (2026-09-26):**
+  - @PovilasKorop: the same code-audit prompt at medium effort used 68% of Astra's 5-hour limit and 15% of Opus 5.5's.
+  - @m1iles: Opus 5.5 is better at frontend and faster than Astra.
+  - These are anecdotes and don't change CE or Taste.
+- **Codex outage (@thsottiaux, 2026-09-25/26):** Codex was down, service is back, and paid usage limits were reset. This is operational, not a model change.
+- **Google AI Overviews' "2026-09-25 launches":** Xing4.0-29B-A4B, TypeSafe Jev, Nemotron 3 Diarization and FLUX 3 Action. grok couldn't confirm any of them on a primary source.
+- **"Sonnet/Haiku 5.5 in the coming weeks"** (codersera.com, secondary). No Anthropic source says this.
+
+### Route health
+
+- **Before:** the wrapper's live routecheck gave ALL ROUTES OK, with no drift and no unrouted ids. It already ran on cursor-agent 2026.09.26-dd393fe.
+- **After:** the live `routecheck` gave **ALL ROUTES OK** (124 PASS, 0 FAIL, 0 WARN, hygiene PASS, 22 Cursor test chats deleted). `routecheck --no-live` gives FREE TIERS OK after the edits.
+- **CLI versions:**
+  - claude 2.1.282 (unchanged)
+  - codex-cli 0.156.1 (unchanged)
+  - cursor-agent 2026.09.23-86fc751 → **2026.09.26-dd393fe**. It auto-updated, and its changelog has no entry after 2026-08-26.
+
+  No invocation repairs were needed.
+
+### Second review
+
+**Reviewer: gpt-6-astra** (`--task-type second-review`).
+
+- **Attempt 1:** exit 124. model-run timed out after 600 s with empty output, the same first-attempt hang as on 09-22 through 09-24.
+- **Attempt 2:** after a pause of about 3 minutes, exit 0 with about 20k tokens.
+
+**Verdict: SHIP**, with no findings. The reviewer checked that all three TSV rows have 5 tab-separated fields and that $1.25 is correctly labeled as cached input, with $15.625 being cache writes. It had only the diff in its workdir, not `routes.tsv`, so its route-consistency check relied on the routecheck result I gave it. No routes changed today.
+
+### Research provenance
+
+- **x-recency:** `model-run: xai-tools x_search=6 web_search=20 x_posts=37 cited_urls=25 status=completed cost_usd=1.2709 store=false`, exit 0. It was the first pass, with no retry and no fallback. The output is in `grok-research.md`.
+- **Claude checks:**
+  - Two parallel WebSearch/WebFetch subagents (sonnet): one for OpenAI, the Codex CLI, Cursor, xAI, Google, the other labs and AA; one for Anthropic, Claude Code 2.1.283 and the Opus 5.5 evals (AA model and Omniscience pages, LMArena, METR, Design Arena).
+  - My own fetches: the Claude Code v2.1.283 release, the OpenAI pricing page and llm-stats' Kimi K2.8 page. The pandaily page for Kimi K2.8 didn't render.
+- **Live catalogs:**
+  - `cursor-agent --list-models`: no new ids
+  - `codex debug models`: unchanged, 9 slugs
+  - `bin/model-run.sh --xai-models`: unchanged
+  - `catalog-drift.sh --unrouted`: none
+
+### Needs Dan
+
+- **Claude Code 2.1.283 (2026-09-25) isn't installed yet.** It fixes dynamic workflows started during a model fallback, which ran every agent on the fallback model instead of retrying the configured one. That bug could have quietly broken the per-stage model routing in `tests/workflows/orchestration-smoke-*.js`, so re-run those smokes after upgrading. Its new `deniedModels` managed setting could also enforce the "never Haiku for important work" rule in settings rather than prose. That's a judgment call for `settings`, which is outside this run's allowed files.
+- **Codex 0.157.x still isn't installed.** Yesterday's note about background-server autostart and the `hygiene:no-test-chats-left` check still applies.
+- **The second review hung on its first attempt again.** That's 4 of the last 5 runs. The first attempt reaches model-run's 600 s timeout with empty output, and a retry minutes later finishes in under 2 minutes. This may be worth a look in `bin/model-run.sh` or the codex exec setup, but I left it alone because it's a transient and not a broken route.
+- **Still open from earlier runs:**
+  - Opus 5.5 at Reliability 7\* vs 6\*.
+  - opus-5.5's CAI entry rests on an X post.
+  - `bulk` stays on Terra until Sol has an honesty or METR eval.
+  - gpt-5.5 leaves Codex on 2026-10-14.
+  - cursor-agent auto-updates silently (it happened again today).
+- **Connectors:** claude.ai Gmail and Google Drive need authorizing in the claude.ai connector settings. This run didn't need them.
+
 
 ## 2026-09-25
 

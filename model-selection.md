@@ -542,8 +542,8 @@ The table above is a snapshot; model catalogs and pricing drift. Every routable
 model documented here and in model-usage.md is live-verified by
 `bash ~/dotfiles/claude/tests/routecheck.sh` (alias `routecheck`) — it invokes
 each route with a nonce prompt and fails loudly on any broken id, syntax, or
-auth (last run 2026-09-25 by the model scout on Claude Code 2.1.282,
-codex-cli 0.156.1 and cursor-agent 2026.09.23-86fc751: ALL ROUTES OK, no
+auth (last run 2026-09-26 by the model scout on Claude Code 2.1.282,
+codex-cli 0.156.1 and cursor-agent 2026.09.26-dd393fe: ALL ROUTES OK, no
 drift or unrouted warnings). If a route fails, fix the id/syntax
 or remove the model from these files — never leave a documented route broken.
 Models with no runnable route on this machine do not get table rows. Catalog
