@@ -81,6 +81,9 @@ ignore	cursor:claude-opus-5-thinking-*	Claude runs natively, never via cursor-ag
 ignore	cursor:claude-fable-5-1-*	Claude runs natively, never via cursor-agent
 ignore	cursor:claude-fable-5-[lmhx]*	Claude runs natively, never via cursor-agent
 ignore	cursor:claude-fable-5-thinking-*	Claude runs natively, never via cursor-agent
+# claude-sonnet-5-5-{low,medium,high,xhigh,max}: Sonnet 5.5 (2026-09-28), added
+# by the model scout 2026-09-29 — native via the `sonnet` alias from Claude Code 2.1.284.
+ignore	cursor:claude-sonnet-5-5-*	Claude runs natively (Agent tool / claude CLI), never via cursor-agent
 ignore	cursor:claude-sonnet-5-[lmhx]*	Claude runs natively, never via cursor-agent
 ignore	cursor:claude-sonnet-5-thinking-*	Claude runs natively, never via cursor-agent
 ignore	cursor:claude-opus-4-8-*	Claude runs natively, never via cursor-agent

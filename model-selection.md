@@ -33,7 +33,9 @@ gpt-6-sol's 5\* kept with its justification now in the note. **2026-09-24
 scout:** opus-5.5 Reliability 9\* → 7\*. AA prints its AA-Omniscience Index (46)
 and accuracy (66%), which with AA's own metric definitions put its
 hallucination rate at **~59%** (derived, not AA-printed; see its note), level
-with gpt-6-sol's 60%.
+with gpt-6-sol's 60%. **sonnet-5.5 added 2026-09-29** (released 2026-09-28;
+AA v4.3.2 56 at max, AA-Omniscience hallucination 47%; sources in its note).
+AA's Sonnet 5.5 article now prints opus-5.5's rate: **59%**, as derived.
 
 - **Cost efficiency** = cost **per completed task**, not per token. (Per-token
   intuition inverts rankings: measured 2026-07-21, sonnet-5 had cheaper tokens
@@ -60,6 +62,7 @@ with gpt-6-sol's 60%.
 | gpt-5.6-sol  | 7               | 8            | 6     | 5           |
 | gpt-5.5      | 6               | 7            | 5     | 7           |
 | opus-5.5     | 6*              | 10*          | 8*    | 7*          |
+| sonnet-5.5   | 8*              | 9*           | 7*    | 7*          |
 | sonnet-5     | 4               | 7            | 7     | 8           |
 | fable-5.1    | 2               | 9            | 9*    | 6*          |
 
@@ -237,10 +240,75 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
   2026-10-14** (learn.chatgpt.com/docs/models, fetched 2026-09-22) — this
   machine's Codex runs on that seat auth, so expect `catalog-drift` to flag
   `gpt-5.5` vanished then; retire it to `gpt-6-sol`.
-- **sonnet-5** — Int raised to 7 (AA 53.4, statistically tied with grok-4.5).
+- **sonnet-5** — Int raised to 7 (AA v4.1.1 53.4, statistically tied with
+  grok-4.5).
   CE lowered to 4 (see per-task note above). Its $2/$10 intro price is now
   standard — the planned rise to $3/$15 "will not occur"
-  (platform.claude.com pricing, fetched 2026-09-22).
+  (platform.claude.com pricing, fetched 2026-09-22). AA v4.3.2 **38** (max;
+  implied by AA's Sonnet 5.5 article, "+18 points") — below Terra's 42, so
+  its Intelligence 7 is a v4.1.1-era score, not re-rated because the row is
+  on its way out. Superseded by sonnet-5.5 at the same price; the row stays
+  only while this machine's Claude Code is older than **2.1.284**, where
+  `sonnet` still resolves to Sonnet 5 — drop it once `claude --version` shows
+  2.1.284+.
+- **sonnet-5.5** (Claude Sonnet 5.5, `claude-sonnet-5-5`, released
+  **2026-09-28**; the `sonnet` alias on the Anthropic API **from Claude Code
+  2.1.284**, which is also the version it requires) — **$2/$10** per Mtok,
+  unchanged from Sonnet 5 (cache reads $0.20, writes $2.50), 1M context,
+  128k max output. Default effort **`medium` in Claude Code**, `high` on the
+  API; Sonnet 5 is now legacy (still active). Anthropic
+  pitches it as the faster, cheaper complement to Opus 5.5: "30%+ faster" and
+  "up to 30% less" per task than Sonnet 5 (vendor claims, conditions unstated;
+  AA measured the opposite at max — see CE). Haiku 5.5 is announced for "the
+  coming weeks". **Not reachable on this machine until Claude Code is
+  2.1.284+**: until then `sonnet` is Sonnet 5, and the recommendations below
+  that name sonnet-5.5 apply from that upgrade.
+  - **Intelligence 9\*** — AA Intelligence Index **v4.3.2 56 (max)**, 2 below
+    opus-5.5 (max, 58) and 3 above Astra and Fable 5.1 (both 53, max); +18
+    over Sonnet 5. That is a max-effort ceiling: **high 47, medium 41, low 36**
+    (v4.3.2, AA per-effort pages). AA-measured Terminal-Bench 4.0 **64%** (max;
+    Opus 5.5 (max) 60%). Anthropic's own table puts it within a few points of
+    Opus 5.5, but states Sonnet's effort for none of these: Terminal-Bench 4.0
+    70.6% (vs 66.4% at xhigh), CursorBench 4.0 55.5% (57.8%), GDPval-AA v2.1
+    1844 (1846; "from a pre-release deployment"), FrontierCode v1.1 46.2%
+    (54.4%; "Sonnet 5.5 scores lower at Max effort than at Xhigh").
+    Provisional: one day old, one independent source (AA), and AA ran it on a
+    **pre-release deployment** with a structured-output bug that Anthropic
+    says is fixed ("minimal change or slightly understated performance"; AA
+    "will be re-running relevant evaluations soon").
+  - **CE 8\*** — at **max** it is the most verbose model AA has measured:
+    **~193k output tokens per index task** (~7× Astra (max)), **$7.60 per
+    index task**, level with Fable 5.1's $7.63 and ~50% above Sonnet 5's. But
+    max is not how it runs here. At **high** it scores 47 for **$1.08/task**,
+    level with gpt-6-sol (48 at $1.06, max); at **medium**, Claude Code's
+    default, it scores 41 for **$0.59/task**, under half of Terra's $1.40 for
+    42 (max); low is 36 for $0.41. That puts it one notch under gpt-6-sol
+    (CE 9\*): AA's article says it "sits off the Intelligence vs. Cost per
+    Task Pareto Frontier" and that at lower efforts "GPT-6 Astra or Sol
+    configurations" deliver equivalent performance for lower cost, and at max
+    it is as expensive per task as fable-5.1 (CE 2). Provisional: one AA
+    measurement per effort. **Don't run it at `max`**: for a quarter of that,
+    opus-5.5 (high) scores 54 at $1.82/task.
+  - **Taste 7\*** copied from sonnet-5. Anthropic pitches "polished documents,
+    slides, and spreadsheets"; no Design Arena or LMArena standing yet.
+  - **Reliability 7\*** — AA-Omniscience **hallucination rate 47%** (max; AA
+    article), the lowest rate measured for any Claude or OpenAI model here
+    (Astra 51%, opus-5.5 59%; grok-4.7's 29% is lower), at **54% accuracy**
+    (opus-5.5 66%). It knows less and guesses less, so it is wrong on ~21%
+    of all questions (47% of the 46% it doesn't get right) — level with
+    Opus 5.5's ~20% and Astra's ~19%. The rate supports at least
+    Astra's 6; the seventh point, level with opus-5.5, rests on the lower rate
+    plus Anthropic's claim that it "improves on or matches Sonnet 5 on most
+    measures of alignment" (vendor, not independent). Not 8: Sonnet 5's 8
+    predates a measured rate, and nothing independent beyond AA's one run
+    exists yet.
+  - Sources: anthropic.com/claude-sonnet-5-5 (2026-09-28); Claude Code
+    CHANGELOG 2.1.284 and code.claude.com model-config ("Sonnet 5.5 requires
+    Claude Code v2.1.284 or later"; fetched 2026-09-29); AA article
+    artificialanalysis.ai/articles/claude-sonnet-5-5 (2026-09-28) — score,
+    tokens per task, per-task cost, hallucination rate and accuracy,
+    Terminal-Bench; AA model pages claude-sonnet-5-5, -high, -medium, -low
+    (v4.3.2; undated, fetched 2026-09-29).
 - **opus-5.5** (Claude Opus 5.5, `claude-opus-5-5`, released **2026-09-22**;
   the `opus` alias since Claude Code **2.1.280**, which is also Claude Code's
   new default model) — **$4/$20** per Mtok (cache reads $0.20; fast mode
@@ -303,9 +371,12 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
     Claude Mythos 5.1" (launch post) — vendor claims, not independent, and a
     judgment call (Astra's own honesty evidence is vendor-side too). METR's
     report (metr.org, 2026-09-22) "does not attempt to assess whether Claude
-    Opus 5.5 has or does not have particular alignment properties". Provisional: a derived rate from one AA run at max
-    effort; re-score if AA prints the rate. As with Fable, check its unsourced
-    factual claims.
+    Opus 5.5 has or does not have particular alignment properties". **AA now
+    prints the rate: 59%** (AA's Sonnet 5.5 article, 2026-09-28: Sonnet 5.5
+    "47% against 59%" for Opus 5.5, accuracy 54% vs 66%, max effort), exactly
+    the derivation, so 7\* stands. Provisional: one AA run at max effort and
+    vendor-side honesty evidence. As with Fable, check its unsourced factual
+    claims.
   - Sources: anthropic.com/news/claude-opus-5-5 and
     platform.claude.com/docs (models overview + pricing), code.claude.com
     model-config, Claude Code CHANGELOG 2.1.280 (all 2026-09-22); AA article
@@ -320,10 +391,8 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
     AA's coding-agents page renders its table client-side).
   - **UNVERIFIED — do not quote:** a SWE-bench Pro 89.9% (search snippet
     only; Anthropic published no SWE-bench number), any LMArena score, and
-    an AA-Omniscience hallucination rate of 58.6% (benchlm.ai, "last updated
-    2026-09-22", credited to AA, no effort label; not on any AA page fetched
-    through 2026-09-24 — consistent with the ~59% derived above, but quote the
-    derivation, not this figure).
+    benchlm.ai's 58.6% hallucination figure ("last updated 2026-09-22", no
+    effort label) — quote AA's own 59% instead.
 - **fable-5.1** (Claude Fable 5.1, `claude-fable-5-1`, released 2026-09-01; the
   `fable` alias) — $10/$50 (cache reads $0.25), 1M context, default effort
   `high`. AA Intelligence Index **v4.3.2 53**, tied with Astra and now **5
@@ -416,7 +485,10 @@ Terra-shaped bulk work.
 
 ### User-Facing / High-Taste Work
 
-Use Taste ≥ 7: **fable-5.1**, **opus-5.5** (also **sonnet-5** for lighter work).
+Use Taste ≥ 7: **fable-5.1**, **opus-5.5** (also `sonnet` for lighter work —
+**sonnet-5.5** from Claude Code 2.1.284, sonnet-5 before it; Anthropic pitches
+5.5 for polished documents, slides and spreadsheets, but its Taste 7\* is
+still a copy of sonnet-5's).
 For UI, copy, API design, product design — anything where polish matters.
 **gpt-6-astra** is the exception worth knowing: it is #1 on LMArena's Code/WebDev
 Arena and on Design Arena's UI Component, SVG, Game Dev and 3D boards, so it is a
@@ -428,7 +500,8 @@ and measurably worse than Sol on presentation.
 
 **opus-5.5** or **fable-5.1** — prefer opus-5.5 when the review turns on
 recalled facts (API semantics, versions, prices): Fable 5.1 is Reliability 6\*
-on a 72.6% hallucination rate, Opus 5.5 7\* on a derived ~59%. For higher
+on a 72.6% hallucination rate, Opus 5.5 7\* on 59% (AA-printed since
+2026-09-28). For higher
 confidence add a non-Claude second opinion: **gpt-6-astra**
 (`--task-type second-review`) is now the default there,
 having replaced gpt-5.6-sol on 2026-09-18 — same reviewer role, half the
@@ -529,7 +602,11 @@ you announce it.
 - Workflow stages: mechanical fan-out stages → `{ model: 'sonnet', effort:
   'low' }`; judge, verify, and taste-sensitive stages → session model (opus-5.5 /
   fable-5.1) at high effort. Prefer effort `'high'` for fable; avoid `'xhigh'`
-  unless truly needed; `'low'` for simple wrappers.
+  unless truly needed; `'low'` for simple wrappers. `sonnet` becomes
+  **Sonnet 5.5** once Claude Code is 2.1.284+ (2026-09-28): same price, much
+  stronger (AA v4.3.2 56 vs Sonnet 5's 38, both max; low 36 for $0.41 per
+  index task). Keep fan-outs on `'low'`/`'medium'` and never give it
+  `'max'`: that is where it burns a record ~193k output tokens per AA task.
 - Always give delegated agents: clear success criteria, required tools, expected
   output format, constraints and non-goals.
 - Long-running work: background mode + status checks; report results clearly.
@@ -542,10 +619,11 @@ The table above is a snapshot; model catalogs and pricing drift. Every routable
 model documented here and in model-usage.md is live-verified by
 `bash ~/dotfiles/claude/tests/routecheck.sh` (alias `routecheck`) — it invokes
 each route with a nonce prompt and fails loudly on any broken id, syntax, or
-auth (last run 2026-09-26 by the model scout on Claude Code 2.1.282,
-codex-cli 0.156.1 and cursor-agent 2026.09.26-dd393fe: ALL ROUTES OK, no
-drift or unrouted warnings). If a route fails, fix the id/syntax
-or remove the model from these files — never leave a documented route broken.
+auth (last run 2026-09-29 by the model scout on Claude Code 2.1.282,
+codex-cli 0.156.1 and cursor-agent 2026.09.28-64d2043: ALL ROUTES OK, no
+drift or unrouted warnings once `claude-sonnet-5-5-*` was ignored). If a
+route fails, fix the id/syntax or remove the model from these files — never
+leave a documented route broken.
 Models with no runnable route on this machine do not get table rows. Catalog
 drift (a newer grok/composer/glm/gpt version, or a routed id disappearing) is
 detected by `bin/catalog-drift.sh` — `routecheck` runs it live and the

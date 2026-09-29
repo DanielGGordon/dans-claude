@@ -100,6 +100,10 @@ Native to Claude Code — no CLI, no wrapper, not model-run.sh's job:
   `opus` → **Opus 5.5** (`claude-opus-5-5`, also Claude Code's default model),
   `fable` → **Fable 5.1**, `sonnet` → Sonnet 5, `haiku` → Haiku 4.5 (on the
   Anthropic API; Bedrock/Vertex/Foundry map some aliases to older models).
+  **Claude Code 2.1.284** (2026-09-28) moves `sonnet` → **Sonnet 5.5**
+  (`claude-sonnet-5-5`; "requires Claude Code v2.1.284 or later",
+  code.claude.com model-config, fetched 2026-09-29); older installs still get
+  Sonnet 5. Sonnet 5.5's default effort is `medium` in Claude Code.
 - `effort` per call: `'low' | 'medium' | 'high' | 'xhigh' | 'max'`. New models
   such as Opus 5.5 start at their own default (Opus 5.5: `medium`), not an
   effort level saved before `/effort` became per-model.

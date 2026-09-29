@@ -1,4 +1,159 @@
-# Model scout 2026-09-26: no routing change; 3 models logged (gpt-5.6-cyber, kimi-k2.8-preview not-routable; gpt-6-cyber watch)
+# Model scout 2026-09-29: Claude Sonnet 5.5 added (native; Cursor ids ignored); opus-5.5's 59% hallucination rate now AA-printed
+
+## 2026-09-29
+
+### Summary
+
+- **Claude Sonnet 5.5 (`claude-sonnet-5-5`) shipped on 2026-09-28** at Sonnet 5's price ($2/$10). It gets a new **sonnet-5.5** row in model-selection.md (CE 8\*, Int 9\*, Taste 7\*, Rel 7\*) and a note.
+  - It scores **AA Intelligence Index v4.3.2 56 at max**, 2 behind Opus 5.5 (max), with a **47% AA-Omniscience hallucination rate**.
+  - The catch is cost at max: **~193k output tokens and $7.60 per index task**. At the efforts it actually runs here it is cheap: high 47 for $1.08, medium 41 for $0.59.
+  - Claude runs natively, so Cursor's five `claude-sonnet-5-5-*` ids get one `ignore` row. That clears the only `--unrouted` warning.
+- **The `sonnet` alias needs Claude Code 2.1.284+ to reach Sonnet 5.5, and this machine is on 2.1.282.** So the sonnet-5 row stays for now, with a note to drop it after the upgrade. See Needs Dan.
+- **opus-5.5:** AA's Sonnet 5.5 article prints Opus 5.5's hallucination rate as **59%**, which matches the ~59% derived on 2026-09-24. The note now cites AA's printed figure. Reliability stays 7\*.
+- **No change for OpenAI routes.** OpenAI cancelled GPT-6.1 Astra, planned for October, after safety tests; GPT-6 Astra, which our `second-review` and `fable-fallback` rows use, isn't affected. DevDay's keynote (17:00 UTC today) was after this run, so GPT-6 Cyber stays `watch`.
+- **Route health:** the live routecheck is ALL ROUTES OK (124 PASS, 0 WARN, 0 FAIL). cursor-agent auto-updated during the run, to 2026.09.28-64d2043. No repair was needed.
+- **The x-recency pass searched X** (`x_search=9`), so no fallback was needed.
+
+### Routing changes
+
+- **`bin/routes.tsv`**: added `ignore cursor:claude-sonnet-5-5-*`, with a dated comment. The existing `cursor:claude-sonnet-5-[lmhx]*` glob doesn't match `claude-sonnet-5-5-*`, because the character after `5-` is `5`. Neither glob would swallow a future `claude-sonnet-5-6-*` or `claude-sonnet-6-*`. No `model`, `retired` or `task` rows changed.
+- **`model-selection.md`**:
+  - rankings intro: a 2026-09-29 sentence
+  - new **sonnet-5.5** table row and note
+  - sonnet-5 note: its implied v4.3.2 38, and when to drop the row
+  - opus-5.5 note: AA-printed 59%. The UNVERIFIED benchlm bullet is trimmed.
+  - "User-Facing" now names `sonnet`: sonnet-5.5 from Claude Code 2.1.284, sonnet-5 before it.
+  - "Reviews & Planning" now cites the AA-printed 59%.
+  - "Subagent & Workflow Guidelines": what `sonnet` becomes, and never give it `max`.
+  - "Keeping This File Honest": the routecheck date and cursor-agent version.
+- **`model-usage.md`**: the Claude aliases bullet now says Claude Code 2.1.284 moves `sonnet` to Sonnet 5.5.
+- **`scout/evaluated.tsv`**: 6 rows added.
+- **Not touched:** `hooks/*`, `tests/*`, `bin/*.sh`, `agents/model-runner.md`, `README.md` and `system-map.md`. No id there names a Sonnet version: the smoke tests and model-runner use the `sonnet` alias.
+
+### Models evaluated
+
+| Model | Vendor | Released | Verdict | Why |
+|---|---|---|---|---|
+| claude-sonnet-5-5 | Anthropic | 2026-09-28 | routed (native) | AA v4.3.2 56 (max), 2nd only to Opus 5.5; same price as Sonnet 5; 47% hallucination rate. Cursor ids ignored. |
+| claude-opus-5-5 (re-check) | Anthropic | 2026-09-22 | routed | AA now prints its hallucination rate, 59% (max). It matches the derivation, so no score change. |
+| gpt-6.1-astra | OpenAI | — (cancelled) | not-routable | Not released: it "didn't quite meet the bar in terms of staying within scope and authorization" (OpenAI's Saachi Jain). |
+| gpt-6-cyber (re-check) | OpenAI | — | watch | Still no id or price. DevDay was after this run. |
+| claude-haiku-5-5 | Anthropic | — | watch | Announced for "the coming weeks". |
+| minimax-m3.1-flash-preview | MiniMax | 2026-09-27 | not-routable | Only inside MiniMax Code / Token Plan; no public API price. Not in either catalog. The source is secondary (a grok lead). |
+
+### Evidence
+
+- **Sonnet 5.5, vendor.** Sources:
+  - https://www.anthropic.com/claude-sonnet-5-5 (2026-09-28): release date, id, $2/$10, cache $0.20 read / $2.50 write, Claude Code default effort medium, the benchmark table, "improves on or matches Sonnet 5 on most measures of alignment", and Haiku 5.5 "in the coming weeks".
+    - That page's footnotes give no Sonnet effort for Terminal-Bench, CursorBench or GDPval, so the note says so. FrontierCode's footnote says Sonnet 5.5 "scores lower at Max effort than at Xhigh". The GDPval numbers are "from a pre-release deployment".
+  - https://platform.claude.com/docs/en/models/sonnet-5-5/overview (fetched 2026-09-29): 1M context, 128K max output, API default effort `high`, knowledge cutoff Jun 2026, retirement not before 2027-09-28.
+- **Alias.** Two sources:
+  - Claude Code CHANGELOG 2.1.284 (raw CHANGELOG.md, fetched 2026-09-29): "Added Claude Sonnet 5.5 (`claude-sonnet-5-5`), now the default Sonnet model".
+  - https://code.claude.com/docs/en/model-config (fetched 2026-09-29): "Sonnet 5.5 requires Claude Code v2.1.284 or later". Provider table: Anthropic API `sonnet` → Sonnet 5.5.
+- **Sonnet 5.5, AA.**
+  - https://artificialanalysis.ai/articles/claude-sonnet-5-5 (2026-09-28): 56 (max), 2 behind Opus 5.5 (max), +18 over Sonnet 5; ~193k output tokens per task ("the highest token use we have measured"); ~$7.60 per task, ~50% above Sonnet 5; Omniscience accuracy 54% vs 66% and hallucination rate 47% vs 59% (Opus 5.5); Terminal-Bench 4.0 64% vs 60% (max). The article also says:
+    - Sonnet 5.5 "sits off the Intelligence vs. Cost per Task Pareto Frontier".
+    - The evals ran on a pre-release deployment with a structured-output bug; AA "will be re-running relevant evaluations soon".
+  - AA model pages (v4.3.2; undated, fetched 2026-09-29) give score and cost per index task at each effort:
+
+    | Effort | Page | Score | Cost per index task |
+    |---|---|---|---|
+    | max | claude-sonnet-5-5 | 56 | $7.60 |
+    | high | claude-sonnet-5-5-high | 47 | $1.08 |
+    | medium | claude-sonnet-5-5-medium | 41 | $0.59 |
+    | low | claude-sonnet-5-5-low | 36 | $0.41 |
+
+  - **Conflict:** the article says "#2" and the max-effort model page says "#3 / 216". AA's leaderboard lists Opus 5.5 at max (58) and at xhigh (56) as separate entries. That puts Sonnet 5.5 (max) #2 by model and #3 by configuration. The note quotes only the score and the gap, not a rank.
+  - **Conflict:** grok also cited Decrypt quoting AA's Terminal-Bench as 63.6% vs 59.6%. I quoted the AA article's own rounded 64% / 60%.
+- **Scores:**
+  - **Int 9\*:** 56 sits between Opus 5.5's 58 (10\*) and Astra / Fable 5.1's 53 (9).
+  - **CE 8\*:**
+    - High 47 at $1.08 is level with gpt-6-sol (48 at $1.06, CE 9\*).
+    - Medium 41 at $0.59 is under half of Terra's cost (42 at $1.40, CE 8).
+    - It is one notch under Sol because AA calls it off-frontier, and at max it is the worst in the table.
+  - **Rel 7\*:** 47% is better than Astra's 51% (Rel 6) and Opus 5.5's 59% (7\*). But at 54% accuracy it is wrong on ~21% of all questions, level with Opus's ~20% and Astra's ~19%. It reaches 7 on the lower rate plus Anthropic's alignment claim, and not 8.
+  - **Taste 7\*:** copied from sonnet-5. There is no arena data yet.
+- **GPT-6.1 Astra:** https://thenextweb.com/news/openai-cancels-launch-of-gpt-6-1-astra (2026-09-29). Saachi Jain (OpenAI): "it didn't quite meet the bar in terms of staying within scope and authorization, and how it communicates back to the user about the type of work it's done". GPT-6 Astra "continues to power ChatGPT and Codex". Reuters, CNN and The Verge could not be fetched (blocked or 451).
+- **DevDay:** https://openai.com/index/devday-2026/ (search result): the keynote is 2026-09-29 at 10:00 PT, after this run.
+- **Codex CLI:** https://github.com/openai/codex/releases (fetched 2026-09-29).
+  - 0.158.0 (2026-09-28): adds `codex mcp add --oauth-client-secret`, and terminal input approval is now on by default for elevated commands.
+  - 0.159.0 (2026-09-29): opt-in `instant_interrupt`; prompt suggestions are removed.
+  - Neither is installed here.
+
+### Unverified — not quoted
+
+- **Cursor ids → effort mapping:** grok says `claude-sonnet-5-5-{low…max}` are one API model split by effort. That follows from the catalog labels ("Claude Sonnet 5.5 Low" … "Max") and doesn't matter for an ignore row.
+- **Cursor's Sonnet 5.5 doc** (grok): CursorBench 35.8% at low vs 55.5% at max, with max costing ~6× default per task. I didn't fetch it.
+- **@thsottiaux (2026-09-29):** DevDay is "all good news", and ChatGPT Pro $200 reopens with a new usage calculation. This is plan news, not a model.
+- **WSJ via Reuters:** GPT-6.1 Astra showed "higher deception". This is second-hand. Only the Saachi Jain quote above is used, and only in evaluated.tsv.
+- **MiniMax-M3.1-Flash-Preview:** only secondary sources (agentriot.com, startupfortune.com), from grok.
+- **Practitioner anecdotes (2026-09-29):**
+  - @abhinav_bansal: a review eval where Sonnet 5.5 reviews and Opus grades went from a 62% to a 96% right-verdict rate over 13 cases.
+  - @wubin28: Sonnet 5.5 hits content-filter blocks in GitHub Copilot.
+  - @mvilola: prefers the Codex harness.
+  - These are anecdotes and don't change any score.
+- **Gemini 4 / Qwen 4:** still not released, per grok. Their `watch` rows from 2026-09-25 still stand.
+
+### Route health
+
+- **Before:** the wrapper's live routecheck gave ALL ROUTES OK with one WARN, `drift:unrouted` for 5 × `claude-sonnet-5-5-*`.
+- **After:** the live routecheck gave **ALL ROUTES OK**: 124 PASS, 0 WARN, 0 FAIL, hygiene PASS, 22 Cursor test chats deleted. `catalog-drift.sh --unrouted` is empty, and `routecheck --no-live` gives FREE TIERS OK after the final edits.
+- **CLI versions:**
+  - claude 2.1.282 (unchanged; 2.1.283 and 2.1.284 are out)
+  - codex-cli 0.156.1 (unchanged; 0.157.1, 0.158.0 and 0.159.0 are out)
+  - cursor-agent 2026.09.26-dd393fe → **2026.09.28-64d2043**. It auto-updated between the wrapper's pre-check and mine, and every Cursor route passed on it.
+
+  No invocation repairs were needed.
+
+### Second review
+
+**Reviewer: gpt-6-astra** (`--task-type second-review`).
+
+- **Attempt 1:** exit 124. model-run timed out after 600 s, with empty output past `Reading additional input from stdin...`. This is the known first-attempt hang.
+- **Attempt 2:** a few minutes later, run with `MODEL_RUN_TIMEOUT=1200` and stdin from `/dev/null`. Exit 0, ~39k tokens.
+
+**Verdict: FIX-FIRST**, with 4 findings. Two were fixed and two were fixed in part; details follow. It reviewed the diff from before my last wording pass (the grok-4.7 29% correction and some rewrapping), which doesn't touch its findings. It confirmed the two sonnet ignore globs don't overlap and neither swallows `claude-sonnet-5-6-*` or `claude-sonnet-6-*`. It also found CE 8\*, Int 9\* and Rel 7\* "reasonably" supported.
+
+1. **High: sonnet-5.5 is recommended before this machine can run it (2.1.282 < 2.1.284).** Fixed in part:
+   - The sonnet-5.5 note now says it is **not reachable here until Claude Code 2.1.284+**, and that the recommendations naming it apply from that upgrade.
+   - "User-Facing" now says `sonnet`, meaning sonnet-5.5 from 2.1.284 and sonnet-5 before.
+   - The workflow guideline was already gated.
+   - I kept the table row and the `routed` verdict. Claude models are the documented exception to the no-runnable-route rule, the `sonnet` alias already resolves to 5.5 on the Anthropic API, and the evaluated.tsv note already records "this machine on 2.1.282". Dan's upgrade (Needs Dan) makes the row live.
+2. **Medium: "30%+ faster" / "up to 30% less" aren't supported.** Rejected as a removal: both are verbatim from Anthropic's launch page, which I fetched, and they were already labeled vendor claims. My evidence summary to the reviewer just didn't list them. Accepted in part: the note now adds "conditions unstated; AA measured the opposite at max — see CE".
+3. **Low: sonnet-5's "AA 53.4" has no index version.** Fixed: it is now labeled v4.1.1.
+4. **Low: "at max it is the worst in the table" contradicts Fable 5.1's $7.63 for 53.** Fixed: the note now says at max it is as expensive per task as fable-5.1 (CE 2).
+
+### Research provenance
+
+- **x-recency:** `model-run: xai-tools x_search=9 web_search=22 x_posts=60 cited_urls=31 status=completed cost_usd=1.5687 store=false`, exit 0. It was the first pass, with no retry and no fallback. The output is in `grok-research.md`.
+- **Claude checks (my own WebSearch/WebFetch, no subagents):**
+  - Anthropic: the Sonnet 5.5 launch page (fetched three times, for footnotes) and the platform.claude.com Sonnet 5.5 overview
+  - Claude Code: the raw CHANGELOG.md and code.claude.com model-config
+  - AA: the Sonnet 5.5 article (fetched three times) and model pages at max, high, medium and low
+  - AA leaderboard and Omniscience board. The board still shows no rate for any model, so Opus's 59% is quoted from the article.
+  - the Codex releases page and the Cursor changelog
+  - thenextweb (GPT-6.1 Astra), plus searches for DevDay, GPT-6.1 Astra and releases from 2026-09-27/28
+- **Live catalogs:**
+  - `cursor-agent --list-models`: 5 new `claude-sonnet-5-5-*` ids, no other new ids
+  - `codex debug models`: unchanged, 7 visible slugs
+  - `catalog-drift.sh --unrouted`: empty after the ignore row
+
+### Needs Dan
+
+- **Upgrade Claude Code to ≥ 2.1.284** (`claude update`). Until then, `sonnet` in the Agent tool and workflows is still Sonnet 5 (AA v4.3.2 38 at max) rather than Sonnet 5.5 (56), at the same price. After upgrading:
+  - drop the `sonnet-5` row and note from model-selection.md, or the next scout run can
+  - re-run `tests/workflows/orchestration-smoke-claude.js`
+- **Judgment call:** sonnet-5.5 is rated **Reliability 7\***, which is at the unsupervised bar. It has the lowest AA hallucination rate of any Claude or OpenAI model here (47%). But it is wrong on ~21% of all questions, level with Astra's 6, and the seventh point rests on an Anthropic alignment claim. You might prefer 6\* until an independent honesty eval exists.
+- **Sonnet 5.5 at `max`** is the priciest config in the table per AA task ($7.60). Nothing here pins Claude effort per alias; the guidance is prose only.
+- **The second review hung on its first attempt again** (exit 124 at 600 s, the same `Reading additional input from stdin...` header). That makes 5 of the last 6 runs. The retry, with `MODEL_RUN_TIMEOUT=1200` and stdin from `/dev/null`, finished. A longer default timeout or a built-in retry for `second-review` in `bin/model-scout.sh` is outside my allowed files.
+- **Still open from earlier runs:**
+  - opus-5.5 at Rel 7\* vs 6\*
+  - `bulk` stays on Terra until Sol has an honesty/METR eval
+  - gpt-5.5 leaves Codex on 2026-10-14
+  - Codex 0.157+ isn't installed
+  - cursor-agent auto-updates silently (it happened again mid-run)
+- **Connectors:** claude.ai Gmail and Google Drive need authorizing in the claude.ai connector settings. This run didn't need them.
+
 
 ## 2026-09-26
 
