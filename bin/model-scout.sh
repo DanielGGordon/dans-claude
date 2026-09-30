@@ -68,23 +68,24 @@
 #     the second review really ran (second_review_ok: model-run's own output,
 #     exit 0); the PR diff against a freshly fetched origin/master is DATA only
 #     (AUTOMERGE_PATHS: routes.tsv, the routing .md docs, scout/evaluated.tsv +
-#     last-report.md, tests/mock-catalog.tsv; hooks/route-guard.sh only as
-#     literal RETIRED entries) — any code, even a CLI-break repair, waits for a
+#     last-report.md, tests/mock-catalog.tsv — in frontmatter only the
+#     description: line; hooks/route-guard.sh only as literal RETIRED entries) — any code, even a CLI-break repair, waits for a
 #     human; `routecheck --no-live` passed; a wrapper-run FINAL live routecheck
 #     of exactly the committed SHA passes (only xai-key failures tolerated =
-#     degraded, still merges). Then `gh pr merge --squash --delete-branch
-#     --match-head-commit`. Not mergeable because master moved: rebase ONCE,
+#     degraded, still merges). Right before EVERY merge: fetch, and the head
+#     must contain origin/master whatever GitHub says; if not, rebase ONCE,
 #     then path gate + `routecheck --no-live` + the final live routecheck all
-#     run again on the new SHA before push --force-with-lease and retry; a
-#     conflict leaves the PR open.
+#     run again on the new SHA before push --force-with-lease and retry (a
+#     conflict leaves the PR open). Then MERGEABLE, then `gh pr merge --squash
+#     --delete-branch --match-head-commit`.
 #  8. After any merge (step 2 or 7), and every run while an earlier lag is
 #     unresolved: refresh the LIVE checkout (MODEL_SCOUT_LIVE_REPO,
-#     ~/dotfiles/claude), whose bin/routes.tsv is read in place. Fetch first;
-#     then, only if it is ON master (re-checked, with HEAD, right before the
-#     merge): `merge --ff-only` (= pull --ff-only; dirty files the merge
-#     doesn't touch are fine, anything else is left alone — never forced), then
-#     `install.sh --cron-only`. Otherwise nothing is touched; last-run.json
-#     keeps live_checkout_behind=<branch> and the banner says routing lags.
+#     ~/dotfiles/claude), whose bin/routes.tsv is read in place. Never a
+#     command that moves "whatever HEAD points at": master itself is moved by
+#     a compare-and-swap update-ref, and the work tree by `read-tree -m -u`
+#     only while HEAD is still master (see update_live_checkout), then
+#     `install.sh --cron-only`. Otherwise nothing checked out is touched;
+#     last-run.json keeps live_checkout_behind=<branch>, the banner says so.
 #  9. ALWAYS (EXIT trap): retry any queued failed cleanups, then
 #     bin/test-chat-cleanup.sh for this run's marker + workdirs and
 #     bin/t3-purge-test-threads.sh --apply (a failure is queued in
@@ -183,6 +184,38 @@ PY
   rc=$?; rm -f "$a" "$b"; return $rc
 }
 
+# frontmatter_ok <gitdir> <old-rev> <new-rev> <path>: an allowed .md may carry
+# YAML frontmatter that Claude EXECUTES (agents/*.md: `hooks:` etc.), so the
+# only frontmatter change auto-merge accepts is the `description:` line (the
+# model-id list). Adding/removing frontmatter, or any other line changing,
+# prints the reason and fails. The body is free.
+frontmatter_ok() {
+  local a b rc
+  a=$(mktemp) b=$(mktemp)
+  git -C "$1" show "$2:$4" >"$a" 2>/dev/null
+  git -C "$1" show "$3:$4" >"$b" 2>/dev/null
+  python3 - "$a" "$b" <<'FMPY'
+import sys
+def fm(path):
+    lines = open(path).read().split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return lines[1:i]
+    return ["<unterminated frontmatter>"]
+old, new = fm(sys.argv[1]), fm(sys.argv[2])
+if old is None and new is None:
+    sys.exit(0)
+if old is None or new is None:
+    print("frontmatter added or removed"); sys.exit(1)
+strip = lambda f: [l for l in f if not l.startswith("description: ")]
+if strip(old) != strip(new) or sum(l.startswith("description: ") for l in new) != 1:
+    print("frontmatter changed beyond the description: line"); sys.exit(1)
+FMPY
+  rc=$?; rm -f "$a" "$b"; return $rc
+}
+
 # path_gate <gitdir> <base> <head>: 0 iff the PR diff (merge-base(base, head)
 # -> head, what GitHub shows) is routing data only. Otherwise PATH_WHY says what.
 path_gate() {
@@ -193,7 +226,12 @@ path_gate() {
     { PATH_WHY="path gate: cannot diff $base...$head"; return 1; }
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    [[ "$f" =~ $AUTOMERGE_PATHS ]] && continue
+    if [[ "$f" =~ $AUTOMERGE_PATHS ]]; then
+      case "$f" in
+        *.md) why=$(frontmatter_ok "$dir" "$mb" "$head" "$f") || { bad+=("$f ($why)"); continue; } ;;
+      esac
+      continue
+    fi
     if [ "$f" = hooks/route-guard.sh ]; then
       why=$(retired_only_changed "$dir" "$mb" "$head") && continue
       bad+=("$f ($why)")
@@ -334,10 +372,15 @@ handle_stale_prs() {
     fi
     if [ -z "$why" ]; then
       if [ "$act" != 1 ]; then log "  verified and current — would merge it (no PR writes in this mode)"; OPEN_PR_URL="$url"; continue; fi
-      if gh_merge "$url" "$PM_OID"; then
+      # Freshness again right before merging (the checks above took a while).
+      if ! remote_git "$REPO" fetch -- "+refs/heads/master:refs/remotes/origin/master" ||
+         ! git -C "$REPO" merge-base --is-ancestor origin/master "$PM_OID"; then
+        why="master moved since it was verified"
+      elif gh_merge "$url" "$PM_OID"; then
         MERGED_ANY=1; STALE_NOTES+=("merged older scout PR $url"); log "  merged"; continue
+      else
+        why="$GH_MERGE_WHY"
       fi
-      why="$GH_MERGE_WHY"
     fi
     if [ "$act" != 1 ]; then log "  would close it: $why"; OPEN_PR_URL="$url"; continue; fi
     if ghr pr close "$url" --comment "Superseded: the model scout run of ${DATE:-today} re-derives routing from the current master instead of building on this PR (not auto-merged: $why). The branch is kept — reopen and merge by hand if you still want these changes." >/dev/null 2>>"${ARTIFACTS:-/tmp}/gh.err"; then
@@ -357,57 +400,68 @@ try_merge_pr() {
   local rebased=0 old
   NEEDS_WHY=""
   while :; do
+    # Freshness FIRST, whatever GitHub says: without strict up-to-date branch
+    # protection GitHub reports MERGEABLE for a head behind master, and the
+    # merged (combined) tree would be one no gate ever tested.
+    remote_git . fetch -- "+refs/heads/master:refs/remotes/origin/master" ||
+      { NEEDS_WHY="git fetch of master failed: cannot prove the PR is current"; return 1; }
+    if ! git merge-base --is-ancestor origin/master HEAD; then
+      [ "$rebased" = 1 ] && { NEEDS_WHY="master moved again after the one rebase"; return 1; }
+      rebased=1
+      FINAL_LIVE="" FINAL_SHA=""   # whatever was verified, it was not this tree
+      log "master moved — rebasing onto origin/master once and re-running every gate"
+      if ! git -c user.useConfigOnly=true rebase --quiet origin/master >/dev/null 2>&1; then
+        git rebase --abort >/dev/null 2>&1
+        NEEDS_WHY="master moved and the scout branch does not rebase cleanly onto it (conflict)"; return 1
+      fi
+      path_gate . origin/master HEAD || { NEEDS_WHY="after rebase: $PATH_WHY"; return 1; }
+      ROUTE_HEALTH_FILE="$ARTIFACTS/rebase-health.txt" ROUTE_HEALTH_TOOLS="$ARTIFACTS/rebase-tools.txt" \
+        ROUTECHECK_XAI_SOFT=1 timeout 600 bash tests/routecheck.sh --no-live >"$ARTIFACTS/routecheck-rebase.txt" 2>&1 9>&- ||
+        { NEEDS_WHY="routecheck --no-live fails after rebasing onto the moved master"; return 1; }
+      final_live_check || { NEEDS_WHY="after rebase: $FINAL_WHY"; return 1; }
+      old=$COMMIT
+      remote_git . push "--force-with-lease=refs/heads/$BRANCH:$old" -- "HEAD:refs/heads/$BRANCH" ||
+        { NEEDS_WHY="rebased, but the force-push (with lease) of $BRANCH failed"; return 1; }
+      COMMIT=$(git rev-parse HEAD)
+      log "rebased + re-verified + force-pushed $BRANCH: ${old:0:12} -> ${COMMIT:0:12}"
+      # Re-bind the eligibility evidence to the new head (for a later run).
+      if [ -s "${BODY:-}" ]; then
+        sed -i "s/<!-- scout-verified-sha: [0-9a-f]\{40\} -->/<!-- scout-verified-sha: $COMMIT -->/" "$BODY"
+        ghr pr edit "$PR_URL" --body-file "$BODY" >/dev/null 2>&1 || log "WARN: gh pr edit (verified sha) failed"
+      fi
+      sleep "${MODEL_SCOUT_GH_POLL:-5}"
+      continue   # re-fetch: master may have moved again meanwhile
+    fi
     if ! pr_mergeable "$PR_URL"; then NEEDS_WHY="GitHub did not report mergeability of $PR_URL"; return 1; fi
     [ "$PM_PRSTATE" = OPEN ] || { NEEDS_WHY="PR is ${PM_PRSTATE:-gone}, not open"; return 1; }
-    if pr_is_mergeable; then
-      [ "$PM_OID" = "$COMMIT" ] || { NEEDS_WHY="PR head is ${PM_OID:0:12}, not the gated commit ${COMMIT:0:12}"; return 1; }
-      [ "$FINAL_LIVE" = ok ] && [ "$FINAL_SHA" = "$COMMIT" ] || { NEEDS_WHY="no passing final live routecheck of ${COMMIT:0:12}"; return 1; }
-      gh_merge "$PR_URL" "$COMMIT" && return 0
-      NEEDS_WHY="$GH_MERGE_WHY"; return 1
-    fi
-    if [ "$rebased" = 1 ]; then
-      NEEDS_WHY="still not mergeable after one rebase onto origin/master (mergeable=$PM_MERGEABLE, mergeStateStatus=$PM_STATE)"; return 1
-    fi
-    remote_git . fetch -- "+refs/heads/master:refs/remotes/origin/master" ||
-      { NEEDS_WHY="not mergeable ($PM_MERGEABLE/$PM_STATE) and git fetch of master failed"; return 1; }
-    if git merge-base --is-ancestor origin/master HEAD; then
-      NEEDS_WHY="not mergeable (mergeable=$PM_MERGEABLE, mergeStateStatus=$PM_STATE) although master has not moved"; return 1
-    fi
-    rebased=1
-    FINAL_LIVE="" FINAL_SHA=""   # whatever was verified, it was not this tree
-    log "master moved and the PR is not mergeable ($PM_MERGEABLE/$PM_STATE) — rebasing onto origin/master once"
-    if ! git -c user.useConfigOnly=true rebase --quiet origin/master >/dev/null 2>&1; then
-      git rebase --abort >/dev/null 2>&1
-      NEEDS_WHY="master moved and the scout branch does not rebase cleanly onto it (conflict)"; return 1
-    fi
-    path_gate . origin/master HEAD || { NEEDS_WHY="after rebase: $PATH_WHY"; return 1; }
-    ROUTE_HEALTH_FILE="$ARTIFACTS/rebase-health.txt" ROUTE_HEALTH_TOOLS="$ARTIFACTS/rebase-tools.txt" \
-      ROUTECHECK_XAI_SOFT=1 timeout 600 bash tests/routecheck.sh --no-live >"$ARTIFACTS/routecheck-rebase.txt" 2>&1 9>&- ||
-      { NEEDS_WHY="routecheck --no-live fails after rebasing onto the moved master"; return 1; }
-    final_live_check || { NEEDS_WHY="after rebase: $FINAL_WHY"; return 1; }
-    old=$COMMIT
-    remote_git . push "--force-with-lease=refs/heads/$BRANCH:$old" -- "HEAD:refs/heads/$BRANCH" ||
-      { NEEDS_WHY="rebased, but the force-push (with lease) of $BRANCH failed"; return 1; }
-    COMMIT=$(git rev-parse HEAD)
-    log "rebased + re-verified + force-pushed $BRANCH: ${old:0:12} -> ${COMMIT:0:12}"
-    # Re-bind the eligibility evidence to the new head (for a later run).
-    if [ -s "${BODY:-}" ]; then
-      sed -i "s/<!-- scout-verified-sha: [0-9a-f]\{40\} -->/<!-- scout-verified-sha: $COMMIT -->/" "$BODY"
-      ghr pr edit "$PR_URL" --body-file "$BODY" >/dev/null 2>&1 || log "WARN: gh pr edit (verified sha) failed"
-    fi
-    sleep "${MODEL_SCOUT_GH_POLL:-5}"
+    pr_is_mergeable || { NEEDS_WHY="not mergeable although current with master (mergeable=$PM_MERGEABLE, mergeStateStatus=$PM_STATE)"; return 1; }
+    [ "$PM_OID" = "$COMMIT" ] || { NEEDS_WHY="PR head is ${PM_OID:0:12}, not the gated commit ${COMMIT:0:12}"; return 1; }
+    [ "$FINAL_LIVE" = ok ] && [ "$FINAL_SHA" = "$COMMIT" ] || { NEEDS_WHY="no passing final live routecheck of ${COMMIT:0:12}"; return 1; }
+    gh_merge "$PR_URL" "$COMMIT" && return 0
+    NEEDS_WHY="$GH_MERGE_WHY"; return 1
   done
 }
 
 # update_live_checkout: bring the live checkout (read in place: bin/routes.tsv,
-# the docs through ~/.claude symlinks) to origin/master — fast-forward only,
-# and only when it is ON master. The fetch happens FIRST; branch and HEAD are
-# read after it and re-checked immediately before the merge, so a branch switch
-# during the network wait aborts instead of advancing someone's feature branch.
-# Sets LIVE_BEHIND / LIVE_NOTE / LIVE_TARGET (the master it must contain) /
-# LIVE_UPDATED; all empty = the live checkout contains master.
+# the docs through ~/.claude symlinks) to origin/master without ever running a
+# command that moves "whatever HEAD points at" — so no interleaving with a
+# human's `git switch` can advance their branch:
+#   1. fetch; new = origin/master, old = refs/heads/master (must fast-forward);
+#   2. move master ITSELF with a compare-and-swap: update-ref master new old;
+#   3. only if HEAD is still refs/heads/master: update index + work tree with
+#      the two-tree merge `read-tree -m -u old new` (keeps unrelated local
+#      edits, refuses if a locally modified file changes — like pull --ff-only);
+#   4. re-check HEAD. Any failure after step 2 undoes what it can (work tree
+#      back with read-tree new->old, master back with a CAS) and records the
+#      lag; if master can't be moved back it records "master ref updated, work
+#      tree needs `git reset --keep master`". Never forced.
+# Not on master: step 2 still fast-forwards the (not checked out) master ref —
+# harmless — and the checkout is recorded as lagging on its branch.
+# Sets LIVE_BEHIND / LIVE_NOTE / LIVE_TARGET (all empty = the live checkout
+# contains master) and LIVE_UPDATED. _live_hook <phase> is a no-op test seam.
+_live_hook() { :; }
 update_live_checkout() {
-  local live=$LIVE_REPO ref head out
+  local live=$LIVE_REPO old new ref out
   LIVE_UPDATED=0
   if ! git -C "$live" rev-parse --git-dir >/dev/null 2>&1; then
     LIVE_NOTE="live checkout $live is not a git repo — not updated"; LIVE_BEHIND="${LIVE_BEHIND:-unknown}"; log "WARN: $LIVE_NOTE"; return
@@ -415,25 +469,49 @@ update_live_checkout() {
   if ! remote_git "$live" fetch -- "+refs/heads/master:refs/remotes/origin/master"; then
     LIVE_BEHIND="${LIVE_BEHIND:-unknown}"; LIVE_NOTE="git fetch of master into $live failed"; log "WARN: $LIVE_NOTE"; return
   fi
-  LIVE_TARGET=$(git -C "$live" rev-parse origin/master)
-  ref=$(git -C "$live" symbolic-ref -q HEAD) || ref=""
-  head=$(git -C "$live" rev-parse HEAD)
-  LIVE_BEHIND="" LIVE_NOTE=""
-  if git -C "$live" merge-base --is-ancestor "$LIVE_TARGET" "$head"; then
-    log "live checkout $live (${ref#refs/heads/}) contains master ${LIVE_TARGET:0:12}"
-    [ "$ref" = refs/heads/master ] && [ "$MERGED_ANY" = 1 ] && LIVE_UPDATED=1
-  elif [ "$ref" != refs/heads/master ]; then
-    LIVE_BEHIND="${ref#refs/heads/}"; LIVE_BEHIND="${LIVE_BEHIND:-detached HEAD}"
-    LIVE_NOTE="$live is on ${ref:+branch }$LIVE_BEHIND, not master — left untouched"
-    log "live checkout NOT updated: $LIVE_NOTE"
-  elif [ "$(git -C "$live" symbolic-ref -q HEAD)" != refs/heads/master ] || [ "$(git -C "$live" rev-parse HEAD)" != "$head" ]; then
-    LIVE_BEHIND=master; LIVE_NOTE="$live changed while being updated — left untouched"; log "WARN: $LIVE_NOTE"
-  elif out=$(git -C "$live" merge --ff-only --quiet "$LIVE_TARGET" 2>&1); then
-    LIVE_UPDATED=1; log "live checkout $live fast-forwarded to master ${LIVE_TARGET:0:12} (pull --ff-only)"
+  _live_hook after-fetch
+  new=$(git -C "$live" rev-parse origin/master)
+  old=$(git -C "$live" rev-parse -q --verify refs/heads/master) || old=""
+  _live_lag() { LIVE_BEHIND=$1 LIVE_NOTE=$2 LIVE_TARGET=$new; log "live checkout NOT updated: $2"; }
+  if [ -n "$old" ] && [ "$old" != "$new" ]; then
+    if ! git -C "$live" merge-base --is-ancestor "$old" "$new"; then
+      _live_lag master "local master has commits origin/master lacks — nothing forced"; return
+    fi
+    git -C "$live" update-ref -m "model-scout: fast-forward master" refs/heads/master "$new" "$old" ||
+      { _live_lag master "master moved while being updated — nothing forced"; return; }
+    log "live master ref fast-forwarded ${old:0:12} -> ${new:0:12} (compare-and-swap)"
+    _live_hook after-ref-update
+    ref=$(git -C "$live" symbolic-ref -q HEAD) || ref=""
+    if [ "$ref" = refs/heads/master ]; then
+      git -C "$live" update-index -q --refresh >/dev/null 2>&1
+      _live_hook before-read-tree
+      if out=$(git -C "$live" read-tree -m -u "$old" "$new" 2>&1); then
+        if [ "$(git -C "$live" symbolic-ref -q HEAD)" = refs/heads/master ]; then
+          LIVE_UPDATED=1
+        else  # HEAD switched mid-update: put that branch's work tree back
+          git -C "$live" read-tree -m -u "$new" "$old" >/dev/null 2>&1
+          _live_lag "$(git -C "$live" symbolic-ref -q --short HEAD || echo 'detached HEAD')" \
+            "HEAD switched away from master mid-update — work tree restored, master ref updated"
+          return
+        fi
+      elif git -C "$live" update-ref -m "model-scout: undo fast-forward" refs/heads/master "$old" "$new"; then
+        _live_lag master "git pull --ff-only would fail ($(printf '%s' "$out" | tr '\n' ' ' | head -c 160)) — nothing changed"
+        return
+      else
+        _live_lag master "master ref updated, but the work tree could not be ($(printf '%s' "$out" | tr '\n' ' ' | head -c 120)) — run \`git reset --keep master\` in $live"
+        return
+      fi
+    fi
+  fi
+  # Is what is checked out now current?
+  if git -C "$live" merge-base --is-ancestor "$new" HEAD; then
+    LIVE_BEHIND="" LIVE_NOTE="" LIVE_TARGET=""
+    if [ "$LIVE_UPDATED" = 1 ]; then log "live checkout $live fast-forwarded to master ${new:0:12} (pull --ff-only equivalent)"
+    else log "live checkout $live contains master ${new:0:12}"; fi
   else
-    LIVE_BEHIND=master
-    LIVE_NOTE="git pull --ff-only in $live failed ($(printf '%s' "$out" | tr '\n' ' ' | head -c 160)) — nothing forced"
-    log "WARN: $LIVE_NOTE"
+    ref=$(git -C "$live" symbolic-ref -q --short HEAD) || ref="detached HEAD"
+    _live_lag "$ref" "$live is on ${ref}, not master — left untouched"
+    return
   fi
   if [ "$LIVE_UPDATED" = 1 ] && grep -q -- '--cron-only' "$live/install.sh" 2>/dev/null; then
     log "bash $live/install.sh --cron-only"
@@ -539,10 +617,15 @@ RESEARCHED=0           # the agent step completed (only then does the research w
 LIVE_REPO="${MODEL_SCOUT_LIVE_REPO:-$HOME/dotfiles/claude}"
 # An unresolved deployment lag is carried forward from the last run and
 # re-checked every run (finish), until the live checkout contains master.
-IFS=$'\t' read -r LIVE_BEHIND LIVE_TARGET LIVE_NOTE < <(python3 -c 'import json,sys
+# (shell-quoted assignments, not a TSV `read`: that collapses empty fields.)
+LIVE_BEHIND="" LIVE_TARGET="" LIVE_NOTE=""
+eval "$(python3 -c 'import json,shlex,sys
 try: d=json.load(open(sys.argv[1]))
 except Exception: d={}
-print("\t".join((d.get(k) or "").replace("\t"," ") for k in ("live_checkout_behind","live_target","live_checkout_note")))' "$STATE" 2>/dev/null)
+for var, key in (("LIVE_BEHIND","live_checkout_behind"),("LIVE_TARGET","live_target"),("LIVE_NOTE","live_checkout_note")):
+    print("%s=%s" % (var, shlex.quote(d.get(key) or "")))' "$STATE" 2>/dev/null)"
+# The lag is live_checkout_behind; a target/note without it is a resolved leftover.
+[ -n "$LIVE_BEHIND" ] || { LIVE_TARGET="" LIVE_NOTE=""; }
 LIVE_UPDATED=0
 NEEDS_DAN=""           # the agent's "Needs Dan" items (artifacts/needs-dan), surfaced by the banner
 RESEARCH_WHY=""        # the degraded reason of a merged / pr-needs-review run (kept in state)

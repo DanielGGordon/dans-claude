@@ -24,7 +24,9 @@ The merge gates (all must hold, otherwise the PR stays open for Dan):
   `model-usage.md`, `agents/model-runner.md`, `README.md`, `system-map.md`,
   `scout/evaluated.tsv`, `scout/last-report.md`, `tests/mock-catalog.tsv`,
   plus new `    "old": "successor",` lines inside `RETIRED` in
-  `hooks/route-guard.sh` (exactly that shape, one per line);
+  `hooks/route-guard.sh` (exactly that shape, one per line). In
+  `agents/model-runner.md`'s frontmatter only the `description:` line may
+  change (Claude executes frontmatter such as `hooks:`);
 - you edited nothing outside the allowed files (rule 2 below).
 
 Any code change — `bin/model-run.sh`, `tests/routecheck.sh`, any other `.sh`,
