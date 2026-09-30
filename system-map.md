@@ -15,18 +15,20 @@ of every repo, service, port and systemd unit it is wired into on this machine.
 - **No volatile values here.** Tunnel URLs, tokens, ports that get picked at
   runtime, project UUIDs, session ids — keep them OUT; name the config file or
   service that holds them instead.
-- **State of this file:** units, timers and ports re-verified **2026-09-16** against
+- **State of this file:** units, timers and ports re-verified **2026-09-30** against
   `systemctl --user list-units --type=service`, `systemctl --user list-timers` and
   `ss -ltn`. Anything marked *(planned)* does not exist yet; *(unverified)* means it
-  could not be checked. **All three Alfred surfaces are live as of 2026-09-16**:
-  voice, the web app (**primary origin now `https://15.204.108.12:7443/alfred/`**,
-  mirrored unchanged at `:6443` — see "Public origin" below), and the Android app
-  (v1.0.0, sideloaded).
+  could not be checked. **All three Alfred surfaces are live**: voice (inbound, and
+  outbound scheduled calls since 2026-09-20), the web app (**primary origin
+  `https://15.204.108.12:7443/alfred/`**, mirrored unchanged at `:6443` — see
+  "Public origin" below), and the Android app (**v1.4.0 / versionCode 8**, which
+  updates itself — see `~/.claude/android.md` "Alfred"). Both clients carry the
+  **admin dashboard** (live since 2026-09-18).
 
 ## The shape
 
 ```
-   phone +1 224 300 7842    Android app (v1.0.0, live)   web at the desk (live)
+   phone +1 224 300 7842    Android app (v1.4.0, live)   web at the desk (live)
             | PSTN                     | HTTPS                   | HTTPS
             v                          v                         v
    Twilio Elastic SIP trunk
@@ -41,7 +43,11 @@ of every repo, service, port and systemd unit it is wired into on this machine.
             |  SELECT call card                | POST /v1/<verb> + caller_id
             v                                  v
         (Postgres)                     brain-actions :8791  --Bearer--> T3 Code
-                                               |                       :3773
+                                               |  |  |                 :3773
+                    Twilio REST <--------------+  |  +-- admin "Apply & restart bridge":
+     (scheduled outbound calls: ring Dan,         |      writes ~/projects/slack/config/
+      then <Dial><Sip> back into xAI)             |      {channels,senders}.json, then
+                                                  |      systemctl --user restart slackcc
    todo-service :4821      web/ (static SPA)       android/ (APK downloads)
             ^                         |                        |
             |__ Caddy :6443 https://15.204.108.12:6443 --------+--------|
@@ -62,6 +68,7 @@ of every repo, service, port and systemd unit it is wired into on this machine.
 
    Slack --> slackcc --> T3 Code :3773 --> Claude Code sessions in project repos
               (screened by pps :8642 -> llama-guard :8641)
+              ^ config rewritten + unit restarted by brain-actions' admin Apply (above)
 ```
 
 ## Components
@@ -76,43 +83,102 @@ is done, so these paths are the paths (older docs and the unit *names* still say
 services/{gateway,brain-actions,lib,todo}   the four server pieces
 web/                                        Vite + Preact SPA (desk surface)
 android/                                    native Kotlin app (com.dgordon.alfred)
-contracts/                                  fixtures + the grouping contract both clients assert against
-caddy/                                      the :6443 site block + an idempotent installer
-bin/                                        tunnel watchdog, xAI repointer, client CLI, pair links, alive-ping
+contracts/                                  fixtures + the grouping contract both clients assert against; admin/ = the admin wire shapes
+caddy/                                      the :6443 site block, the :7443 /alfred/* mirror + an idempotent installer
+bin/                                        tunnel watchdog, xAI repointer, client CLI, pair links, alive-ping,
+                                            alfred-admin (who is an admin), admin-smoke, admin-test-db (scratch DB)
 systemd/                                    unit templates + install.sh
-docs/                                       CADDY.md, COSTS.md, RESTORE.md, migrations/, research/
+docs/                                       CADDY.md, COSTS.md, RESTORE.md, SCREENSHOTS.md, migrations/, research/, screenshots/
 ```
 
 | Piece | Port | Unit | Purpose |
 |---|---|---|---|
 | `services/gateway` | 8790 (127.0.0.1) | `voice-gateway` | Verifies the xAI Direct-SIP webhook, opens the realtime WS, injects the precomputed call card + tool defs, proxies tool calls, writes transcripts + `call_sessions` |
 | `bin/tunnel-watchdog.sh`, `bin/repoint-xai-webhook.sh` | — | `voice-tunnel` | cloudflared **quick** tunnel (URL rotates on every restart — never hard-code it) plus a watchdog that re-registers the new URL as the xAI webhook |
-| `services/brain-actions` | 8791 (127.0.0.1) | `brain-actions` | The **only** holder of the T3 Code bearer token, and the app's front door. **Nine** function tools (see below), plus the inbox (`POST /v1/note`) and the notification feed (`GET /v1/briefings`). Enforces per-caller grants; watches T3 turns and writes `pending_briefings`. `/healthz` |
-| `services/lib` | — | — | Shared modules: env, db pool, bearer auth |
+| `services/brain-actions` | 8791 (127.0.0.1) | `brain-actions` | The **only** holder of the T3 Code bearer token, and the app's front door. **Twelve** function tools (see below), plus the inbox (`POST /v1/note`), the notification feed (`GET /v1/briefings`) and the **admin dashboard's API** (`/v1/admin/*`, `admin/`: callers, grants and per-person tool allowlists, devices, settings, calls, audit, status, and the Slack bridge editor). Enforces per-caller grants; watches T3 turns and writes `pending_briefings`; sweeps `scheduled_calls` every 10 s and dials them out through Twilio REST. `/healthz` |
+| `services/lib` | — | — | Shared modules: env (`.env`, then `~/.profile`), db pool, bearer auth, local time, settings defaults, the scratch-DB guard for tests |
 | `services/todo` | 4821 (127.0.0.1) | `todo-service` | Owns second-brain's widened `todos` table. Node/`node:http`/`pg`. `GET/POST /v1/todos*`, the five to-do function tools at `GET /v1/tools` + `POST /v1/tools/:name`, one `gpt-5.6-luna` parse per capture. `/healthz` |
 | `web/` | 7443/alfred (primary) + 6443 via Caddy | (static) | **LIVE** — desk surface, Vite + Preact SPA, built to `web/dist` and deployed to **`/var/lib/alfred-web`** by `web/scripts/deploy.sh`; Caddy serves it as the SPA fallback at both `https://15.204.108.12:7443/alfred/` (**primary** — Dan's phone content filter allows `:7443`, not `:6443`) and unchanged at `:6443` |
-| `android/` | — | (no unit) | **LIVE** — native Kotlin app `com.dgordon.alfred` on **android-framework**, **v1.0.0 / versionCode 2**, debug-signed, published to `/var/lib/alfred-apk` and sideloaded from `…:7443/alfred/downloads/` (primary; `…:6443/downloads/` still live). Deploy rules: `~/.claude/android.md` ("Alfred") |
+| `android/` | — | (no unit) | **LIVE** — native Kotlin app `com.dgordon.alfred` on **android-framework**, **v1.4.0 / versionCode 8** (the version of record is `android/app/build.gradle.kts`), debug-signed, published to `/var/lib/alfred-apk`. First install is a sideload from `…:7443/alfred/downloads/` (primary; `…:6443/downloads/` still live); from v1.4.0 an installed phone polls `downloads/latest.json` and updates itself. Deploy rules: `~/.claude/android.md` ("Alfred") |
 
-- **The tool surface is nine verbs, merged from two files.** The four T3 verbs
-  (`summarize_recent`, `continue_chat`, `kick_off_task`, `new_project_and_chat`)
-  are defined in `services/brain-actions/tools.json` and executed there; the five
-  to-do tools (`todo_add`, `todo_list`, `todo_complete`, `todo_update`,
-  `todo_find`) are defined in `services/todo/tools.json` and executed by
-  todo-service. **Whoever defines a tool executes it**; the shim only forwards the
-  to-do five, keeping the caller/grant check on its own side. Both
-  `services/gateway/tools.mjs` (for the voice model) and brain-actions'
-  `GET /v1/tools` (for the app) merge the same two files, so every surface sees an
-  identical list. Add a tool by editing the owning `tools.json` — nothing else.
+- **Outbound calls (live since 2026-09-20, alfred #19).** `brain-actions/callbacks.mjs`
+  owns scheduled calls ("call me tomorrow at 6"): a `scheduled_calls` table in
+  `second_brain` (migration 006), a 10 s sweep, and **Twilio REST** (creds
+  `TWILIO_*` read from `~/.profile`, never copied into `.env`) ringing the
+  caller's own number, then bridging `<Dial><Sip>` into `sip.voice.x.ai`, so xAI
+  sees an ordinary inbound call; the gateway (`gateway/scheduled.mjs`) recognises
+  the leg by From = Alfred's own number. This is the **only place Alfred dials
+  out**. Three owner-only tools (`schedule_call`, `list_scheduled_calls`,
+  `cancel_scheduled_call`). Kill switch `ALFRED_CALLBACKS=off` + restart
+  `brain-actions`. No new port or unit.
+
+- **The tool surface is twelve verbs, merged from two files.** Seven are defined
+  in `services/brain-actions/tools.json` and executed by the shim — the four T3
+  verbs (`summarize_recent`, `continue_chat`, `kick_off_task`,
+  `new_project_and_chat`) and the three call tools above; the five to-do tools
+  (`todo_add`, `todo_list`, `todo_complete`, `todo_update`, `todo_find`) are
+  defined in `services/todo/tools.json` and executed by todo-service. **Whoever
+  defines a tool executes it**; the shim only forwards the to-do five, keeping the
+  caller/grant check on its own side. Both `services/gateway/tools.mjs` (for the
+  voice model) and brain-actions' `GET /v1/tools` (for the app) merge the same two
+  files, so every surface sees an identical list.
+
+- **Adding a tool is NOT just a `tools.json` edit.** The shim refuses any name
+  missing from its verb sets, so a definition alone ships a tool the model is
+  offered and every call to it fails. The procedure is `README.md` → "Adding a
+  tool verb" in the alfred repo; in short:
+  1. the definition in the owning `tools.json` (never put `caller_id` in the schema);
+  2. the implementation — a verb in `services/brain-actions/server.mjs`, or
+     `services/todo/tools.mjs` for a to-do tool;
+  3. its name in the shim's `READ_VERBS`/`ACT_VERBS` (to-do tools: `TODO_READ`/`TODO_ACT`;
+     call tools: `CALL_READ`/`CALL_ACT`) in `server.mjs` — **a name in none of them is
+     rejected as unknown**;
+  4. a row in `services/brain-actions/admin/tool-catalogue.mjs` (label, consequence,
+     `guest_usable`) **and** the same entry in `contracts/admin/tools.fixture.json` —
+     `test/admin-hygiene.test.mjs` fails until the catalogue covers every defined
+     tool, `test/admin-contract.test.mjs` until the catalogue equals the fixture, and
+     both clients' tests decode that fixture;
+  5. the owner's tool prose in `services/gateway/policy.mjs` (`EVERY_TOOL_RULE`
+     enumerates what the model can do);
+  6. restart **both** `brain-actions` and `voice-gateway` (they read the files once and
+     cache them), plus `todo-service` for a to-do tool:
+     `bash systemd/install.sh brain-actions.service voice-gateway.service`.
 
 - **Data store:** none of its own — everything lives in second-brain's Postgres
-  (`second_brain`): `callers`, `caller_identities`, `caller_project_grants`,
-  `todos`, `summary_cache`, `call_sessions`, `pending_briefings`.
+  (`second_brain`), migrations 002–006 (reference copies in the alfred repo's
+  `docs/migrations/`): `callers`, `caller_identities`, `caller_project_grants`,
+  `todos`, `summary_cache`, `call_sessions`, `pending_briefings`, `api_clients`
+  (device tokens; `is_admin` marks an admin device), `inbox_items`,
+  `alfred_settings`, `admin_audit` (append-only, trigger-enforced) and
+  `scheduled_calls`. `summary_cache` has exactly one writer, second-brain's
+  callcards timer; Alfred only reads it.
+- **On-disk state outside the repo:** `~/.local/state/alfred-admin/` (0700: the Slack
+  editor's staged edits, last-good bundle and apply backups), `/var/lib/alfred-web`,
+  `/var/lib/alfred-apk`, and `~/.android/debug.keystore` — losing that key breaks
+  upgrade-in-place and in-app updates on every installed phone.
 - **Own timer:** `alive-ping.timer` → `alive-ping.service` (oneshot,
   `bin/alive-ping.sh`), every 5 minutes against the shim's aggregate `/healthz`.
 - **Call path:** phone `+1 224 300 7842` → Twilio Elastic SIP trunk →
   `sip.voice.x.ai` → xAI Grok realtime → webhook → gateway.
 - **Talks to:** Postgres (direct SQL), brain-actions (loopback HTTP),
-  and through brain-actions to T3 Code's orchestration API.
+  and through brain-actions to T3 Code's orchestration API. Two edges leave the
+  box's Alfred units and are easy to miss:
+  - **Alfred → Twilio REST** (outbound): brain-actions places scheduled calls with
+    Twilio's `Calls.json` API — see "Outbound calls" above.
+  - **Alfred → slackcc** (config + restart): the admin dashboard's Slack screen
+    (`services/brain-actions/admin/slack-*.mjs`) stages edits to
+    `~/projects/slack/config/channels.json` and `senders.json`, validates a
+    candidate with slackcc's **own loader** (`~/projects/slack/.venv/bin/python`,
+    `slackcc.config.load_settings`), and on *Apply & restart bridge* — and only
+    then, on Dan's explicit confirmation — writes both files and runs
+    `systemctl --user restart slackcc.service`, verifies it stays up for 20 s and
+    rolls back if it does not. The rollback target is the **last-good** bundle
+    (the files slackcc was last verified healthy on, kept in
+    `~/.local/state/alfred-admin/slack/last-good/`) when one exists, and the files
+    the apply replaced only when none does — so a hand-edit made on the box since
+    the last successful apply is **undone** by a failed apply (it survives only in
+    `…/slack/backups/`, newest 20 kept). That restart is the only restart
+    Alfred performs. Kill switch `ALFRED_SLACK_WRITE=off` + restart `brain-actions`.
 - **Public origin — PRIMARY `https://15.204.108.12:7443/alfred/`,** mirrored
   unchanged at `https://15.204.108.12:6443/`, both via **Caddy** (system unit
   `caddy.service`, config `/etc/caddy/Caddyfile`, restart with `systemctl
@@ -147,10 +213,16 @@ docs/                                       CADDY.md, COSTS.md, RESTORE.md, migr
     gitignored). **The link is exactly as secret as the token** — hand it over on the
     device, never post it, never print either in a transcript or a Slack message.
   - `services/lib` verifies the bearer on every request except the `/healthz` probes.
+- **Admin dashboard:** web `#/admin` and the Android app's Admin section, both over
+  `/v1/admin/*` in the shim, shown only to a device whose `api_clients.is_admin` is
+  set. That flag is set only on the box, by `bin/alfred-admin.mjs grant <client-id>`
+  — there is deliberately no HTTP route for it.
 - **Docs:** `README.md` (status + layout), `FUTURE-WORK.md`, `CLAUDE.md`,
   `android/README.md` (the app, its four test layers and the manual checklist),
-  `web/README.md`, `docs/{CADDY.md,COSTS.md,RESTORE.md}`,
-  `docs/research/{REPORT.md,UPDATE-2026-09.md,APP-DESIGN.md,APP-IMPLEMENTATION-PLAN.md}`.
+  `web/README.md`, `services/{brain-actions,todo}/README.md`,
+  `services/gateway/README-tools.md` (the tool round trip),
+  `docs/{CADDY.md,COSTS.md,RESTORE.md,SCREENSHOTS.md}`,
+  `docs/research/{REPORT.md,UPDATE-2026-09.md,APP-DESIGN.md,APP-IMPLEMENTATION-PLAN.md,ADMIN-DESIGN.md}`.
 - **Slack channel:** `alfred` (see slackcc below).
 
 ### second-brain — `~/projects/meta/second-brain`
@@ -231,8 +303,20 @@ Bridges Slack threads to T3 Code sessions (a Slack thread == a T3 thread).
   Service) → **llama-guard** `:8641` (local Qwen3-4B judge). Non-owner messages
   are screened before they reach an agent.
 - **Config:** `config/channels.json` maps a Slack channel → project, cwd,
-  `t3_project_id`, model. The **alfred** channel maps to `~/projects/alfred` and
-  T3 project `alfred`.
+  `t3_project_id`, model; `config/senders.json` holds who may talk to it. The
+  **alfred** channel maps to `~/projects/alfred` and T3 project `alfred`.
+- **Written and restarted by Alfred.** Both config files are also edited from
+  Alfred's admin dashboard, which then restarts `slackcc.service` on an explicit
+  *Apply & restart bridge* (see "Talks to" under "Alfred hub"). Alfred validates a
+  candidate by running slackcc's own `load_settings()` from `.venv/bin/python`, so a
+  change to slackcc's config schema or loader can break Alfred's Slack screen —
+  `~/projects/alfred/services/brain-actions/test/admin-slack-parity.test.mjs` pins the
+  two together. Hand-edits on the box are allowed — the dashboard refuses to apply
+  a staged edit that was based on files which have since changed — but a failed
+  apply rolls back to Alfred's *last-good* bundle, not to the hand-edited files, so
+  it can silently revert a hand-made change (a revoked sender included). After a
+  failed apply, check `senders.json` against
+  `~/.local/state/alfred-admin/slack/backups/` and re-apply the hand-edit.
 - **CLI:** `/home/dgordon/projects/slack/.venv/bin/{slack-send,slack-upload,slack-wait-reply}`.
 - **Direction:** Slack is **retired as Alfred's notification path** — the Android
   app shipped (v1.0.0, 2026-09-16) and `pending_briefings` + local notifications
@@ -292,7 +376,7 @@ AVD — the cross-agent lock convention is `mkdir /tmp/alfred-emu.lock`.
 | Port | Bind | Owner |
 |---|---|---|
 | 3773 | 127.0.0.1 | T3 Code (`t3code`) — HTTPS front on 7443 |
-| 3776 / 3778 | * | T3 test pool (`t3-test-7446` / `t3-test-7448`; HTTPS 7446/7448) |
+| 3776 / 3778 | 127.0.0.1 | T3 test pool (`t3-test-7446` / `t3-test-7448`; HTTPS 7446/7448) |
 | 4820 | 127.0.0.1 | second-brain HTTP API |
 | 4821 | 127.0.0.1 | Alfred `todo-service` (`services/todo`), public via Caddy `/todo/*` |
 | 5432 | 127.0.0.1 | Postgres (`second_brain`) |

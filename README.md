@@ -239,7 +239,10 @@ ingest + call-card timers), T3 Code (`~/projects/meta/t3code-v2`, :3773 behind
 :8641), whatsapp-bot, android-framework, and this repo. Each entry lists repo path,
 purpose, data store, ports/units, how it talks to the others, and where its docs
 live — plus an ASCII edge diagram, a ports/units table, and a "How to add a
-component" checklist.
+component" checklist. It calls out the cross-repo edges that are easy to miss
+(Alfred's admin dashboard rewriting slackcc's config and restarting `slackcc`;
+Alfred's outbound calls through Twilio REST) and the real procedure for adding an
+Alfred tool, which touches more than the `tools.json` files.
 
 Two meta-rules (modelled on `android.md`) make it stay true:
 

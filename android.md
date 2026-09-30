@@ -217,7 +217,7 @@ Visual verification: `scripts/screenshot.sh out.png [avd]` — the agent Reads t
 
 - **testapp** (`~/projects/android-framework/testapp/`) — the reference guinea-pig app; all four layers green via `testapp/run-all-tests.sh`.
 - **abba-bank** (`~/projects/abba-bank/android/`) — first real adopter: a framework-based **TWA** (Trusted Web Activity wrapping the existing Next.js PWA, per `plans/abba-android.md`), built on the framework from day one on branch `android-framework-adoption` (commit `e3202a4`). Uses the framework toolchain/gradlew conventions and targets the framework emulator + `flow.sh` for its smoke flow. `android/` scaffold committed (`app/`, `gradle/`, `gradlew`, `scripts/bootstrap-toolchain.sh`, `maestro/`), debug APK builds and installs on the emulator (`app-debug.apk`, appId `com.abbabank.twa`), and `android/maestro/smoke.yaml` is green but **entry-state-only** (asserts the "Abba Bank" / "Email address" / "Send magic link" entry screen + screenshot) — the full magic-link sign-in → balance flow is **not** automated: Chrome rejects the self-signed NextAuth origin cert, and chromeless TWA mode needs HTTPS + Digital Asset Links to work around it. Deferred pending that; see `abba-bank/android/README.md`.
-- **alfred** (`~/projects/alfred/android`) — **the reference adopter that has actually shipped to a phone.** Native Kotlin, View Binding, no Compose, no Room, appId `com.dgordon.alfred`, scaffolded from `android-framework/testapp/android/`. All four layers green via **`bash android/run-all-tests.sh`** (`--jvm-only` stops after Roborazzi, for work without an emulator); that script is the model to copy — it starts `test35` if needed, reinstalls the APK after Espresso, and `adb uninstall`s before it. Published **v1.0.0 (versionCode 2)** on 2026-09-16. Two deliberate divergences from the reference layout — **no `android/reverse-proxy/`** (it does not own its Caddy config) and **`minSdk 33`** — plus the trust-anchor TLS branch above. Full detail in the "Alfred" section below and in `~/projects/alfred/android/README.md`.
+- **alfred** (`~/projects/alfred/android`) — **the reference adopter that has actually shipped to a phone.** Native Kotlin, View Binding, no Compose, no Room, appId `com.dgordon.alfred`, scaffolded from `android-framework/testapp/android/`. All four layers green via **`bash android/run-all-tests.sh`** (`--jvm-only` stops after Roborazzi, for work without an emulator); that script is the model to copy — it starts `test35` if needed, reinstalls the APK after Espresso, and `adb uninstall`s before it. First published as v1.0.0 (versionCode 2) on 2026-09-16; **current: v1.4.0 (versionCode 8)**, published 2026-09-20, which updates itself (see "In-app updates" under "Alfred"). Two deliberate divergences from the reference layout — **no `android/reverse-proxy/`** (it does not own its Caddy config) and **`minSdk 33`** — plus the trust-anchor TLS branch above. Full detail in the "Alfred" section below and in `~/projects/alfred/android/README.md`.
 - **DanCode** — dormant; historical pattern source only. Do not adopt the framework into it.
 - Expo/RN projects (T3 Code): emulator + Maestro layers apply as-is; Roborazzi does not (use Maestro screenshots for visual regression). Note x86_64 emulator images need an x86_64/universal build variant, not arm64-only.
 
@@ -277,9 +277,31 @@ Dan's multi-surface assistant; the Android surface of the system mapped in
 `~/.claude/system-map.md`. Native Kotlin on the **android-framework pattern**, so
 everything in "Testing / prototype deployment" and "Automated testing" above applies
 as written **except** the points below. Project doc: `~/projects/alfred/android/README.md`
-— the source of truth for this section; update it there first.
+owns the app itself; **this section owns Alfred's Android deploy facts** (it has absorbed
+that README's "Deploy notes for android.md (WP16)" hand-off memo, which can go). When a
+deploy fact changes in the alfred repo, update it here in a dotfiles PR.
 
-**Live since:** v0.1.0 (versionCode 1) 2026-09-16, **v1.0.0 (versionCode 2)** the same day.
+**Current: v1.4.0 (versionCode 8)**, published 2026-09-20. The version of record is
+`android/app/build.gradle.kts`; `/var/lib/alfred-apk/latest.json` says what phones are
+being offered. Published builds (UTC dates, from the APK files):
+
+| versionName | versionCode | Published | What it added |
+|---|---|---|---|
+| 0.1.0 | 1 | 2026-09-16 | WP12 — first sideload |
+| 1.0.0 | 2 | 2026-09-16 | WP16 — the release |
+| 1.0.1 | 3 | 2026-09-18 | outbox 409 conflict-replay fix |
+| 1.1.0 | 4 | 2026-09-18 | the admin dashboard, at parity with the web |
+| 1.1.1 | 5 | 2026-09-18 | T3 screen keeps its page alive; ⌂ Home |
+| 1.2.0 | 6 | never | home-screen quick actions — reached phones inside 1.4.0 |
+| 1.3.0 | 7 | never | the Note screen — reached phones inside 1.4.0 |
+| 1.4.0 | 8 | 2026-09-20 | in-app updates — the last browser sideload |
+
+A version is **bumped and built in its PR but published only by the separate post-merge
+`publish-apk.sh` step**, so a bump in `build.gradle.kts` does not mean a phone has it.
+Update this table when a build is published, not when it is merged.
+
+**Alfred updates itself from v1.4.0 on** — see "In-app updates" below. It is the only
+project on this machine that does; every other one is still a browser sideload.
 
 ### Divergences from the reference layout
 
@@ -296,7 +318,10 @@ as written **except** the points below. Project doc: `~/projects/alfred/android/
 2. **`minSdk 33`** (the framework default is 26). Two reasons, both hard: Dan's phone is
    a Galaxy S23 on Android 13, and 33 is the floor for `POST_NOTIFICATIONS`, which the
    app's reply notifications need. `compileSdk`/`targetSdk` stay at 35.
-3. **Trust anchor, not SPKI pin** — see "TLS trust anchor" above.
+3. **Trust anchor, not SPKI pin** — see "TLS trust anchor" above. The anchor is
+   `app/src/main/res/raw/alfred_server.crt`, a copy of Caddy's shared
+   `/etc/caddy/dancode-server.crt` (SAN `IP:15.204.108.12`, valid to 2036-07-03), so it
+   covers the Alfred API and the T3 Code WebView on `:7443` with one file.
 
 ### Publish (no sudo, no Caddy restart)
 
@@ -309,8 +334,9 @@ bash ~/projects/alfred/android/scripts/publish-apk.sh    # builds assembleDebug,
 - Writes into **`/var/lib/alfred-apk`** (dgordon-owned, 755; override with `DST_DIR=`).
   Publishing is a plain file copy: **no `sudo`, no `systemctl restart caddy`**, because
   the route is a static `handle_path /downloads/*` `file_server` that is already there.
-- Names — **Alfred keeps one file per version**, unlike DanCode's
-  `<app>-android-debug{,.previous}.apk`:
+- Names — **Alfred keeps one file per version** and generates a download page, unlike
+  DanCode's `<app>-android-debug{,.previous}.apk`, because Dan installs from the phone's
+  browser:
 
   | File | What |
   |---|---|
@@ -318,6 +344,7 @@ bash ~/projects/alfred/android/scripts/publish-apk.sh    # builds assembleDebug,
   | `alfred-latest.apk` | what the phone downloads |
   | `alfred-previous.apk` | the previous `alfred-latest.apk` — rollback by re-sideloading it |
   | `index.html` | generated install page: version, versionCode, size, SHA-256, build time, the sideload steps, and the upgrade-in-place note |
+  | `latest.json` | the update manifest installed phones poll (v1.4.0+, see below) |
 
 - **Server base URL (pairing):** `https://15.204.108.12:7443/alfred` — also the
   default for `bin/alfred-pair-link.mjs --base`, for the same phone-content-filter
@@ -336,6 +363,60 @@ bash ~/projects/alfred/android/scripts/publish-apk.sh    # builds assembleDebug,
   sha256sum /var/lib/alfred-apk/alfred-latest.apk                           # matches the page
   ```
 
+### In-app updates (v1.4.0+, Alfred only)
+
+The sideload page is no longer how a *new* build reaches a phone that already has
+Alfred. `publish-apk.sh` writes one more file and the app does the rest:
+
+```json
+// /var/lib/alfred-apk/latest.json — served at <base>/downloads/latest.json
+{ "versionCode": 8, "versionName": "1.4.0", "apk": "alfred-1.4.0.apk",
+  "sha256": "…64 hex…", "sizeBytes": 21476182,
+  "builtAt": "2026-09-20 22:19 UTC", "notes": "In-app updates: …" }
+```
+
+- **No new service and no new route.** The manifest sits in the directory Caddy already
+  serves, so publishing is still a file copy — no sudo, no reload. `NOTES="…"` on the
+  publish command becomes the manifest's `notes`, the line shown in the update
+  notification (`null` when unset). The generated `index.html` does not show it.
+- **The phone checks three ways**: the 15-minute briefing beat (`work/BriefingWorker`),
+  every `onResume` of Home (throttled to 10 minutes), and Settings → *Check for updates*.
+  Only a strictly greater `versionCode` counts; the manifest is rejected unless `apk` is
+  a bare `*.apk` file name and `sha256` is 64 hex.
+- **One notification per `versionCode`**, on its own channel. Tapping it opens Settings,
+  which downloads the APK, **verifies the SHA-256 before anything else sees the file**,
+  and hands it to the system installer through a `FileProvider` `content://` URI.
+- **`REQUEST_INSTALL_PACKAGES` is declared**, and the first update stops at Android's
+  "allow this app to install apps" toggle for Alfred's own row. That grant is one-time
+  and the app deep-links to it.
+- `apk` is deliberately the versioned file name, not `alfred-latest.apk`: the phone
+  checksums what it downloads, and a `latest` overwritten mid-download would fail that
+  check for no reason.
+
+Porting this to another project is not a drop-in copy. The pieces, all in the alfred
+repo under `android/`:
+
+- **Server side:** `scripts/publish-apk.sh`'s manifest step (writes `latest.json` next
+  to the APK).
+- **The three files in `app/src/main/java/com/dgordon/alfred/update/`**
+  (`UpdateManifest.kt`, `UpdateChecker.kt`, `UpdateInstaller.kt`). They are wired into
+  Alfred's own code and each import has to be replaced in the new project: `data.Alfred`
+  (settings: base URL, last-notified `versionCode`), `net.AlfredApi` / `net.AlfredJson`
+  (OkHttp client and JSON config), `notify.Notifier` (the update channel and
+  notification). They also need **kotlinx-serialization** (plugin + runtime) and
+  **coroutines** in the build.
+- **Manifest:** `REQUEST_INSTALL_PACKAGES`, and a `<provider>` for
+  `androidx.core.content.FileProvider` (authority `${applicationId}.updates`,
+  `grantUriPermissions="true"`) pointing at **`res/xml/file_paths.xml`** (a
+  `cache-path` for `updates/`). Without both, `FileProvider.getUriForFile()` throws and
+  install fails.
+- **Call sites:** `UpdateChecker.checkAndNotify` from a periodic worker (Alfred:
+  `work/BriefingWorker`), `UpdateChecker.checkOnResume` from the home screen, and the
+  Settings UI that drives `UpdateInstaller` (`canInstall` → `unknownSourcesIntent`,
+  `download` with progress, `installIntent`) plus its strings and layout rows.
+
+Do not add it to a project whose APKs are release-signed by a key that might rotate.
+
 ### Signing and upgrades
 
 Debug-signed with `~/.android/debug.keystore`, built by `assembleDebug`; there is no
@@ -344,8 +425,10 @@ Because the key never changes, **a new version installs over the old one** — n
 uninstall, and the pairing, the settings and anything still queued in the outbox all
 survive. That is a promise the download page makes to Dan, so it has a cost:
 **do not delete or regenerate `~/.android/debug.keystore`.** If it ever is regenerated,
-the signature changes, the upgrade is refused, and the only way back is an uninstall
-that throws away the pairing and the queue.
+the signature changes, the upgrade is refused — by the browser sideload *and* by the
+in-app updater, on every installed phone at once — and the only way back is an
+uninstall that throws away the pairing and the queue. Back the keystore up; it belongs
+on the must-survive list in `~/projects/alfred/docs/RESTORE.md`.
 
 ### Testing
 
@@ -373,7 +456,9 @@ genuinely cannot be. Each entry names its reason; keep that rule when adding one
 - **Notification tap-through from a lock screen** — the shade, the lock screen and
   Samsung's own grouping.
 - **The OEM installer** — the browser cert warning, "install unknown apps", and
-  **installing over the previous build**.
+  **installing over the previous build** — including the in-app update path end to end:
+  notification → Settings → download → Samsung's *Update* dialog → pairing and outbox
+  still intact.
 - **Which apps linkify `alfred://`** — a phone question, not an emulator one.
 - **TLS from Dan's carrier** — the emulator proves the trust anchor; the phone proves
   Techloq/DNS.
