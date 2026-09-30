@@ -393,11 +393,29 @@ Alfred. `publish-apk.sh` writes one more file and the app does the rest:
   checksums what it downloads, and a `latest` overwritten mid-download would fail that
   check for no reason.
 
-Porting this to another project is mostly copying `android/scripts/publish-apk.sh`'s
-manifest step and `app/src/main/java/com/dgordon/alfred/update/` (three files, no
-dependencies beyond OkHttp) — the only project-specific parts are the base URL and the
-`FileProvider` authority. Do not add it to a project whose APKs are release-signed by a
-key that might rotate.
+Porting this to another project is not a drop-in copy. The pieces, all in the alfred
+repo under `android/`:
+
+- **Server side:** `scripts/publish-apk.sh`'s manifest step (writes `latest.json` next
+  to the APK).
+- **The three files in `app/src/main/java/com/dgordon/alfred/update/`**
+  (`UpdateManifest.kt`, `UpdateChecker.kt`, `UpdateInstaller.kt`). They are wired into
+  Alfred's own code and each import has to be replaced in the new project: `data.Alfred`
+  (settings: base URL, last-notified `versionCode`), `net.AlfredApi` / `net.AlfredJson`
+  (OkHttp client and JSON config), `notify.Notifier` (the update channel and
+  notification). They also need **kotlinx-serialization** (plugin + runtime) and
+  **coroutines** in the build.
+- **Manifest:** `REQUEST_INSTALL_PACKAGES`, and a `<provider>` for
+  `androidx.core.content.FileProvider` (authority `${applicationId}.updates`,
+  `grantUriPermissions="true"`) pointing at **`res/xml/file_paths.xml`** (a
+  `cache-path` for `updates/`). Without both, `FileProvider.getUriForFile()` throws and
+  install fails.
+- **Call sites:** `UpdateChecker.checkAndNotify` from a periodic worker (Alfred:
+  `work/BriefingWorker`), `UpdateChecker.checkOnResume` from the home screen, and the
+  Settings UI that drives `UpdateInstaller` (`canInstall` → `unknownSourcesIntent`,
+  `download` with progress, `installIntent`) plus its strings and layout rows.
+
+Do not add it to a project whose APKs are release-signed by a key that might rotate.
 
 ### Signing and upgrades
 

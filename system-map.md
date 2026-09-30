@@ -172,7 +172,12 @@ docs/                                       CADDY.md, COSTS.md, RESTORE.md, SCRE
     `slackcc.config.load_settings`), and on *Apply & restart bridge* — and only
     then, on Dan's explicit confirmation — writes both files and runs
     `systemctl --user restart slackcc.service`, verifies it stays up for 20 s and
-    restores the previous files if it does not. That restart is the only restart
+    rolls back if it does not. The rollback target is the **last-good** bundle
+    (the files slackcc was last verified healthy on, kept in
+    `~/.local/state/alfred-admin/slack/last-good/`) when one exists, and the files
+    the apply replaced only when none does — so a hand-edit made on the box since
+    the last successful apply is **undone** by a failed apply (it survives only in
+    `…/slack/backups/`, newest 20 kept). That restart is the only restart
     Alfred performs. Kill switch `ALFRED_SLACK_WRITE=off` + restart `brain-actions`.
 - **Public origin — PRIMARY `https://15.204.108.12:7443/alfred/`,** mirrored
   unchanged at `https://15.204.108.12:6443/`, both via **Caddy** (system unit
@@ -306,8 +311,12 @@ Bridges Slack threads to T3 Code sessions (a Slack thread == a T3 thread).
   candidate by running slackcc's own `load_settings()` from `.venv/bin/python`, so a
   change to slackcc's config schema or loader can break Alfred's Slack screen —
   `~/projects/alfred/services/brain-actions/test/admin-slack-parity.test.mjs` pins the
-  two together. Hand-edits on the box are fine; the dashboard detects the files
-  changing underneath it and refuses to apply over them.
+  two together. Hand-edits on the box are allowed — the dashboard refuses to apply
+  a staged edit that was based on files which have since changed — but a failed
+  apply rolls back to Alfred's *last-good* bundle, not to the hand-edited files, so
+  it can silently revert a hand-made change (a revoked sender included). After a
+  failed apply, check `senders.json` against
+  `~/.local/state/alfred-admin/slack/backups/` and re-apply the hand-edit.
 - **CLI:** `/home/dgordon/projects/slack/.venv/bin/{slack-send,slack-upload,slack-wait-reply}`.
 - **Direction:** Slack is **retired as Alfred's notification path** — the Android
   app shipped (v1.0.0, 2026-09-16) and `pending_briefings` + local notifications
