@@ -1,4 +1,146 @@
-# Model scout 2026-09-29: Claude Sonnet 5.5 added (native; Cursor ids ignored); opus-5.5's 59% hallucination rate now AA-printed
+# Model scout 2026-09-30: routed gpt-6.1-sol (supersedes gpt-6-sol, pinned high); sonnet-5 row dropped
+
+## 2026-09-30
+
+### Summary
+
+- **GPT-6.1 Sol (`gpt-6.1-sol`) went GA at DevDay on 2026-09-29.** It is the only new catalog id (Codex). The price is unchanged from GPT-6 Sol ($2/$10), and cached input drops to $0.10.
+  - **It supersedes gpt-6-sol**, which stays routable as legacy (it is still in the Codex catalog). The new rankings row is **CE 10\*, Int 9\*, Taste 6\* (copied), Rel 5\***.
+  - AA Intelligence Index v4.3.2: **52 at max**, 1 below Astra. **At high it scores 50 for $0.32 per index task**, versus gpt-6-sol (max) 48 at $1.05 and Terra (max) 42 at $1.40.
+  - Its AA-Omniscience hallucination rate is **54%** (max). gpt-6-sol's is 60% and Astra's 51%.
+- **Effort is pinned to `high`**, because Codex's catalog default for it is `low` (checked live with `codex debug models`). This matches Dan's own pin in open PR #27 (`bbac97e`). The model-runner agent's effort paragraph is copied from that commit verbatim, so the two branches should merge cleanly.
+- **No task rows moved.**
+  - `bulk` stays on gpt-5.6-terra: 6.1-sol is Reliability 5\*, under the ≥7 unsupervised bar.
+  - `second-review` and `fable-fallback` stay on gpt-6-astra. It has a lower hallucination rate (51% vs 54%), 1/3 the coding-deception rate in OpenAI's system card (0.51% vs 1.50%), and a higher AA index (53 vs 52).
+- **The sonnet-5 row is dropped.** This machine's Claude Code is now 2.1.285 (≥ 2.1.284), and a `model: sonnet` subagent reports `claude-sonnet-5-5`. The sonnet-5.5 notes now say `sonnet` = Sonnet 5.5 here.
+- **Route health:** live routecheck before and after was ALL ROUTES OK. After: 126 PASS, 0 WARN, 0 FAIL, including `route:gpt-6.1-sol`. The `drift:newer` / `drift:unrouted` warnings for `gpt-6.1-sol` are gone.
+- **The x-recency pass searched X** (`x_search=8`), so no fallback was needed.
+
+### Routing changes
+
+- **`bin/routes.tsv`**: added `model gpt-6.1-sol codex high`, with a dated rationale comment. gpt-6-sol is now legacy, and its `model` row is kept. No `retired`, `ignore` or `task` changes.
+- **`tests/routecheck.sh`**:
+  - The mock Codex catalog now includes `gpt-6.1-sol`.
+  - The "newer" assertion now expects `stops at gpt-6\.1`. The hypothetical `gpt-7-nova` is still ahead.
+  - New mock test `mock:effort-from-table(gpt-6.1-sol=high)`.
+- **`tests/workflows/orchestration-smoke-model-runner.js`**: in `IDS`, `gpt-6-sol` is replaced by `gpt-6.1-sol`. `TASKS` is unchanged.
+- **`model-selection.md`**:
+  - New `gpt-6.1-sol` table row, and a note with sources and an UNVERIFIED bullet.
+  - The gpt-6-sol note is marked legacy.
+  - `sonnet-5` table row and note removed. Its last scores are preserved as history in the sonnet-5.5 note.
+  - Intro sentence added. gpt-6.1-sol added to the Core Rules sub-7 list.
+  - Bulk section: 6.1-sol is now the bulk candidate, and Terra stays.
+  - Reviews section: why Astra stays reviewer after 6.1-sol.
+  - gpt-5.5 note: Codex default moved to gpt-6.1-sol, so its retirement successor is now gpt-6.1-sol.
+  - User-facing and Subagent sections: `sonnet` is Sonnet 5.5 here.
+  - "Keeping This File Honest": 2026-09-30 routecheck result.
+- **`model-usage.md`**:
+  - Reasoning-effort pins: gpt-6.1-sol is pinned high, and `MODEL_RUN_EFFORT=medium` is the cheaper setting.
+  - "Current ids" paragraph updated.
+  - Claude aliases: `sonnet` = Sonnet 5.5 on this machine.
+- **`agents/model-runner.md`**: `gpt-6.1-sol` added to the description, plus the caller-requested-effort paragraph (identical to `bbac97e`).
+- **`README.md`**: the Codex model list and the effort-pin sentence now name gpt-6.1-sol.
+- **`scout/evaluated.tsv`**: 6 rows (gpt-6.1-sol, gpt-6-sol, claude-sonnet-5-5, gpt-6.1-sol-ultrafast, gpt-6-cyber, mercury-voice).
+
+### Models evaluated
+
+| model | vendor | released | verdict | why |
+| --- | --- | --- | --- | --- |
+| gpt-6.1-sol | OpenAI | 2026-09-29 | supersedes:gpt-6-sol | Same price. AA v4.3.2 52 vs 48, $0.72 vs $1.05 per task (max), hallucination 54% vs 60% |
+| gpt-6-sol | OpenAI | 2026-09-22 | routed (legacy) | Superseded, but still in the Codex catalog with no deprecation announced |
+| claude-sonnet-5-5 | Anthropic | 2026-09-28 | routed (re-check) | Now the `sonnet` alias on this machine (Claude Code 2.1.285), so the sonnet-5 row is dropped |
+| gpt-6.1-sol Ultrafast | OpenAI | "coming days" | watch | Announced for Codex, no id or price yet |
+| gpt-6-cyber | OpenAI | — | watch | Not in DevDay coverage or the Codex catalog |
+| Mercury Voice | Inception | 2026-09-29 | not-routable | Voice-agent diffusion LLM, Inception API only |
+
+### Evidence
+
+- developers.openai.com/api/docs/models/gpt-6.1-sol (fetched 2026-09-30): id, prices ($2 / $0.10 cached / $10; >272K = 2× input, 1.5× output), 1,050,000 context, 128,000 max output, efforts low–max with medium the API default, cutoff 2026-04-30.
+- `codex debug models` (live, 2026-09-30): `gpt-6.1-sol` default_reasoning_level `low`; `gpt-6-sol` still listed (default `medium`).
+- github.com/openai/codex/releases, 0.159.1 (2026-09-29): "Added GPT-6.1 Sol as the default model in the bundled catalog".
+- AA article "GPT-6.1 Sol replaces GPT-6 Sol after just 7 days, with near-Astra intelligence" (2026-09-29):
+  - 1 point below Astra, +4 vs Sol
+  - $0.72 vs $3.26 per index task (max)
+  - AA-Omniscience accuracy +8 with a 6-point hallucination-rate reduction (60% → 54%, using Sol's 60% from AA's 2026-09-22 article)
+  - Terminal-Bench 4.0 +12, GDPval-AA v2.1 +5
+  - Coding Agent Index +3 vs Sol at max, 2 below Astra
+- AA model pages `gpt-6-1-sol`, `-xhigh`, `-high`, `-medium`, `-low` (v4.3.2; undated, fetched 2026-09-30):
+
+  | effort | score | cost per index task |
+  | --- | --- | --- |
+  | max | 52 | $0.72 |
+  | xhigh | 51 | $0.39 |
+  | high | 50 | $0.32 |
+  | medium | 48 | $0.21 |
+  | low | 42 | $0.13 |
+
+- AA comparison pages (fetched 2026-09-30):
+  - `gpt-6-1-sol-vs-gpt-6-sol`: Sol (max) 48 at $1.05/task, 31k vs 38k output tokens/task; Omniscience Index 27 vs 42.
+  - `gpt-6-1-sol-vs-gpt-6-astra`: Astra (max) 53 at $3.26, 27k tokens/task, Omniscience Index 43.
+  - **Conflict:** these pages also print a "non-hallucination rate" (83% for 6.1 Sol, 84% for 6 Sol, 81% for Astra). That doesn't match AA's own hallucination-rate definition or its articles, so it was not quoted. The article's 54% is used instead. gpt-6-sol's per-task cost now reads $1.05, against $1.06 on 2026-09-22; both are noted.
+- OpenAI system-card addendum, deploymentsafety.openai.com/gpt-6-1-sol (2026-09-29): coding-deception misrepresentation 1.50% vs Astra 0.51%; "similarly low hallucination rates" vs GPT-6 Sol; "fewer unintended outcomes than GPT-6 Sol"; Critical cyber classification.
+- TechCrunch, 2026-09-29: launch and availability (ChatGPT Work + Codex); GPT-6.1 Astra cancelled.
+- Claude Code CHANGELOG (code.claude.com/docs/en/changelog and the GitHub CHANGELOG.md, fetched 2026-09-30): 2.1.284 made Sonnet 5.5 "the default Sonnet model on the Anthropic API". 2.1.285 (2026-09-29) has no alias, `-p` output or session-persistence changes that affect the scout.
+- inceptionlabs.ai/blog/introducing-mercury-voice (2026-09-29): Mercury Voice price and context.
+
+### Unverified — not quoted
+
+- OpenAI's launch-post claim that 6.1 Sol matches Astra on DeepSWE v1.1 at ~1/5 the cost. openai.com returned 403, so this is a search snippet only. It was removed from the note after the second review.
+- The OSWorld 2.0, AutomationBench 1.0.6 and Terminal-Bench Science 0.1 deltas, and the factual-error rate going from 11.4% to 7.7% at low effort. These are grok leads from the OpenAI launch post, which couldn't be fetched. TechCrunch repeats the factuality figure, but it's a vendor eval.
+- Grok's claim that on AA's Coding Agent Index, xhigh beat max by 3 points.
+- Cognition FrontierCode 1.1 (60.4% vs Sol 60.7%, $0.31/task at medium) and the Vals Index 61.15%. These come from X posts and grok, not independently fetched.
+- @ai_xiaomu's SEC-Bench Pro / ExploitGym numbers (a single X post).
+- Sol Ultrafast's speed ("up to 8×", ~300 tok/s in Codex) and the Pro 500 plan (@OpenAI posts via grok).
+- Anything about GPT-6 Cyber at DevDay: only pre-event secondary reports exist.
+
+### Route health
+
+- **Before** (wrapper, live): exit 0, ALL ROUTES OK, with `WARN drift:newer` (gpt-6.1-\*) and `WARN drift:unrouted` (gpt-6.1-sol).
+- **After** (live, this run): exit 0, **ALL ROUTES OK**, 126 PASS, 0 WARN, 0 FAIL. This includes `route:gpt-6.1-sol` and `route:gpt-6-sol`. `catalog-drift --unrouted` is now empty (exit 0). `--no-live` also passes, after the review fixes too.
+- **CLI versions:**
+  - claude: 2.1.280 → 2.1.285
+  - codex-cli: 0.156.0 → 0.159.2 (0.159.1 made gpt-6.1-sol the bundled default)
+  - cursor-agent: 2026.09.18 → 2026.09.28-64d2043
+- **No invocation repair was needed.** routecheck passes as-is. The known codex-cli 0.159 stdin hang only bites when stdin is an open pipe. It is fixed in Dan's open PR #27 (`786337d`) and not duplicated here; this run passed `</dev/null` on its own model calls.
+
+### Second review
+
+gpt-6-astra via `--task-type second-review`, exit 0, verdict **FIX-FIRST** with three findings. All three were fixed:
+
+- **MEDIUM:** the GPT-6.1 Astra cancellation was unsourced in the note. **Fixed:** the note now cites TechCrunch and thenextweb (2026-09-29). The claim itself was already sourced in evaluated.tsv on 2026-09-29.
+- **MEDIUM:** the DeepSWE v1.1 "matches Astra at ~1/5 the cost" claim wasn't backed by a fetched source. **Fixed:** removed, and moved to the note's UNVERIFIED bullet.
+- **LOW:** "under a quarter of their cost" was wrong against gpt-6-sol ($0.32 is 30% of $1.05). **Fixed:** now "under a third" (vs gpt-6-sol) and "under a quarter" (vs Terra).
+
+Nothing was rejected. After the fixes, `routecheck --no-live` passes. Only docs changed, so the live check wasn't re-run.
+
+### Research provenance
+
+- x-recency: `model-run: xai-tools x_search=8 web_search=24 x_posts=48 cited_urls=46 status=completed cost_usd=1.3798 store=false`, exit 0. **No fallback.**
+- Claude WebSearch:
+  - "GPT-6.1 Sol OpenAI DevDay 2026"
+  - "Artificial Analysis GPT-6.1 Sol Intelligence Index"
+  - "GPT-6.1 Sol hallucination rate AA-Omniscience"
+  - "openai.com Introducing GPT-6.1 Sol"
+  - "AI model release September 30 2026"
+- Claude WebFetch:
+  - AA: model pages (max, xhigh, high, medium, low); comparisons vs gpt-6-sol and vs gpt-6-astra; the GPT-6.1 Sol article; the omniscience board (no numbers in its text)
+  - OpenAI: developers.openai.com model page; the deploymentsafety system-card addendum
+  - TechCrunch
+  - openai/codex releases; the Claude Code CHANGELOG (GitHub raw + code.claude.com); cursor.com/changelog (no model/CLI entries in the window)
+  - digitalapplied September tracker; Inception blog
+  - Failed: openai.com launch post and DevDay recap (403); the AA X post (402)
+- Live catalogs: `codex debug models`, `cursor-agent --list-models`, `catalog-drift.sh --unrouted`.
+- Alias check: one `model: sonnet` Agent subagent. No tools; it reported `claude-sonnet-5-5`.
+
+### Needs Dan
+
+- **Merge overlap with master and PR #27.**
+  - master (#26) already has a `gpt-6.1-sol` row with different comment text. PR #27 (`bbac97e`) pins it high.
+  - This branch stacks on PR #24 and adds the same row, pinned high, with an evidence-backed comment. `agents/model-runner.md` is identical to `bbac97e`.
+  - Expect a small textual conflict in `bin/routes.tsv` (the comment block above `model gpt-6.1-sol`) and possibly in `model-usage.md`'s effort bullets. Keep either comment; the row is the same.
+- **PR #27's codex stdin fix** (`</dev/null`, codex-cli 0.159) is still unmerged. Live routecheck passes without it (the wrapper's stdin isn't an open pipe), but interactive Claude Code Bash calls to codex can hang until it lands.
+- **Judgment call:** gpt-6.1-sol at `high` (AA 50 at $0.32/task) beats Terra on intelligence and per-task cost by a wide margin. `bulk` stays on Terra only because of Reliability: 54% hallucination and 3× Astra's coding-deception rate. If you're willing to review bulk output more closely, moving `bulk` → `gpt-6.1-sol` (maybe at `MODEL_RUN_EFFORT=medium`: 48 at $0.21) is the obvious next step. The scout won't make that move without honesty or METR evidence.
+
 
 ## 2026-09-29
 

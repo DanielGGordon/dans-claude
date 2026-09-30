@@ -190,7 +190,7 @@ if [ "${1:-}" = "--list-models" ]; then
     echo "$id - Mock"; done; exit 0
 fi
 if [ "${1:-}" = "debug" ]; then
-  echo '{"models":[{"slug":"gpt-7-nova","visibility":"list"},{"slug":"gpt-6-astra","visibility":"list"},{"slug":"gpt-6-sol","visibility":"list"},{"slug":"gpt-6-luna","visibility":"list"},{"slug":"gpt-5.7-sol","visibility":"list"},{"slug":"gpt-5.6-sol","visibility":"list"},{"slug":"gpt-5.6-terra","visibility":"list"},{"slug":"gpt-5.6-luna","visibility":"list"},{"slug":"gpt-5.5","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}'; exit 0
+  echo '{"models":[{"slug":"gpt-7-nova","visibility":"list"},{"slug":"gpt-6-astra","visibility":"list"},{"slug":"gpt-6.1-sol","visibility":"list"},{"slug":"gpt-6-sol","visibility":"list"},{"slug":"gpt-6-luna","visibility":"list"},{"slug":"gpt-5.7-sol","visibility":"list"},{"slug":"gpt-5.6-sol","visibility":"list"},{"slug":"gpt-5.6-terra","visibility":"list"},{"slug":"gpt-5.6-luna","visibility":"list"},{"slug":"gpt-5.5","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}'; exit 0
 fi
 printf '%s\n' "$*" > "${MOCK_ARGS:-/dev/null}"
 case "${MOCK_MODE:-ok}" in
@@ -313,6 +313,10 @@ mock_args "$WORK/args-astra.txt" gpt-6-astra
 grep -q 'model_reasoning_effort="high"' "$WORK/args-astra.txt" \
   && ok "mock:effort-from-table(gpt-6-astra=high)" \
   || bad "mock:effort-from-table(gpt-6-astra=high)" "codex argv: $(cat "$WORK/args-astra.txt" 2>/dev/null)"
+mock_args "$WORK/args-sol61.txt" gpt-6.1-sol
+grep -q 'model_reasoning_effort="high"' "$WORK/args-sol61.txt" \
+  && ok "mock:effort-from-table(gpt-6.1-sol=high)" \
+  || bad "mock:effort-from-table(gpt-6.1-sol=high)" "codex argv: $(cat "$WORK/args-sol61.txt" 2>/dev/null)"
 mock_args "$WORK/args-astra-env.txt" gpt-6-astra MODEL_RUN_EFFORT=xhigh
 grep -q 'model_reasoning_effort="xhigh"' "$WORK/args-astra-env.txt" \
   && ok "mock:effort-env-override" \
@@ -340,7 +344,7 @@ mock_drift=$(XAI_API_KEY=mock-key CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cach
 mock_nv=$(grep $'^newer\t\|^vanished\t' <<<"$mock_drift")
 [ "$mock_drift_st" = 1 ] \
   && grep -q $'^newer\t.*grok-4.8-\*.*stops at grok-4.7' <<<"$mock_nv" \
-  && grep -q $'^newer\t.*gpt-7-\*.*stops at gpt-6' <<<"$mock_nv" \
+  && grep -q $'^newer\t.*gpt-7-\*.*stops at gpt-6\\.1' <<<"$mock_nv" \
   && grep -q $'^vanished\t.*cursor-grok-4.5-low' <<<"$mock_nv" \
   && ! grep -q 'gpt-5.7' <<<"$mock_nv" \
   && ! grep -q $'^vanished\t.*gpt-6-astra' <<<"$mock_nv" \

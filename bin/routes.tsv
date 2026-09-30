@@ -32,6 +32,15 @@ model	gpt-6-astra	codex	high
 # Sol's Reliability 5* is under the >=7 unsupervised bar, Terra's is 7.
 # 2026-09-23: AA measured Sol's AA-Omniscience hallucination at 60% (max; 5.6-sol
 # 92%, Astra 51%) -- still under the bar; reconsider on an honesty/METR eval.
+# gpt-6.1-sol (GA 2026-09-29, API + Codex; Codex 0.159.1's default model)
+# supersedes gpt-6-sol at the same $2/$10: AA Intelligence Index v4.3.2 52 vs
+# 48 and $0.72 vs $1.05 per index task (both max), AA-Omniscience hallucination
+# 54% vs 60% (AA article, 2026-09-29). gpt-6-sol stays routable as legacy (still
+# in the Codex catalog). Its Codex catalog default effort is LOW (like astra;
+# the API default is medium), so it is pinned to high; ask for medium per call
+# with MODEL_RUN_EFFORT=medium. Bulk still stays on gpt-5.6-terra: 54% is worse
+# than Astra's 51% (Reliability 6), so 6.1-sol's Reliability 5* is under the bar.
+model	gpt-6.1-sol	codex	high
 model	gpt-6-sol	codex
 model	gpt-6-luna	codex
 # gpt-5.5 leaves Codex for ChatGPT sign-in (= this machine's seat auth) on

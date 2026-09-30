@@ -52,14 +52,16 @@ bash ~/dotfiles/claude/bin/model-run.sh --task-type bulk|cheap|recency|x-recency
 ### Reasoning effort (Codex models only)
 
 Codex applies each model's **catalog default** reasoning level unless told
-otherwise, and for the frontier tiers that default is **`low`** (`gpt-6-astra`
-and `gpt-5.6-sol` both ship `default_reasoning_level: low`) — i.e. the most
+otherwise, and for the frontier tiers that default is **`low`** (`gpt-6-astra`,
+`gpt-6.1-sol` and `gpt-5.6-sol` all ship `default_reasoning_level: low`) — i.e. the most
 capable model arrives at its weakest setting if nobody pins it. So the effort
 lives in the routing table, not in your prompt:
 
 - `bin/routes.tsv` has an optional **4th column** on `model` rows (codex only):
-  the reasoning effort for that id. `gpt-6-astra` is pinned to **`high`**;
-  everything else is blank (= backend default).
+  the reasoning effort for that id. `gpt-6-astra` and `gpt-6.1-sol` are
+  pinned to **`high`**; everything else is blank (= backend default). For
+  gpt-6.1-sol, `MODEL_RUN_EFFORT=medium` is the cheaper setting (the API's
+  default; AA v4.3.2 48 at medium vs 50 at high).
 - Override for one call with `MODEL_RUN_EFFORT=<low|medium|high|xhigh|max>`
   (e.g. `MODEL_RUN_EFFORT=xhigh bash ~/dotfiles/claude/bin/model-run.sh
   gpt-6-astra prompt.md`). Ignored with a warning on cursor-backed models.
@@ -76,9 +78,11 @@ messages, routecheck's test matrix and the catalog-drift check all derive from
 it. When the catalog changes, edit routes.tsv (only), then run `routecheck`.
 Current ids: run `bash ~/dotfiles/claude/bin/model-run.sh` with no args, or
 read the tsv. Codex: `gpt-6-astra` is the frontier tier (GPT-6, effort pinned to
-`high`); `gpt-6-sol` / `gpt-6-luna` (2026-09-22, catalog default effort
-`medium`, no pin) supersede `gpt-5.6-sol` / `gpt-5.6-luna`, which stay routable
-as legacy; `gpt-5.6-terra` stays the bulk default (there is no GPT-6 Terra).
+`high`); `gpt-6.1-sol` (2026-09-29, effort pinned to `high`) supersedes
+`gpt-6-sol`, which stays routable as legacy; `gpt-6-sol` / `gpt-6-luna`
+(2026-09-22, catalog default effort `medium`, no pin) superseded `gpt-5.6-sol` /
+`gpt-5.6-luna`, which stay routable as legacy; `gpt-5.6-terra` stays the bulk
+default (there is no GPT-6 Terra, and the Codex catalog has no 6.1 Luna).
 `gpt-5.5` leaves Codex for ChatGPT sign-in on 2026-10-14. Grok: `grok-4.7-*` is
 the default (`--task-type recency` → `grok-4.7-high`; note these ids have no
 `cursor-` prefix, unlike the legacy ones); `cursor-grok-4.6-*` and
@@ -98,12 +102,13 @@ Native to Claude Code — no CLI, no wrapper, not model-run.sh's job:
 
 - Aliases (Claude Code 2.1.280, code.claude.com model-config, 2026-09-22):
   `opus` → **Opus 5.5** (`claude-opus-5-5`, also Claude Code's default model),
-  `fable` → **Fable 5.1**, `sonnet` → Sonnet 5, `haiku` → Haiku 4.5 (on the
+  `fable` → **Fable 5.1**, `sonnet` → Sonnet 5 (before 2.1.284), `haiku` → Haiku 4.5 (on the
   Anthropic API; Bedrock/Vertex/Foundry map some aliases to older models).
   **Claude Code 2.1.284** (2026-09-28) moves `sonnet` → **Sonnet 5.5**
   (`claude-sonnet-5-5`; "requires Claude Code v2.1.284 or later",
   code.claude.com model-config, fetched 2026-09-29); older installs still get
-  Sonnet 5. Sonnet 5.5's default effort is `medium` in Claude Code.
+  Sonnet 5. This machine is on 2.1.285, so **`sonnet` = Sonnet 5.5** here
+  (confirmed 2026-09-30). Sonnet 5.5's default effort is `medium` in Claude Code.
 - `effort` per call: `'low' | 'medium' | 'high' | 'xhigh' | 'max'`. New models
   such as Opus 5.5 start at their own default (Opus 5.5: `medium`), not an
   effort level saved before `/effort` became per-model.

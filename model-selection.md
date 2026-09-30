@@ -36,6 +36,10 @@ hallucination rate at **~59%** (derived, not AA-printed; see its note), level
 with gpt-6-sol's 60%. **sonnet-5.5 added 2026-09-29** (released 2026-09-28;
 AA v4.3.2 56 at max, AA-Omniscience hallucination 47%; sources in its note).
 AA's Sonnet 5.5 article now prints opus-5.5's rate: **59%**, as derived.
+**gpt-6.1-sol added 2026-09-30** (GA 2026-09-29; supersedes gpt-6-sol at the
+same price: AA v4.3.2 52 vs 48, $0.72 vs $1.05 per index task, hallucination
+54% vs 60%, all max; sources in its note). The same run dropped the sonnet-5
+row: this machine's Claude Code is now 2.1.285, so `sonnet` is Sonnet 5.5.
 
 - **Cost efficiency** = cost **per completed task**, not per token. (Per-token
   intuition inverts rankings: measured 2026-07-21, sonnet-5 had cheaper tokens
@@ -52,6 +56,7 @@ AA's Sonnet 5.5 article now prints opus-5.5's rate: **59%**, as derived.
 | ------------ | --------------- | ------------ | ----- | ----------- |
 | composer-2.5 | 10              | 6            | 4*    | 5*          |
 | gpt-6-astra  | 6               | 9            | 8     | 6           |
+| gpt-6.1-sol  | 10*             | 9*           | 6*    | 5*          |
 | gpt-6-sol    | 9*              | 8            | 6*    | 5*          |
 | gpt-6-luna   | 10*             | 5*           | 4*    | 3*          |
 | grok-4.7     | 10*             | 7            | 4*    | 5*          |
@@ -63,7 +68,6 @@ AA's Sonnet 5.5 article now prints opus-5.5's rate: **59%**, as derived.
 | gpt-5.5      | 6               | 7            | 5     | 7           |
 | opus-5.5     | 6*              | 10*          | 8*    | 7*          |
 | sonnet-5.5   | 8*              | 9*           | 7*    | 7*          |
-| sonnet-5     | 4               | 7            | 7     | 8           |
 | fable-5.1    | 2               | 9            | 9*    | 6*          |
 
 `*` = thin public evidence; treat as provisional.
@@ -111,7 +115,8 @@ default (`medium`/`high`), so treat the scores as ceilings.
   the scores above apply to both routes.
 
 Notes (evidence-backed, 2026-07-21; the gpt-6-astra note is 2026-09-18; the
-gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
+gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22; gpt-6.1-sol
+2026-09-30):
 
 - **gpt-6-astra** (OpenAI GPT-6 "Astra", GA 2026-09-03; the only GPT-6 tier
   until Sol and Luna joined it on 2026-09-22 — still no Terra/mini/nano) — $10/$50 per Mtok, cached input $1,
@@ -166,7 +171,8 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
   $0.01 / $0.50** per Mtok (2× input and 1.5× output past the long-context
   threshold); 1.05M context, 128k max output. Astra stays OpenAI's top model
   ("continues to be our best model across the board"). Both **supersede their
-  GPT-5.6 namesakes**, which stay routable as legacy.
+  GPT-5.6 namesakes**, which stay routable as legacy. **gpt-6-sol is itself
+  legacy since 2026-09-30**, superseded by gpt-6.1-sol (see its note).
   - **gpt-6-sol: Intelligence 8** — AA Intelligence Index **v4.3.2 48** vs
     gpt-5.6-sol 47, gpt-5.6-terra 42 and Astra 53 (every AA number in this note
     is at **max** effort, from AA's comparison pages); AA Terminal-Bench 4.0 44%
@@ -214,6 +220,58 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
     (2026-09-22, fetched 2026-09-23) — hallucination rates, attempt rate,
     accuracy and Coding Agent Index.
 
+- **gpt-6.1-sol** (OpenAI GPT-6.1 Sol, GA **2026-09-29** at DevDay in the API,
+  Codex and ChatGPT Work; routed here as `gpt-6.1-sol` via Codex, effort pinned
+  to **`high`** because its Codex catalog default is `low` — the API default is
+  `medium`) — **supersedes gpt-6-sol**, which stays routable as legacy (still
+  in the Codex catalog; OpenAI has announced no deprecation). Same **$2 / $10**
+  per Mtok, cached input **$0.10** (95% off, vs Sol's $0.20); 2× input / 1.5×
+  output past 272k input; 1.05M context, 128k max output, cutoff 2026-04-30.
+  Codex 0.159.1 (2026-09-29) made it the bundled catalog's default model. It
+  is not a GPT-6.1 Astra: OpenAI cancelled that release over scope and
+  authorization concerns (TechCrunch and thenextweb, 2026-09-29).
+  - **Intelligence 9\*** — AA Intelligence Index **v4.3.2 52 (max)**, +4 over
+    gpt-6-sol (48) and 1 below Astra (53, max); per effort **xhigh 51, high
+    50, medium 48, low 42** (v4.3.2, AA per-effort pages) — so the pinned
+    `high` route scores above gpt-6-sol's *max*. AA's article lists gains over
+    Sol of 12 points on Terminal-Bench 4.0 and 5 on GDPval-AA v2.1, and
+    Coding Agent Index +3 over Sol at max, 2 below Astra (so ~60 against the
+    unversioned 57 / 62 quoted in this file — derived, not AA-printed).
+    Provisional: one day old, and every independent number is AA's.
+  - **CE 10\*** — **$0.72 per AA index task** at max vs gpt-6-sol $1.05 (AA's
+    current comparison page; $1.06 when fetched 2026-09-22) and Astra $3.26,
+    at ~38k output tokens per task (Sol 31k, Astra 27k). Below max it is the
+    cheapest per-task intelligence in this file: **xhigh 51 at $0.39, high 50
+    at $0.32, medium 48 at $0.21, low 42 at $0.13** per index task (v4.3.2, AA
+    per-effort pages) — the pinned `high` route beats gpt-6-sol (max, 48 at
+    $1.05) at under a third of its cost, Terra (max, 42 at $1.40) at under a
+    quarter, and sonnet-5.5 (medium, 41 at $0.59) at about half.
+    Provisional: one AA measurement per effort, one day old.
+  - **Taste 6\*** copied from gpt-6-sol; no Design Arena or LMArena standing yet.
+  - **Reliability 5\*** — AA-Omniscience hallucination **54%** (max; gpt-6-sol
+    60%, a "6 point reduction", with accuracy +8 points; AA article). Better
+    than Sol but still worse than Astra's 51% (Reliability 6), so it cannot
+    sit above 6; the system card holds it at 5: coding-deception
+    misrepresentation **1.50% vs Astra's 0.51%**, hallucination on
+    user-flagged cases "similarly low" to Sol's, "fewer unintended outcomes
+    than GPT-6 Sol" on workplace tasks (vendor evals); no METR evaluation.
+    Like Astra it is classified **Critical** for cyber capability, so expect
+    the same gating on exploit-adjacent Codex tasks. Bulk stays on Terra
+    (Reliability 7).
+  - Sources: developers.openai.com/api/docs/models/gpt-6.1-sol (fetched
+    2026-09-30) — id, prices, context, efforts, cutoff; OpenAI system-card
+    addendum deploymentsafety.openai.com/gpt-6-1-sol (2026-09-29); TechCrunch
+    (2026-09-29) — launch, availability, the 6.1 Astra cancellation;
+    openai/codex release 0.159.1 (2026-09-29); AA article "GPT-6.1 Sol replaces GPT-6 Sol after just 7
+    days, with near-Astra intelligence" (2026-09-29) — per-task costs,
+    hallucination delta, benchmark deltas; AA model pages gpt-6-1-sol{,-xhigh,
+    -high,-medium,-low} and comparison pages gpt-6-1-sol-vs-gpt-6-sol /
+    -vs-gpt-6-astra (v4.3.2; undated, fetched 2026-09-30).
+  - **UNVERIFIED — do not quote:** OpenAI's DeepSWE v1.1 "matches Astra at
+    roughly a fifth of the cost" (launch post not fetchable, snippet only); the
+    Sol Ultrafast tier's speed and price; Cognition's FrontierCode 1.1 and the
+    Vals Index figures (grok leads, not independently fetched).
+
 - **grok-4.5** — $2/$6 per Mtok (cached input $0.30; 2× rates past 200k prompt),
   AA Intelligence 53.8 (#4). Reliability 3: **54% hallucination on
   AA-Omniscience** — confidently wrong under speed pressure. Never unsupervised
@@ -235,34 +293,25 @@ gpt-6-sol/luna, opus-5.5 and fable-5.1 notes are 2026-09-22):
   don't trust its self-reports. **Terra** ($2.50/$15, AA 55.0) is the bulk-work
   default. **Luna** ($1/$6): fast-draft tier only.
 - **gpt-5.5** — superseded: same $5/$30 price as Sol with less capability;
-  Terra beats it on both axes at half price. Kept only because Codex defaults to
-  it; prefer `-m gpt-5.6-terra`. **Leaves Codex for ChatGPT sign-in on
+  Terra beats it on both axes at half price. Kept only because Codex defaulted to
+  it (codex-cli 0.159.1 moved the default to gpt-6.1-sol); prefer
+  `-m gpt-5.6-terra`. **Leaves Codex for ChatGPT sign-in on
   2026-10-14** (learn.chatgpt.com/docs/models, fetched 2026-09-22) — this
   machine's Codex runs on that seat auth, so expect `catalog-drift` to flag
-  `gpt-5.5` vanished then; retire it to `gpt-6-sol`.
-- **sonnet-5** — Int raised to 7 (AA v4.1.1 53.4, statistically tied with
-  grok-4.5).
-  CE lowered to 4 (see per-task note above). Its $2/$10 intro price is now
-  standard — the planned rise to $3/$15 "will not occur"
-  (platform.claude.com pricing, fetched 2026-09-22). AA v4.3.2 **38** (max;
-  implied by AA's Sonnet 5.5 article, "+18 points") — below Terra's 42, so
-  its Intelligence 7 is a v4.1.1-era score, not re-rated because the row is
-  on its way out. Superseded by sonnet-5.5 at the same price; the row stays
-  only while this machine's Claude Code is older than **2.1.284**, where
-  `sonnet` still resolves to Sonnet 5 — drop it once `claude --version` shows
-  2.1.284+.
+  `gpt-5.5` vanished then; retire it to `gpt-6.1-sol`.
 - **sonnet-5.5** (Claude Sonnet 5.5, `claude-sonnet-5-5`, released
   **2026-09-28**; the `sonnet` alias on the Anthropic API **from Claude Code
   2.1.284**, which is also the version it requires) — **$2/$10** per Mtok,
   unchanged from Sonnet 5 (cache reads $0.20, writes $2.50), 1M context,
   128k max output. Default effort **`medium` in Claude Code**, `high` on the
-  API; Sonnet 5 is now legacy (still active). Anthropic
+  API; Sonnet 5 is now legacy (still active; its row was dropped 2026-09-30,
+  last scores CE 4 / Int 7 (v4.1.1-era; AA v4.3.2 38) / Taste 7 / Rel 8). Anthropic
   pitches it as the faster, cheaper complement to Opus 5.5: "30%+ faster" and
   "up to 30% less" per task than Sonnet 5 (vendor claims, conditions unstated;
   AA measured the opposite at max — see CE). Haiku 5.5 is announced for "the
-  coming weeks". **Not reachable on this machine until Claude Code is
-  2.1.284+**: until then `sonnet` is Sonnet 5, and the recommendations below
-  that name sonnet-5.5 apply from that upgrade.
+  coming weeks". **`sonnet` is Sonnet 5.5 on this machine** since Claude Code
+  2.1.285 (confirmed 2026-09-30: a `model: sonnet` subagent reports
+  `claude-sonnet-5-5`).
   - **Intelligence 9\*** — AA Intelligence Index **v4.3.2 56 (max)**, 2 below
     opus-5.5 (max, 58) and 3 above Astra and Fable 5.1 (both 53, max); +18
     over Sonnet 5. That is a max-effort ceiling: **high 47, medium 41, low 36**
@@ -427,7 +476,7 @@ work. For anything that ships:
 **Intelligence > Taste > Cost Efficiency**
 
 And the new axis's rule: **only models with Reliability ≥ 7 run unsupervised.**
-Anything lower (grok-4.7/4.6/4.5, composer-2.5, glm-5.2, gpt-6-sol/luna, gpt-5.6-sol,
+Anything lower (grok-4.7/4.6/4.5, composer-2.5, glm-5.2, gpt-6.1-sol, gpt-6-sol/luna, gpt-5.6-sol,
 **gpt-6-astra**, **fable-5.1**) needs its output judged by you or a
 high-reliability model before it lands. Astra sits just under the bar despite
 its intelligence — judge the diff, not its summary of the diff. The rule is
@@ -448,7 +497,12 @@ multi-file agentic edits; avoid terminal-heavy tasks) and **grok-4.7**
 (well-specified tasks; cheap tokens but ~81k output tokens per AA task, and
 still Reliability 5\* — see the rankings note).
 **glm-5.2** is a promising budget alternative via the Cursor catalog.
-**gpt-6-sol** (2026-09-22) is the likely next bulk default — AA measures it
+**gpt-6.1-sol** (2026-09-29) is the strongest candidate for the next bulk
+default: it supersedes gpt-6-sol at the same price — AA v4.3.2 **52 for $0.72
+per index task** (max), and **50 for $0.32 at the `high` effort it is pinned
+to here** (medium: 48 for $0.21) — but its hallucination rate is still **54%** (max) and its Reliability 5\*, so
+`bulk` stays on Terra for the reason below.
+**gpt-6-sol** (2026-09-22; legacy since 2026-09-30) was the first such candidate — AA measures it
 **cheaper per task than Terra ($1.06 vs $1.40) and smarter (v4.3.2 48 vs 42)**,
 both at max effort — but `bulk` stays on Terra because bulk work runs with
 light review and Sol's **Reliability 5\*** is under the ≥7 unsupervised bar,
@@ -486,7 +540,7 @@ Terra-shaped bulk work.
 ### User-Facing / High-Taste Work
 
 Use Taste ≥ 7: **fable-5.1**, **opus-5.5** (also `sonnet` for lighter work —
-**sonnet-5.5** from Claude Code 2.1.284, sonnet-5 before it; Anthropic pitches
+**sonnet-5.5** since Claude Code 2.1.284, on this machine since 2.1.285; Anthropic pitches
 5.5 for polished documents, slides and spreadsheets, but its Taste 7\* is
 still a copy of sonnet-5's).
 For UI, copy, API design, product design — anything where polish matters.
@@ -508,8 +562,13 @@ having replaced gpt-5.6-sol on 2026-09-18 — same reviewer role, half the
 hallucination rate (AA-Omniscience 51% vs Sol's 92%), higher intelligence, and
 no METR eval-gaming finding against it. It stays there after 2026-09-22:
 gpt-6-sol is cheaper but well below Astra on AA-Omniscience (Index 27 vs
-Astra (max) 43 — sol-vs-astra comparison page, fetched 2026-09-22).
-`gpt-6-sol` (or legacy `gpt-5.6-sol` / `gpt-5.5`) stays routable by id if you
+Astra (max) 43 — sol-vs-astra comparison page, fetched 2026-09-22). And after
+2026-09-30: gpt-6.1-sol closes most of that gap (Omniscience Index 42 vs 43,
+hallucination 54% vs 51%, all max) at under a quarter of Astra's per-task
+cost, but it is still behind on every honesty number, and OpenAI's system card
+has it misrepresenting its work 3× as often in coding-deception tests (1.50%
+vs 0.51%) — the reviewer seat is exactly where that matters.
+`gpt-6.1-sol` (or legacy `gpt-6-sol` / `gpt-5.6-sol` / `gpt-5.5`) stays routable by id if you
 want a third voice or a cheaper pass. Ask any of them for
 severity, file:line, a concrete failing scenario, and a SHIP / FIX-FIRST
 verdict. **Never grok (4.7, 4.6, or 4.5) or composer-2.5 as review models** — reviews
@@ -602,8 +661,8 @@ you announce it.
 - Workflow stages: mechanical fan-out stages → `{ model: 'sonnet', effort:
   'low' }`; judge, verify, and taste-sensitive stages → session model (opus-5.5 /
   fable-5.1) at high effort. Prefer effort `'high'` for fable; avoid `'xhigh'`
-  unless truly needed; `'low'` for simple wrappers. `sonnet` becomes
-  **Sonnet 5.5** once Claude Code is 2.1.284+ (2026-09-28): same price, much
+  unless truly needed; `'low'` for simple wrappers. `sonnet` is
+  **Sonnet 5.5** (Claude Code 2.1.284+, on this machine since 2.1.285): same price as Sonnet 5, much
   stronger (AA v4.3.2 56 vs Sonnet 5's 38, both max; low 36 for $0.41 per
   index task). Keep fan-outs on `'low'`/`'medium'` and never give it
   `'max'`: that is where it burns a record ~193k output tokens per AA task.
@@ -619,9 +678,9 @@ The table above is a snapshot; model catalogs and pricing drift. Every routable
 model documented here and in model-usage.md is live-verified by
 `bash ~/dotfiles/claude/tests/routecheck.sh` (alias `routecheck`) — it invokes
 each route with a nonce prompt and fails loudly on any broken id, syntax, or
-auth (last run 2026-09-29 by the model scout on Claude Code 2.1.282,
-codex-cli 0.156.1 and cursor-agent 2026.09.28-64d2043: ALL ROUTES OK, no
-drift or unrouted warnings once `claude-sonnet-5-5-*` was ignored). If a
+auth (last run 2026-09-30 by the model scout on Claude Code 2.1.285,
+codex-cli 0.159.2 and cursor-agent 2026.09.28-64d2043: ALL ROUTES OK, no
+drift or unrouted warnings once `gpt-6.1-sol` was routed). If a
 route fails, fix the id/syntax or remove the model from these files — never
 leave a documented route broken.
 Models with no runnable route on this machine do not get table rows. Catalog
