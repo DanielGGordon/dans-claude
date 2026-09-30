@@ -1,0 +1,54 @@
+# Mock model catalogs for tests/routecheck.sh's Tier 0.5 catalog-drift tests.
+# DATA ONLY: a routing change edits this file, never routecheck.sh (the model
+# scout auto-merges data files, not code). Tab-separated:
+#
+#   catalog	<cursor|codex>	<id>	<routed|unrouted|ignored|hidden>
+#       an id the mock `cursor-agent --list-models` / `codex debug models`
+#       returns, and what catalog-drift must make of it against bin/routes.tsv:
+#       routed = a `model` row (every routed cursor/codex id must be listed,
+#       or it is reported vanished); unrouted = must show in --unrouted;
+#       ignored = matched by an `ignore` row; hidden = codex visibility "hide".
+#   newer	<family glob>	<stops-at>
+#       a "newer" finding catalog-drift must print, e.g. grok-4.8-* while
+#       routes.tsv stops at grok-4.7. Keep one hypothetical next version per
+#       family AHEAD of the routed ones (bump it when the real one is routed).
+#   vanished	<id>
+#       a routed id deliberately left out of the catalog (must be reported).
+#
+# The findings must match EXACTLY: an unlisted newer/vanished/unrouted finding
+# fails the test. gpt-5.7-sol: an old-version tier the version-max logic can't
+# see — must be unrouted but NOT newer (routed gpt-6 outranks 5.7).
+catalog	cursor	auto	ignored
+catalog	cursor	grok-4.8-high	unrouted
+catalog	cursor	grok-4.8-xhigh	unrouted
+catalog	cursor	grok-4.7-high	routed
+catalog	cursor	grok-4.7-high-fast	routed
+catalog	cursor	grok-4.7-xhigh	routed
+catalog	cursor	grok-4.7-medium	routed
+catalog	cursor	grok-4.7-low	routed
+catalog	cursor	cursor-grok-4.6-high	routed
+catalog	cursor	cursor-grok-4.6-high-fast	routed
+catalog	cursor	cursor-grok-4.6-xhigh	routed
+catalog	cursor	cursor-grok-4.6-medium	routed
+catalog	cursor	cursor-grok-4.6-low	routed
+catalog	cursor	cursor-grok-4.5-high	routed
+catalog	cursor	cursor-grok-4.5-high-fast	routed
+catalog	cursor	cursor-grok-4.5-medium	routed
+catalog	cursor	composer-2.5	routed
+catalog	cursor	composer-2.5-fast	routed
+catalog	cursor	glm-5.2-high	routed
+catalog	cursor	glm-5.2-max	routed
+catalog	codex	gpt-7-nova	unrouted
+catalog	codex	gpt-6-astra	routed
+catalog	codex	gpt-6.1-sol	routed
+catalog	codex	gpt-6-sol	routed
+catalog	codex	gpt-6-luna	routed
+catalog	codex	gpt-5.7-sol	unrouted
+catalog	codex	gpt-5.6-sol	routed
+catalog	codex	gpt-5.6-terra	routed
+catalog	codex	gpt-5.6-luna	routed
+catalog	codex	gpt-5.5	routed
+catalog	codex	hidden	hidden
+newer	grok-4.8-*	grok-4.7
+newer	gpt-7-*	gpt-6
+vanished	cursor-grok-4.5-low

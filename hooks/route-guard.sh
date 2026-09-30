@@ -44,8 +44,12 @@ stripped = re.sub(r"'[^']*'", "''", stripped)
 stripped = re.sub(r'"(?:\\.|[^"\\])*"', '""', stripped)
 
 # Retired ids in executable position (prose mentions survive via stripping).
-RETIRED = {"grok-4.5-xhigh": "cursor-grok-4.5-high",
-           "grok-4.5-fast-xhigh": "cursor-grok-4.5-high-fast"}
+# One literal "old": "successor", entry per line — the model scout may
+# auto-merge additions here only in exactly this shape (bin/model-scout.sh).
+RETIRED = {
+    "grok-4.5-xhigh": "cursor-grok-4.5-high",
+    "grok-4.5-fast-xhigh": "cursor-grok-4.5-high-fast",
+}
 for old, new in RETIRED.items():
     if re.search(r"--model[= ]+" + re.escape(old) + r"\b", stripped):
         deny(f"Model id '{old}' is retired. Use: bash ~/dotfiles/claude/bin/model-run.sh {new} <promptfile>")

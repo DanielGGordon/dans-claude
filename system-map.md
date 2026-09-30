@@ -259,8 +259,17 @@ the route-health, `[model-scout]` and `[alfred]` banners. See `README.md` there.
   direct xAI API, `--task-type x-recency`, key `XAI_API_KEY` from `~/.profile`,
   which the cron line sources — + headless `claude -p` opus),
   updates the routing table/docs in its own worktree under
-  `~/.cache/model-scout/`, and opens (or updates) ONE `claude/model-scout-*` PR
-  against this repo's master — never pushes to master. State
+  `~/.cache/model-scout/` (always based on a fresh `origin/master`), opens a
+  `claude/model-scout-*` PR against this repo's master and **merges it itself**
+  (`gh pr merge --squash`) when its gates pass — data-only diffs (routes.tsv,
+  routing docs, `tests/mock-catalog.tsv`); any code change waits for a human.
+  The one sanctioned auto-merge; it never pushes to master directly. An older
+  scout PR it owns is merged first only if the wrapper verified its exact head
+  SHA, else closed as superseded. After a merge it fast-forwards
+  THIS live checkout (`~/dotfiles/claude`, whose `bin/routes.tsv` every
+  delegation reads) only when it is on `master`; on a feature branch it
+  touches nothing and the `[model-scout]` banner says routing on disk lags
+  master. Then `install.sh --cron-only`. State
   `~/.claude/model-scout/last-run.json` (read by the `[model-scout]` banner),
   logs `~/.claude/model-scout/logs/` (30 days), cron output
   `~/.claude/model-scout/cron.log`.

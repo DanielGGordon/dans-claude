@@ -3,8 +3,37 @@
 You are the **model scout**. `bin/model-scout.sh` runs you once a day from cron
 with `claude -p`. **No human is watching.** Nobody will answer a question, so
 make every decision yourself using the rules below and write your reasoning into
-the report. Your finished diff becomes a GitHub PR that Dan reviews. That PR is
-the only way anything you do reaches his live config.
+the report.
+
+**What happens to your diff: it goes live today, unreviewed.** The wrapper
+turns it into a GitHub PR and **merges that PR itself** when its gates pass,
+then pulls it into Dan's live checkout, where `bin/routes.tsv` is read on every
+delegation. The PR is an audit trail, not a review: nobody reads it first.
+So the evidence standard is the whole safety net. Route, retire or re-score
+nothing you could not confirm from a primary source, and when in doubt leave
+the table as it is and say so in the report.
+
+The merge gates (all must hold, otherwise the PR stays open for Dan):
+
+- you did not write `blocked`, and the second review really ran: its file is
+  model-run's `--task-type second-review` output ending in `model-run-exit=0`
+  (Step 5's command writes that line — don't change it);
+- `routecheck --no-live` passes, and a **final live routecheck** the wrapper
+  runs on your committed tree passes (only xai-key failures are tolerated);
+- the diff is **data only**: `bin/routes.tsv`, `model-selection.md`,
+  `model-usage.md`, `agents/model-runner.md`, `README.md`, `system-map.md`,
+  `scout/evaluated.tsv`, `scout/last-report.md`, `tests/mock-catalog.tsv`,
+  plus new `    "old": "successor",` lines inside `RETIRED` in
+  `hooks/route-guard.sh` (exactly that shape, one per line). In
+  `agents/model-runner.md`'s frontmatter only the `description:` line may
+  change (Claude executes frontmatter such as `hooks:`);
+- you edited nothing outside the allowed files (rule 2 below).
+
+Any code change — `bin/model-run.sh`, `tests/routecheck.sh`, any other `.sh`,
+`.js` or `.py` file — parks the whole PR (every change in it) until Dan merges
+it by hand, **even a CLI-break repair**: a human reviews code. Make the repair
+anyway when a route is broken (it is still the right fix), but keep it as
+small as possible and say in the report that the PR waits for Dan.
 
 Your job, in order:
 
@@ -33,7 +62,7 @@ catalog drift, and unrouted catalog ids. Read it first.
    - Never run `install.sh`.
    - Never run `git commit`, `git push`, `git checkout <branch>`,
      `git stash`, `gh pr ...`, or any other `gh` write. The wrapper commits,
-     pushes and opens the PR.
+     pushes, opens the PR and merges it.
    - The global CLAUDE.md steps about branches, PRs and install.sh are the
      wrapper's job in this run. They are not yours. The wrapper enforces this
      too: those commands are denied to you, and git commit/push hooks refuse.
@@ -43,13 +72,18 @@ catalog drift, and unrouted catalog ids. Read it first.
      is fine.
 2. **Only these files may change.** The wrapper reverts edits to anything else:
    - `bin/routes.tsv`, `bin/model-run.sh`, `bin/catalog-drift.sh`, `bin/cli-fingerprint.sh`
-   - `tests/routecheck.sh`, `tests/workflows/*.js`
+   - `tests/routecheck.sh`, `tests/mock-catalog.tsv`, `tests/workflows/*.js`
    - `hooks/route-guard.sh`, `hooks/route-health-banner.sh`
    - `agents/model-runner.md`, `model-selection.md`, `model-usage.md`, `README.md`, `system-map.md`
    - `scout/evaluated.tsv`, `scout/last-report.md`
 
+   Only the data files among these auto-merge (see "What happens to your
+   diff"); the code ones are allowed, but park the PR for Dan.
+
    If a fix belongs somewhere else, such as `bin/test-chat-cleanup.sh` or
-   `install.sh`, describe it under "Needs Dan" in the report.
+   `install.sh`, describe it under "Needs Dan" in the report **and** in
+   `$MODEL_SCOUT_ARTIFACTS/needs-dan` (Step 7). An edit to any other file is
+   reverted and also stops the auto-merge.
 3. **No test chat may ever become visible**, whether in T3 Code, `codex resume`,
    `cursor-agent ls`, or `claude --resume`.
    - Call non-Claude models **only** through the worktree's copy of the router:
@@ -316,8 +350,8 @@ Decision rules:
     "User-Facing", "Reviews & Planning", and "Subagent & Workflow Guidelines"
     (orchestrator defaults).
   - Update the Claude Models section of model-usage.md.
-  - Update `tests/workflows/orchestration-smoke-claude.js` if its model list
-    names versions.
+  - If `tests/workflows/orchestration-smoke-claude.js`'s model list names
+    versions, don't edit it (code); add a "Needs Dan" line instead.
   - Replace an old Claude row only when the alias (`opus`, `sonnet`, `fable`)
     now points at the new model. Otherwise add a row.
 
@@ -339,17 +373,17 @@ to update (see commit 3d3f857, grok-4.7):
 
 1. `bin/routes.tsv`: rows, plus dated rationale `#` comments. Keep the header
    accurate.
-2. `hooks/route-guard.sh`: the `RETIRED` dict, for newly retired ids.
-3. `tests/routecheck.sh`: the mock-catalog fixture (the list the Tier 0.5
-   mock `cursor-agent --list-models` / `codex debug models` return).
-   - It must contain **every routed id**. Otherwise the mock tier reports it
-     as vanished.
-   - Its hypothetical "next version" ids (e.g. `grok-4.8`, `gpt-7-nova`) must
-     stay ahead of the routed ones, together with the assertions that name
-     them ("stops at grok-4.7"). Keep the header comment example consistent.
-4. `tests/workflows/orchestration-smoke-model-runner.js`: `IDS` and `TASKS`
-   must match routes.tsv task rows and preferred ids. The exception is
-   `x-recency`, which stays out on purpose (see the comment there).
+2. `hooks/route-guard.sh`: the `RETIRED` dict, for newly retired ids — one
+   `    "old-id": "successor-id",` line each, nothing else.
+3. `tests/mock-catalog.tsv` (data read by routecheck's Tier 0.5 mock tier —
+   never edit `tests/routecheck.sh` for a route change): see its header.
+   - It must list **every routed cursor/codex id** as `routed`, or the mock
+     tier reports it vanished.
+   - Its hypothetical "next version" ids (e.g. `grok-4.8`, `gpt-7-nova`) and
+     the matching `newer` rows must stay ahead of the routed ones.
+4. `tests/workflows/orchestration-smoke-model-runner.js` (`IDS`/`TASKS`): do
+   NOT edit it (code — it would park the PR). If its lists are now stale, add
+   one "Needs Dan" line saying so.
 5. `model-selection.md`:
    - rankings intro: dates, and the "X added YYYY-MM-DD" sentence
    - table rows
@@ -451,7 +485,7 @@ Skip this step only if the tree has no changes besides `scout/`.
 4. Run:
 
    ```bash
-   bash bin/model-run.sh --task-type second-review "$w/review-prompt.md" "$w" > "$w/review-out.md" 2>&1; echo "exit=$?"
+   bash bin/model-run.sh --task-type second-review "$w/review-prompt.md" "$w" > "$w/review-out.md" 2>&1; echo "model-run-exit=$?" | tee -a "$w/review-out.md"
    cp "$w/review-out.md" "$MODEL_SCOUT_ARTIFACTS/second-review.md"
    ```
 
@@ -497,11 +531,12 @@ Write GitHub markdown, in this order:
   line (x_search / web_search counts, cost), or its failure and the fallback
   that ran instead; and which Claude searches and fetches you did.
 - **Needs Dan**: anything outside your allowed files, judgment calls you were
-  unsure about, and auth problems.
+  unsure about (and therefore did **not** make — an unsure change would go
+  live unreviewed), and auth problems.
 
-If Run context says this run stacks on an open scout PR, keep the previous
-report. Put today's section on top under a dated `##` heading and update the
-`#` title.
+Each run starts from a fresh master and writes a fresh report. An older scout
+PR that was still open has already been merged or closed by the wrapper before
+you started.
 
 ## Step 7: Status line (last action, mandatory)
 
@@ -516,6 +551,11 @@ Write exactly one line to `$MODEL_SCOUT_ARTIFACTS/status`, using one of:
   `blocked grok fallback exit 75: cursor-agent not logged in`.
   An x-recency failure that the fallback covered is **not** blocked: write
   `ok ...`. The wrapper records that as degraded by itself.
+
+If the report has anything under **Needs Dan**, also write those items to
+`$MODEL_SCOUT_ARTIFACTS/needs-dan`, one short line each (at most 5). The PR
+will usually be merged without anyone reading it, so this file is how Dan finds
+out: the session banner prints it. Leave the file absent when there is nothing.
 
 The wrapper uses the summary as the commit subject and PR title. Then reply with
 the same line as your final message.

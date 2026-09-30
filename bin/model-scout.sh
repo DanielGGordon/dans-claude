@@ -8,23 +8,36 @@
 #
 #   bash ~/dotfiles/claude/bin/model-scout.sh [--base <ref>] [--no-pr] [--repo <dir>] [--dry-run]
 #
-#   --base <ref>  base the scout worktree on <ref> (default: origin/master after
-#                 fetch, or the branch of an already-open claude/model-scout-* PR)
-#   --no-pr       commit on a local branch only (printed); never push / open a PR
+#   --base <ref>  base the scout worktree on <ref> (default: a fresh origin/master);
+#                 a manual run: never auto-merged, older scout PRs left alone
+#   --no-pr       commit on a local branch only (printed); never push, open, merge
+#                 or close a PR (older scout PRs are only evaluated, logged)
 #   --repo <dir>  repo to work from (default ~/dotfiles/claude)
 #   --dry-run     run the zero-token pre-steps + cleanup only; skip the agentic
-#                 step, commit and push
+#                 step, commit, push and every PR write
+#
+# Routing updates 100% automatically: the PR is the audit trail, and the scout
+# merges it itself when every gate passes (the one sanctioned exception to
+# CLAUDE.md's "a human merges PRs"; it still never pushes to master directly).
 #
 # One run:
 #  1. flock single-instance; log to ~/.claude/model-scout/logs/<YYYY-MM-DD>.log
 #     (30 days kept, plus <date>.report.md / .grok.md / .grok-fallback.md /
 #     .review.md / .patch).
-#  2. A throwaway git worktree of --repo in ~/.cache/model-scout/wt-<date>,
-#     detached at the base — the live ~/dotfiles/claude checkout is never touched.
-#  3. Deterministic pre-steps (zero model tokens except routecheck's ~100/route),
+#  2. Older open scout PRs (never stacked on any more). Only PRs this job owns
+#     are touched: claude/model-scout-* branch, author == `gh api user`, same
+#     repo, base master, the wrapper's body marker. Each is merged ONLY on
+#     positive evidence — `<!-- scout-verified-sha: <sha> -->` in its body
+#     (written after every gate passed on <sha>) == its head, the head already
+#     contains origin/master, MERGEABLE, path gate ok; anything else is closed
+#     as superseded (branch kept). A PR that can't be closed blocks publication
+#     today (pr-needs-review). Then a fresh origin/master is fetched.
+#  3. A throwaway git worktree of --repo in ~/.cache/model-scout/wt-<date>,
+#     detached at origin/master — the live checkout is only touched in step 8.
+#  4. Deterministic pre-steps (zero model tokens except routecheck's ~100/route),
 #     captured as "signals": CLI versions (cli-fingerprint.sh), tests/routecheck.sh,
 #     catalog-drift.sh live + --unrouted.
-#  4. Agentic step: headless `claude -p --no-session-persistence` (opus, high
+#  5. Agentic step: headless `claude -p --no-session-persistence` (opus, high
 #     effort, bypassPermissions — unattended, confined to the worktree by the
 #     prompt AND by --disallowedTools deny rules + refusing git commit/push
 #     hooks: no commit, push, gh pr write, crontab or install.sh) running
@@ -39,26 +52,45 @@
 #     with >=1 x_search call = full research. x-recency failed (exit 75/73/124,
 #     or 0 x_search calls) = the agent must fall back to `--task-type recency`
 #     (cursor grok, web only) and announce it in the report; the run is then
-#     recorded DEGRADED (status "degraded", not "failed"; a 75 is named, e.g.
-#     "XAI_API_KEY rejected"). No grok output, output that isn't model-run's,
-#     or both passes failing = BLOCKED (failed). Every routecheck in the run
-#     writes its verdict to the artifacts dir (ROUTE_HEALTH_FILE/_TOOLS), never
-#     the live banner's files, except the pre-run one on an unmodified
-#     origin/master.
-#  5. Gate + publish: only files on an allowlist may change (anything else is
+#     recorded DEGRADED (a 75 is named, e.g. "XAI_API_KEY rejected"). No grok
+#     output, output that isn't model-run's, or both passes failing = BLOCKED
+#     (failed). Every routecheck in the run writes its verdict to the artifacts
+#     dir (ROUTE_HEALTH_FILE/_TOOLS), never the live banner's files, except the
+#     pre-run one on an unmodified origin/master and the final one of a tree
+#     that was merged and pulled into the live checkout.
+#  6. Commit gate: only files on an allowlist may change (anything else is
 #     reverted and logged); `routecheck --no-live` must pass (xai key/credit
-#     failures only WARN there: ROUTECHECK_XAI_SOFT=1); then commit on
-#     claude/model-scout-<date> (or the open scout PR's branch — at most ONE
-#     open scout PR: a failed `gh pr list` aborts rather than risk a second;
-#     the PR's state is re-checked right before pushing — MERGED replays the
-#     commit onto origin/master, CLOSED/unknown keeps it on a local branch and
-#     fails), push, and `gh pr create` against master with
-#     scout/last-report.md as the body. Never pushes to master.
-#  6. ALWAYS (EXIT trap): retry any queued failed cleanups, then
+#     failures only WARN there: ROUTECHECK_XAI_SOFT=1); commit, push
+#     claude/model-scout-<date>, `gh pr create` against master with
+#     scout/last-report.md as the body.
+#  7. Auto-merge gates — ALL must hold, else the PR stays open
+#     ("pr-needs-review", with the reason): no explicit --base; not BLOCKED;
+#     the second review really ran (second_review_ok: model-run's own output,
+#     exit 0); the PR diff against a freshly fetched origin/master is DATA only
+#     (AUTOMERGE_PATHS: routes.tsv, the routing .md docs, scout/evaluated.tsv +
+#     last-report.md, tests/mock-catalog.tsv — in frontmatter only the
+#     description: line; hooks/route-guard.sh only as literal RETIRED entries) — any code, even a CLI-break repair, waits for a
+#     human; `routecheck --no-live` passed; a wrapper-run FINAL live routecheck
+#     of exactly the committed SHA passes (only xai-key failures tolerated =
+#     degraded, still merges). Right before EVERY merge: fetch, and the head
+#     must contain origin/master whatever GitHub says; if not, rebase ONCE,
+#     then path gate + `routecheck --no-live` + the final live routecheck all
+#     run again on the new SHA before push --force-with-lease and retry (a
+#     conflict leaves the PR open). Then MERGEABLE, then `gh pr merge --squash
+#     --delete-branch --match-head-commit`.
+#  8. After any merge (step 2 or 7), and every run while an earlier lag is
+#     unresolved: refresh the LIVE checkout (MODEL_SCOUT_LIVE_REPO,
+#     ~/dotfiles/claude), whose bin/routes.tsv is read in place. Never a
+#     command that moves "whatever HEAD points at": master itself is moved by
+#     a compare-and-swap update-ref, and the work tree by `read-tree -m -u`
+#     only while HEAD is still master (see update_live_checkout), then
+#     `install.sh --cron-only`. Otherwise nothing checked out is touched;
+#     last-run.json keeps live_checkout_behind=<branch>, the banner says so.
+#  9. ALWAYS (EXIT trap): retry any queued failed cleanups, then
 #     bin/test-chat-cleanup.sh for this run's marker + workdirs and
 #     bin/t3-purge-test-threads.sh --apply (a failure is queued in
 #     ~/.claude/model-scout/pending-cleanup.tsv and marks the run failed),
-#     remove the worktree and temp dirs, then write last-run.json.
+#     step 8, remove the worktree and temp dirs, then write last-run.json.
 #
 # No test chat may survive a run: every model call runs with
 # MODEL_RUN_EPHEMERAL=1 (codex --ephemeral), in a mktemp workdir (cursor has no
@@ -69,33 +101,425 @@
 # out master), never from the worktree the agent was allowed to edit.
 #
 # State ~/.claude/model-scout/last-run.json (read by hooks/route-health-banner.sh):
-#   {date, status: "no-change"|"pr"|"local-commit"|"degraded"|"failed", pr_url,
-#    summary, log, finished_at, started_at, last_success, last_x_success,
-#    marker, branch, cleanup, open_pr}
-# open_pr = a scout PR known to be open, kept across no-change runs.
+#   {date, status: "no-change"|"merged"|"pr-needs-review"|"local-commit"|
+#    "degraded"|"failed", pr_url, summary, needs_review, degraded, log,
+#    finished_at, started_at, last_success, last_x_success, marker, branch,
+#    cleanup, open_pr, needs_dan, live_checkout_behind, live_checkout_note,
+#    live_target}
+# needs_dan = the agent's "Needs Dan" items (artifacts/needs-dan): an auto-merged
+# PR's report has no reader, so the banner prints them.
+# "merged" = today's PR was auto-merged (pr_url); `degraded` then names why the
+# research had no X search (the banner prints one quiet line). "pr-needs-review"
+# = today's PR is open, `needs_review` says which gate stopped the merge.
+# open_pr = a scout PR still open after this run (the next run merges/closes it).
+# live_checkout_behind = the live checkout's branch when it could not be
+# fast-forwarded to the merged master (live_target); the banner re-checks.
 # "local-commit" = --no-pr (explicit, or forced by --base next to an open scout
 # PR) and the agent produced a commit: it sits on the local branch `branch`,
 # unpublished.
-# "degraded" = the run worked (any PR is published) but its research had no X
-# search (x-recency failed; the cursor-grok web-only fallback ran), or the live
+# "degraded" = a no-change / local-commit run whose research had no X search
+# (x-recency failed; the cursor-grok web-only fallback ran), or whose live
 # routecheck fails ONLY the xai route (auth:xai / its smoke: a rejected,
-# out-of-credit or rate-limited XAI_API_KEY) — the summary says why. The
-# publish gate runs routecheck with ROUTECHECK_XAI_SOFT=1, so a bad key never
-# blocks the PR. "failed" also covers runs that worked but left something
-# actionable (cleanup incomplete, any other live routecheck failure); it wins
-# over "degraded". last_success follows the research outcome, not those;
-# last_x_success advances only on a measured X search (it sets the next
-# x-recency from_date, so a degraded run's gap is searched later, ≤30 days).
-# Exit: 0 no-change / pr / local-commit / degraded / dry-run · 1 failed · 0 (silently) when another run
-# holds the lock. Auth/quota errors (model-run exit 75, claude login/usage
-# limits) fail loudly into last-run.json — never substituted.
+# out-of-credit or rate-limited XAI_API_KEY) — the summary says why. "failed"
+# also covers runs that worked but left something actionable (cleanup
+# incomplete, any other live routecheck failure); it wins over everything
+# (a merge that already happened is still in pr_url / the summary).
+# last_success follows the research outcome, not those; last_x_success advances
+# only on a measured X search (it sets the next x-recency from_date, so a
+# degraded run's gap is searched later, ≤30 days).
+# Exit: 0 no-change / merged / pr-needs-review / local-commit / degraded / dry-run
+# · 1 failed · 0 (silently) when another run holds the lock. Auth/quota errors
+# (model-run exit 75, claude login/usage limits) fail loudly into last-run.json
+# — never substituted.
 #
 # Env: MODEL_SCOUT_HOME (~/.claude/model-scout) · MODEL_SCOUT_CACHE
 # (~/.cache/model-scout) · MODEL_SCOUT_TIMEOUT (5400) · MODEL_SCOUT_MODEL (opus)
 # · MODEL_SCOUT_EFFORT (high) · MODEL_SCOUT_ROUTECHECK=live|free|skip (live;
-# free = `--no-live`) · MODEL_SCOUT_BUDGET_USD (unset = no --max-budget-usd cap)
-# · MODEL_SCOUT_PROMPT (default: the base's scout/prompt.md).
+# free = `--no-live`; anything but live means no final live check = no
+# auto-merge) · MODEL_SCOUT_BUDGET_USD (unset = no --max-budget-usd cap)
+# · MODEL_SCOUT_PROMPT (default: the base's scout/prompt.md) ·
+# MODEL_SCOUT_LIVE_REPO (~/dotfiles/claude: the checkout refreshed after a
+# merge) · MODEL_SCOUT_GH_POLL (5: seconds between mergeability polls).
+# MODEL_SCOUT_LIB=1 (tests only): define the functions and return — nothing runs.
 set -u
+
+# ---------- helpers (defined first so tests can source them: MODEL_SCOUT_LIB=1) ----------
+log() { echo "[$(date +%T)] $*"; }
+section() { echo; echo "===== $* ====="; }
+
+# The ONLY paths an auto-merged scout PR may touch: routing DATA — the table,
+# the markdown docs that describe it, the scout's own log/report, and the mock
+# catalog routecheck reads. Any code (.sh/.js/.py, hooks/, tests) waits for a
+# human — even a CLI-break repair. One exception, checked strictly by
+# retired_only_changed: new literal entries in hooks/route-guard.sh's RETIRED.
+AUTOMERGE_PATHS='^(bin/routes\.tsv|model-selection\.md|model-usage\.md|agents/model-runner\.md|README\.md|system-map\.md|scout/(evaluated\.tsv|last-report\.md)|tests/mock-catalog\.tsv)$'
+
+# retired_only_changed <gitdir> <old-rev> <new-rev>: 0 iff hooks/route-guard.sh
+# differs only inside the `RETIRED = {` ... `}` block and every line of the new
+# block is a literal `    "<id>": "<id>",` entry. Prints the reason otherwise.
+retired_only_changed() {
+  local a b rc
+  a=$(mktemp) b=$(mktemp)
+  git -C "$1" show "$2:hooks/route-guard.sh" >"$a" 2>/dev/null
+  git -C "$1" show "$3:hooks/route-guard.sh" >"$b" 2>/dev/null
+  python3 - "$a" "$b" <<'PY'
+import re, sys
+def split(path):
+    lines = open(path).read().split("\n")
+    try:
+        s = lines.index("RETIRED = {"); e = lines.index("}", s)
+    except ValueError:
+        return None
+    return lines[:s] + lines[e + 1:], lines[s + 1:e]
+old, new = split(sys.argv[1]), split(sys.argv[2])
+if old is None or new is None:
+    print("RETIRED block not found"); sys.exit(1)
+if old[0] != new[0]:
+    print("changed outside the RETIRED dict"); sys.exit(1)
+entry = re.compile(r'^    "[A-Za-z0-9][A-Za-z0-9._-]*": "[A-Za-z0-9][A-Za-z0-9._-]*",$')
+badl = [l for l in new[1] if not entry.match(l)]
+if badl:
+    print("non-literal line in RETIRED: " + badl[0][:80]); sys.exit(1)
+PY
+  rc=$?; rm -f "$a" "$b"; return $rc
+}
+
+# frontmatter_ok <gitdir> <old-rev> <new-rev> <path>: an allowed .md may carry
+# YAML frontmatter that Claude EXECUTES (agents/*.md: `hooks:` etc.), so the
+# only frontmatter change auto-merge accepts is the `description:` line (the
+# model-id list). Adding/removing frontmatter, or any other line changing,
+# prints the reason and fails. The body is free.
+frontmatter_ok() {
+  local a b rc
+  a=$(mktemp) b=$(mktemp)
+  git -C "$1" show "$2:$4" >"$a" 2>/dev/null
+  git -C "$1" show "$3:$4" >"$b" 2>/dev/null
+  python3 - "$a" "$b" <<'FMPY'
+import sys
+def fm(path):
+    lines = open(path).read().split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return lines[1:i]
+    return ["<unterminated frontmatter>"]
+old, new = fm(sys.argv[1]), fm(sys.argv[2])
+if old is None and new is None:
+    sys.exit(0)
+if old is None or new is None:
+    print("frontmatter added or removed"); sys.exit(1)
+strip = lambda f: [l for l in f if not l.startswith("description: ")]
+if strip(old) != strip(new) or sum(l.startswith("description: ") for l in new) != 1:
+    print("frontmatter changed beyond the description: line"); sys.exit(1)
+FMPY
+  rc=$?; rm -f "$a" "$b"; return $rc
+}
+
+# path_gate <gitdir> <base> <head>: 0 iff the PR diff (merge-base(base, head)
+# -> head, what GitHub shows) is routing data only. Otherwise PATH_WHY says what.
+path_gate() {
+  local dir=$1 base=$2 head=$3 mb files f why bad=()
+  PATH_WHY=""
+  mb=$(git -C "$dir" merge-base "$base" "$head" 2>/dev/null) &&
+    files=$(git -C "$dir" diff --name-only "$mb" "$head") ||
+    { PATH_WHY="path gate: cannot diff $base...$head"; return 1; }
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if [[ "$f" =~ $AUTOMERGE_PATHS ]]; then
+      case "$f" in
+        *.md) why=$(frontmatter_ok "$dir" "$mb" "$head" "$f") || { bad+=("$f ($why)"); continue; } ;;
+      esac
+      continue
+    fi
+    if [ "$f" = hooks/route-guard.sh ]; then
+      why=$(retired_only_changed "$dir" "$mb" "$head") && continue
+      bad+=("$f ($why)")
+    else
+      bad+=("$f")
+    fi
+  done <<<"$files"
+  [ "${#bad[@]}" -eq 0 ] && return 0
+  PATH_WHY="touches more than routing data: $(printf '%s; ' "${bad[@]}" | sed 's/; $//')"
+  return 1
+}
+
+# second_review_ok <file> <expected-model>: the wrapper-checkable evidence that
+# the review really ran — model-run's own `--task-type second-review -> <model>`
+# line, no model-run error line, the reviewer's answer, and `model-run-exit=0`
+# (appended by the prompt's command). Sets REVIEW_WHY.
+second_review_ok() {
+  REVIEW_WHY=""
+  if [ ! -s "$1" ]; then REVIEW_WHY="no second review"
+  elif ! grep -qxF "model-run: --task-type second-review -> $2" "$1"; then REVIEW_WHY="second-review.md is not model-run --task-type second-review -> $2 output"
+  elif grep -qE '^model-run: (AUTH/QUOTA ERROR|TRANSPORT ERROR|TIMEOUT)' "$1"; then REVIEW_WHY="the second review errored ($(grep -m1 -oE '^model-run: [A-Z/ ]+ERROR|^model-run: TIMEOUT' "$1"))"
+  elif ! [ "$(grep -E '^model-run-exit=' "$1" | tail -1)" = model-run-exit=0 ]; then REVIEW_WHY="the second review did not exit 0 ($(grep -E '^model-run-exit=' "$1" | tail -1 | grep . || echo 'no model-run-exit line'))"
+  elif [ "$(grep -vE '^(model-run: |model-run-exit=)' "$1" | grep -c '[^[:space:]]')" -lt 3 ]; then REVIEW_WHY="the second review has no answer"
+  fi
+  [ -z "$REVIEW_WHY" ]
+}
+
+# remote_git <dir> <fetch|push> [option...] -- <refspec...>: via origin first;
+# if that fails (cron often has no SSH agent), over HTTPS with gh's credentials.
+remote_git() {
+  local dir=$1 op=$2 opts=()
+  shift 2
+  while [ $# -gt 0 ] && [ "$1" != -- ]; do opts+=("$1"); shift; done
+  [ $# -gt 0 ] && shift
+  timeout 180 git -C "$dir" "$op" --quiet "${opts[@]}" origin "$@" && return 0
+  [ -n "${SLUG:-}" ] || return 1
+  log "git $op via origin failed — retrying over HTTPS with gh's credentials"
+  timeout 180 git -C "$dir" -c credential.helper= -c credential.helper='!gh auth git-credential' \
+    "$op" --quiet "${opts[@]}" "https://github.com/$SLUG.git" "$@"
+}
+
+# gh against the repo by slug, from a non-repo dir: `gh pr merge --delete-branch`
+# run inside a checkout also deletes/switches LOCAL branches — never wanted here.
+ghr() { (cd "${SCRATCH:-/}" && timeout 120 gh "$@" -R "$SLUG"); }
+
+# owned_scout_prs <pr-list-json> <login> <bodydir>: the open PRs this job may
+# merge/close — scout branch name AND author == the gh login AND head in this
+# repo (not a fork) AND base master AND the wrapper's marker in the body
+# (`<!-- model-scout-pr -->`, or the "Run marker `MODEL-SCOUT-" footer of
+# pre-auto-merge PRs). Prints "branch<TAB>url<TAB>bodyfile"; anything else is
+# never touched.
+owned_scout_prs() {
+  PRS_JSON="$1" python3 - "$2" "$3" <<'PY'
+import json, os, sys
+login, bodydir = sys.argv[1], sys.argv[2]
+prs = sorted(json.loads(os.environ["PRS_JSON"]), key=lambda p: p["headRefName"])
+for i, p in enumerate(prs):
+    body = p.get("body") or ""
+    if not (p["headRefName"].startswith("claude/model-scout-")
+            and (p.get("author") or {}).get("login") == login
+            and p.get("isCrossRepository") is False
+            and p.get("baseRefName") == "master"
+            and ("<!-- model-scout-pr -->" in body or "Run marker `MODEL-SCOUT-" in body)):
+        continue
+    f = os.path.join(bodydir, "pr-body-%d.md" % i)
+    open(f, "w").write(body)
+    print("%s\t%s\t%s" % (p["headRefName"], p["url"], f))
+PY
+}
+
+# pr_mergeable <url>: sets PM_MERGEABLE (MERGEABLE|CONFLICTING|UNKNOWN),
+# PM_STATE (mergeStateStatus), PM_OID (head sha), PM_PRSTATE (OPEN|MERGED|CLOSED).
+# Polls while GitHub is still computing; 1 = no definite answer.
+pr_mergeable() {
+  local i out
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    out=$(ghr pr view "$1" --json mergeable,mergeStateStatus,headRefOid,state \
+      -q '[.mergeable,.mergeStateStatus,.headRefOid,.state]|@tsv' 2>>"${ARTIFACTS:-/tmp}/gh.err") || out=""
+    PM_MERGEABLE="" PM_STATE="" PM_OID="" PM_PRSTATE=""
+    IFS=$'\t' read -r PM_MERGEABLE PM_STATE PM_OID PM_PRSTATE <<<"$out"
+    PM_MERGEABLE=${PM_MERGEABLE:-UNKNOWN} PM_STATE=${PM_STATE:-UNKNOWN}
+    [ -n "$PM_PRSTATE" ] && [ "$PM_PRSTATE" != OPEN ] && return 0
+    [ "$PM_MERGEABLE" != UNKNOWN ] && return 0
+    [ "$i" -lt 12 ] && sleep "${MODEL_SCOUT_GH_POLL:-5}"
+  done
+  return 1
+}
+pr_is_mergeable() {  # after pr_mergeable: GitHub would merge it as-is
+  [ "$PM_PRSTATE" = OPEN ] && [ "$PM_MERGEABLE" = MERGEABLE ] &&
+    case "$PM_STATE" in BEHIND|DIRTY|DRAFT) false ;; *) true ;; esac
+}
+
+# gh_merge <url> <head-sha>: squash-merge + delete the branch, only if the head
+# is still exactly what the gates checked. 0 only once GitHub says MERGED.
+gh_merge() {
+  local out rc state
+  out=$(ghr pr merge "$1" --squash --delete-branch --match-head-commit "$2" 2>&1); rc=$?
+  [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  gh: /'
+  state=$(ghr pr view "$1" --json state -q .state 2>/dev/null)
+  [ "$state" = MERGED ] && return 0
+  GH_MERGE_WHY="gh pr merge exit $rc, PR state ${state:-unknown}: $(printf '%s' "$out" | tr '\n' ' ' | head -c 160)"
+  return 1
+}
+
+# handle_stale_prs <act 0|1>: each OPEN_PRS entry ("branch<TAB>url<TAB>bodyfile",
+# already ownership-checked) is merged ONLY on positive evidence: its body
+# carries `<!-- scout-verified-sha: <sha> -->` (written by the wrapper after
+# every gate, the final live routecheck included, passed on <sha>), <sha> is
+# its current head, the head already contains origin/master (so the merged
+# tree IS the tested tree), GitHub says MERGEABLE, and the path gate passes.
+# Anything else — missing/mismatched evidence, behind master, an API failure —
+# is closed as superseded (branch kept): today's run re-derives from master.
+# A PR that cannot be closed goes to STALE_UNRESOLVED (publication is blocked).
+# act=0 only logs. Sets MERGED_ANY, STALE_NOTES, STALE_UNRESOLVED, OPEN_PR_URL.
+handle_stale_prs() {
+  local act=$1 line b url bodyf why vsha
+  for line in "${OPEN_PRS[@]}"; do
+    IFS=$'\t' read -r b url bodyf <<<"$line"
+    why=""
+    vsha=$(grep -oE '<!-- scout-verified-sha: [0-9a-f]{40} -->' "$bodyf" 2>/dev/null | tail -1 | grep -oE '[0-9a-f]{40}')
+    log "older scout PR $url ($b)"
+    if ! remote_git "$REPO" fetch -- "+refs/heads/$b:refs/remotes/origin/$b" "+refs/heads/master:refs/remotes/origin/master"; then
+      why="could not fetch $b"
+    elif ! pr_mergeable "$url"; then
+      why="GitHub did not report its mergeability"
+    elif [ "$PM_PRSTATE" != OPEN ]; then
+      log "  already ${PM_PRSTATE:-gone} — nothing to do"; continue
+    elif [ -z "$vsha" ]; then
+      why="no scout-verified-sha evidence (its run did not pass every gate)"
+    elif [ "$vsha" != "$PM_OID" ] || [ "$(git -C "$REPO" rev-parse "origin/$b")" != "$PM_OID" ]; then
+      why="its head ${PM_OID:0:12} is not the verified ${vsha:0:12}"
+    elif ! git -C "$REPO" merge-base --is-ancestor origin/master "$PM_OID"; then
+      why="master moved since it was verified"
+    elif ! pr_is_mergeable; then
+      why="not mergeable (mergeable=$PM_MERGEABLE, mergeStateStatus=$PM_STATE)"
+    elif ! path_gate "$REPO" origin/master "$PM_OID"; then
+      why="$PATH_WHY"
+    fi
+    if [ -z "$why" ]; then
+      if [ "$act" != 1 ]; then log "  verified and current — would merge it (no PR writes in this mode)"; OPEN_PR_URL="$url"; continue; fi
+      # Freshness again right before merging (the checks above took a while).
+      if ! remote_git "$REPO" fetch -- "+refs/heads/master:refs/remotes/origin/master" ||
+         ! git -C "$REPO" merge-base --is-ancestor origin/master "$PM_OID"; then
+        why="master moved since it was verified"
+      elif gh_merge "$url" "$PM_OID"; then
+        MERGED_ANY=1; STALE_NOTES+=("merged older scout PR $url"); log "  merged"; continue
+      else
+        why="$GH_MERGE_WHY"
+      fi
+    fi
+    if [ "$act" != 1 ]; then log "  would close it: $why"; OPEN_PR_URL="$url"; continue; fi
+    if ghr pr close "$url" --comment "Superseded: the model scout run of ${DATE:-today} re-derives routing from the current master instead of building on this PR (not auto-merged: $why). The branch is kept — reopen and merge by hand if you still want these changes." >/dev/null 2>>"${ARTIFACTS:-/tmp}/gh.err"; then
+      STALE_NOTES+=("closed older scout PR $url ($why)"); log "  closed as superseded: $why"
+    else
+      OPEN_PR_URL="$url"; STALE_UNRESOLVED+=("$url (could not be closed; $why)"); log "  WARN: gh pr close failed"
+    fi
+  done
+}
+
+# try_merge_pr: merge today's PR (PR_URL, head COMMIT on BRANCH, cwd = the scout
+# worktree). Not mergeable because master moved -> rebase onto origin/master
+# ONCE; the rebased tree was never tested, so the path gate, routecheck
+# --no-live AND the final live routecheck (final_live_check) all run again
+# before a force-push with lease and retry. 1 = leave it open; NEEDS_WHY says why.
+try_merge_pr() {
+  local rebased=0 old
+  NEEDS_WHY=""
+  while :; do
+    # Freshness FIRST, whatever GitHub says: without strict up-to-date branch
+    # protection GitHub reports MERGEABLE for a head behind master, and the
+    # merged (combined) tree would be one no gate ever tested.
+    remote_git . fetch -- "+refs/heads/master:refs/remotes/origin/master" ||
+      { NEEDS_WHY="git fetch of master failed: cannot prove the PR is current"; return 1; }
+    if ! git merge-base --is-ancestor origin/master HEAD; then
+      [ "$rebased" = 1 ] && { NEEDS_WHY="master moved again after the one rebase"; return 1; }
+      rebased=1
+      FINAL_LIVE="" FINAL_SHA=""   # whatever was verified, it was not this tree
+      log "master moved — rebasing onto origin/master once and re-running every gate"
+      if ! git -c user.useConfigOnly=true rebase --quiet origin/master >/dev/null 2>&1; then
+        git rebase --abort >/dev/null 2>&1
+        NEEDS_WHY="master moved and the scout branch does not rebase cleanly onto it (conflict)"; return 1
+      fi
+      path_gate . origin/master HEAD || { NEEDS_WHY="after rebase: $PATH_WHY"; return 1; }
+      ROUTE_HEALTH_FILE="$ARTIFACTS/rebase-health.txt" ROUTE_HEALTH_TOOLS="$ARTIFACTS/rebase-tools.txt" \
+        ROUTECHECK_XAI_SOFT=1 timeout 600 bash tests/routecheck.sh --no-live >"$ARTIFACTS/routecheck-rebase.txt" 2>&1 9>&- ||
+        { NEEDS_WHY="routecheck --no-live fails after rebasing onto the moved master"; return 1; }
+      final_live_check || { NEEDS_WHY="after rebase: $FINAL_WHY"; return 1; }
+      old=$COMMIT
+      remote_git . push "--force-with-lease=refs/heads/$BRANCH:$old" -- "HEAD:refs/heads/$BRANCH" ||
+        { NEEDS_WHY="rebased, but the force-push (with lease) of $BRANCH failed"; return 1; }
+      COMMIT=$(git rev-parse HEAD)
+      log "rebased + re-verified + force-pushed $BRANCH: ${old:0:12} -> ${COMMIT:0:12}"
+      # Re-bind the eligibility evidence to the new head (for a later run).
+      if [ -s "${BODY:-}" ]; then
+        sed -i "s/<!-- scout-verified-sha: [0-9a-f]\{40\} -->/<!-- scout-verified-sha: $COMMIT -->/" "$BODY"
+        ghr pr edit "$PR_URL" --body-file "$BODY" >/dev/null 2>&1 || log "WARN: gh pr edit (verified sha) failed"
+      fi
+      sleep "${MODEL_SCOUT_GH_POLL:-5}"
+      continue   # re-fetch: master may have moved again meanwhile
+    fi
+    if ! pr_mergeable "$PR_URL"; then NEEDS_WHY="GitHub did not report mergeability of $PR_URL"; return 1; fi
+    [ "$PM_PRSTATE" = OPEN ] || { NEEDS_WHY="PR is ${PM_PRSTATE:-gone}, not open"; return 1; }
+    pr_is_mergeable || { NEEDS_WHY="not mergeable although current with master (mergeable=$PM_MERGEABLE, mergeStateStatus=$PM_STATE)"; return 1; }
+    [ "$PM_OID" = "$COMMIT" ] || { NEEDS_WHY="PR head is ${PM_OID:0:12}, not the gated commit ${COMMIT:0:12}"; return 1; }
+    [ "$FINAL_LIVE" = ok ] && [ "$FINAL_SHA" = "$COMMIT" ] || { NEEDS_WHY="no passing final live routecheck of ${COMMIT:0:12}"; return 1; }
+    gh_merge "$PR_URL" "$COMMIT" && return 0
+    NEEDS_WHY="$GH_MERGE_WHY"; return 1
+  done
+}
+
+# update_live_checkout: bring the live checkout (read in place: bin/routes.tsv,
+# the docs through ~/.claude symlinks) to origin/master without ever running a
+# command that moves "whatever HEAD points at" — so no interleaving with a
+# human's `git switch` can advance their branch:
+#   1. fetch; new = origin/master, old = refs/heads/master (must fast-forward);
+#   2. move master ITSELF with a compare-and-swap: update-ref master new old;
+#   3. only if HEAD is still refs/heads/master: update index + work tree with
+#      the two-tree merge `read-tree -m -u old new` (keeps unrelated local
+#      edits, refuses if a locally modified file changes — like pull --ff-only);
+#   4. re-check HEAD: if it switched meanwhile, touch nothing more and record
+#      "switched branches during the routing update; run git status". A
+#      refused read-tree moves master back with a CAS (only moves master) and
+#      records the lag; if that CAS fails it records "master ref updated, work
+#      tree needs `git reset --keep master`". Never forced.
+# Not on master: step 2 still fast-forwards the (not checked out) master ref —
+# harmless — and the checkout is recorded as lagging on its branch.
+# Sets LIVE_BEHIND / LIVE_NOTE / LIVE_TARGET (all empty = the live checkout
+# contains master) and LIVE_UPDATED. _live_hook <phase> is a no-op test seam.
+_live_hook() { :; }
+update_live_checkout() {
+  local live=$LIVE_REPO old new ref out
+  LIVE_UPDATED=0
+  if ! git -C "$live" rev-parse --git-dir >/dev/null 2>&1; then
+    LIVE_NOTE="live checkout $live is not a git repo — not updated"; LIVE_BEHIND="${LIVE_BEHIND:-unknown}"; log "WARN: $LIVE_NOTE"; return
+  fi
+  if ! remote_git "$live" fetch -- "+refs/heads/master:refs/remotes/origin/master"; then
+    LIVE_BEHIND="${LIVE_BEHIND:-unknown}"; LIVE_NOTE="git fetch of master into $live failed"; log "WARN: $LIVE_NOTE"; return
+  fi
+  _live_hook after-fetch
+  new=$(git -C "$live" rev-parse origin/master)
+  old=$(git -C "$live" rev-parse -q --verify refs/heads/master) || old=""
+  _live_lag() { LIVE_BEHIND=$1 LIVE_NOTE=$2 LIVE_TARGET=$new; log "live checkout NOT updated: $2"; }
+  if [ -n "$old" ] && [ "$old" != "$new" ]; then
+    if ! git -C "$live" merge-base --is-ancestor "$old" "$new"; then
+      _live_lag master "local master has commits origin/master lacks — nothing forced"; return
+    fi
+    git -C "$live" update-ref -m "model-scout: fast-forward master" refs/heads/master "$new" "$old" ||
+      { _live_lag master "master moved while being updated — nothing forced"; return; }
+    log "live master ref fast-forwarded ${old:0:12} -> ${new:0:12} (compare-and-swap)"
+    _live_hook after-ref-update
+    ref=$(git -C "$live" symbolic-ref -q HEAD) || ref=""
+    if [ "$ref" = refs/heads/master ]; then
+      git -C "$live" update-index -q --refresh >/dev/null 2>&1
+      _live_hook before-read-tree
+      if out=$(git -C "$live" read-tree -m -u "$old" "$new" 2>&1); then
+        if [ "$(git -C "$live" symbolic-ref -q HEAD)" = refs/heads/master ]; then
+          LIVE_UPDATED=1
+        else  # HEAD switched mid-update: touch nothing more (a reverse read-tree would write into THAT branch's checkout)
+          _live_lag "$(git -C "$live" symbolic-ref -q --short HEAD || echo 'detached HEAD')" \
+            "live checkout switched branches during the routing update; run \`git -C $live status\` and check the routing files"
+          return
+        fi
+      elif git -C "$live" update-ref -m "model-scout: undo fast-forward" refs/heads/master "$old" "$new"; then
+        _live_lag master "git pull --ff-only would fail ($(printf '%s' "$out" | tr '\n' ' ' | head -c 160)) — nothing changed"
+        return
+      else
+        _live_lag master "master ref updated, but the work tree could not be ($(printf '%s' "$out" | tr '\n' ' ' | head -c 120)) — run \`git reset --keep master\` in $live"
+        return
+      fi
+    fi
+  fi
+  # Is what is checked out now current?
+  if git -C "$live" merge-base --is-ancestor "$new" HEAD; then
+    LIVE_BEHIND="" LIVE_NOTE="" LIVE_TARGET=""
+    if [ "$LIVE_UPDATED" = 1 ]; then log "live checkout $live fast-forwarded to master ${new:0:12} (pull --ff-only equivalent)"
+    else log "live checkout $live contains master ${new:0:12}"; fi
+  else
+    ref=$(git -C "$live" symbolic-ref -q --short HEAD) || ref="detached HEAD"
+    _live_lag "$ref" "$live is on ${ref}, not master — left untouched"
+    return
+  fi
+  if [ "$LIVE_UPDATED" = 1 ] && grep -q -- '--cron-only' "$live/install.sh" 2>/dev/null; then
+    log "bash $live/install.sh --cron-only"
+    bash "$live/install.sh" --cron-only 2>&1 9>&- | sed 's/^/  install: /'
+  fi
+}
+
+if [ "${MODEL_SCOUT_LIB:-0}" = 1 ]; then return 0 2>/dev/null || exit 0; fi
 
 # ---------- environment (cron gives us almost nothing) ----------
 # The cron line sources ~/.profile; belt and braces for manual/systemd runs:
@@ -122,6 +546,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 REPO="$(cd "$REPO" 2>/dev/null && pwd)" || { echo "model-scout: --repo not found" >&2; exit 64; }
+EXPLICIT_BASE="$BASE"   # a manual --base run never auto-merges
 
 SCOUT_HOME="${MODEL_SCOUT_HOME:-$HOME/.claude/model-scout}"
 CACHE="${MODEL_SCOUT_CACHE:-$HOME/.cache/model-scout}"
@@ -148,9 +573,6 @@ fi
 exec 3>&1
 echo "model-scout: $(date -Is) start — log $LOG" >&3
 if [ -t 1 ]; then exec > >(tee -a "$LOG") 2>&1; else exec >>"$LOG" 2>&1; fi
-log() { echo "[$(date +%T)] $*"; }
-section() { echo; echo "===== $* ====="; }
-
 RUN_START=$(date +%s)
 MARKER="MODEL-SCOUT-$DATE-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
 section "model-scout run $MARKER ($(date -Is))"
@@ -162,7 +584,7 @@ log "repo=$REPO base=${BASE:-auto} no_pr=$NO_PR dry_run=$DRY_RUN routecheck=$ROU
 PREV_SUCCESS=$(python3 -c 'import json,sys
 try: d=json.load(open(sys.argv[1]))
 except Exception: sys.exit()
-print(d["last_success"] or "" if "last_success" in d else (d.get("date") if d.get("status") in ("no-change","pr","local-commit") else "") or "")' "$STATE" 2>/dev/null)
+print(d["last_success"] or "" if "last_success" in d else (d.get("date") if d.get("status") in ("no-change","pr","merged","pr-needs-review","local-commit") else "") or "")' "$STATE" 2>/dev/null)
 SINCE="${PREV_SUCCESS:-$(date -d '14 days ago' +%F)}"
 # X has its own window: a degraded run (no X search) still advances
 # last_success — its web research counted — but not last_x_success, so the
@@ -183,7 +605,32 @@ X_FULL=0               # set once the grok gate measures a real x_search pass
 STATUS=failed          # pessimistic until the run proves otherwise
 SUMMARY="run died before finishing (see log)"
 PR_URL=""
-OPEN_PR_URL=""         # a scout PR known to be open (kept in state across no-change runs)
+OPEN_PR_URL=""         # a scout PR still open after this run
+OPEN_PRS=()            # older open scout PRs found before the run ("branch<TAB>url")
+STALE_NOTES=()         # what happened to them (merged / closed as superseded)
+STALE_UNRESOLVED=()    # older owned scout PRs that could not be closed -> no publication today
+MERGED_ANY=0           # this run merged a PR (older or today's) -> refresh the live checkout
+NEEDS_REVIEW=""        # why today's PR was left open for a human
+FINAL_LIVE=""          # the wrapper's final live routecheck: ok|fail|"" ...
+FINAL_SHA=""           # ... and the commit it tested (a rebase invalidates both)
+RESEARCHED=0           # the agent step completed (only then does the research window advance)
+LIVE_REPO="${MODEL_SCOUT_LIVE_REPO:-$HOME/dotfiles/claude}"
+# An unresolved deployment lag is carried forward from the last run and
+# re-checked every run (finish), until the live checkout contains master.
+# (shell-quoted assignments, not a TSV `read`: that collapses empty fields.)
+LIVE_BEHIND="" LIVE_TARGET="" LIVE_NOTE=""
+eval "$(python3 -c 'import json,shlex,sys
+try: d=json.load(open(sys.argv[1]))
+except Exception: d={}
+for var, key in (("LIVE_BEHIND","live_checkout_behind"),("LIVE_TARGET","live_target"),("LIVE_NOTE","live_checkout_note")):
+    print("%s=%s" % (var, shlex.quote(d.get(key) or "")))' "$STATE" 2>/dev/null)"
+# The lag is live_checkout_behind; a target/note without it is a resolved leftover.
+[ -n "$LIVE_BEHIND" ] || { LIVE_TARGET="" LIVE_NOTE=""; }
+LIVE_UPDATED=0
+NEEDS_DAN=""           # the agent's "Needs Dan" items (artifacts/needs-dan), surfaced by the banner
+RESEARCH_WHY=""        # the degraded reason of a merged / pr-needs-review run (kept in state)
+RH_FAIL="" RH_XAI=""   # check_route_health's verdict on the latest live routecheck
+SLUG=""                # owner/repo on GitHub (gh -R, HTTPS fallback)
 BRANCH=""
 CLEANUP_NOTE="not run"
 DEGRADED=()            # reasons a run that otherwise worked must still be recorded "failed"
@@ -200,20 +647,27 @@ fail() { STATUS=failed; SUMMARY="$*"; log "FAILED: $*"; exit 1; }
 # JSON state, written atomically (the SessionStart hook reads it).
 write_state() {  # $1 = the status the research itself ended with (before DEGRADED)
   local last_success="$PREV_SUCCESS" last_x_success="$PREV_X_SUCCESS"
-  # A dry run did no research, so it must not shrink the next run's window.
-  if [ "${1:-$STATUS}" != failed ] && [ "$DRY_RUN" -eq 0 ]; then
+  # A run that did no research (dry run, blocked by an older PR) must not
+  # shrink the next run's window.
+  if [ "${1:-$STATUS}" != failed ] && [ "$RESEARCHED" = 1 ]; then
     last_success="$DATE"
     [ "$X_FULL" = 1 ] && last_x_success="$DATE"
   fi
   python3 - "$STATE" "$DATE" "$STATUS" "$SUMMARY" "$PR_URL" "$LOG" "$RUN_START" \
-    "$last_success" "$MARKER" "$BRANCH" "$CLEANUP_NOTE" "$OPEN_PR_URL" "$last_x_success" <<'PY'
+    "$last_success" "$MARKER" "$BRANCH" "$CLEANUP_NOTE" "$OPEN_PR_URL" "$last_x_success" \
+    "$NEEDS_REVIEW" "$RESEARCH_WHY" "$LIVE_BEHIND" "$LIVE_NOTE" "$LIVE_TARGET" "$NEEDS_DAN" <<'PY'
 import json, os, sys, time
-(p, date, status, summary, pr, log, start, last_ok, marker, branch, cleanup, open_pr, last_x) = sys.argv[1:]
+(p, date, status, summary, pr, log, start, last_ok, marker, branch, cleanup, open_pr, last_x,
+ needs_review, degraded, live_behind, live_note, live_target, needs_dan) = sys.argv[1:]
 d = {"date": date, "status": status, "pr_url": pr or None, "summary": summary,
+     "needs_review": needs_review or None, "degraded": degraded or None,
+     "needs_dan": needs_dan or None,
      "log": log, "finished_at": int(time.time()), "started_at": int(start),
      "last_success": last_ok or None, "last_x_success": last_x or None,
      "marker": marker, "branch": branch or None,
-     "cleanup": cleanup, "open_pr": open_pr or None}
+     "cleanup": cleanup, "open_pr": open_pr or None,
+     "live_checkout_behind": live_behind or None, "live_checkout_note": live_note or None,
+     "live_target": live_target or None}
 tmp = p + ".tmp"
 with open(tmp, "w") as f:
     json.dump(d, f, indent=2)
@@ -323,6 +777,22 @@ finish() {
     fi
   fi
 
+  # A merge (an older scout PR's or today's) changed master: bring the live
+  # checkout along (ff-only, on master only), and — if it now holds exactly the
+  # tree the final live routecheck passed — publish that verdict to the banner.
+  if [ "$DRY_RUN" -eq 0 ] && { [ "$MERGED_ANY" = 1 ] || [ -n "$LIVE_BEHIND" ]; }; then
+    section "live checkout"
+    update_live_checkout
+    # Publish the final live verdict only if the live checkout now holds
+    # exactly the tree that verdict tested (FINAL_SHA, not "the latest commit").
+    if [ "$LIVE_UPDATED" = 1 ] && [ -n "$FINAL_LIVE" ] && [ -n "$FINAL_SHA" ] && [ -s "${ROUTE_HEALTH_FILE:-}" ] &&
+       [ "$(git -C "$LIVE_REPO" rev-parse 'HEAD^{tree}' 2>/dev/null)" = "$(git -C "$REPO" rev-parse "$FINAL_SHA^{tree}" 2>/dev/null)" ]; then
+      cp -f "$ROUTE_HEALTH_FILE" "$LIVE_HEALTH" && cp -f "$ROUTE_HEALTH_TOOLS" "$LIVE_TOOLS" &&
+        log "published the final live routecheck verdict to $LIVE_HEALTH (live checkout = the merged tree)"
+    fi
+    [ -n "$LIVE_BEHIND" ] && notes+=("live checkout behind master: $LIVE_NOTE")
+  fi
+
   cd / || true   # we're usually sitting in the worktree we're about to delete
   if [ -n "$WT" ] && [ -d "$WT" ]; then
     git -C "$REPO" worktree remove --force "$WT" >/dev/null 2>&1 || rm -rf "$WT"
@@ -339,11 +809,18 @@ finish() {
   # RESEARCH_DEGRADED ones (no X search) as degraded — an open PR is still
   # recorded in open_pr either way. failed wins over degraded.
   local research_status="$STATUS" why
+  [ -n "$RH_XAI" ] && RESEARCH_DEGRADED+=("$RH_XAI")
+  [ -n "$RH_FAIL" ] && DEGRADED+=("$RH_FAIL")
+  if [ "${#STALE_NOTES[@]}" -gt 0 ]; then
+    SUMMARY="$SUMMARY; $(printf '%s; ' "${STALE_NOTES[@]}" | sed 's/; $//')"
+  fi
   if [ "${#RESEARCH_DEGRADED[@]}" -gt 0 ]; then
     why=$(IFS='|'; echo "${RESEARCH_DEGRADED[*]}" | sed 's/|/; /g')
     log "RESEARCH DEGRADED: $why"
+    RESEARCH_WHY="$why"
     case "$STATUS" in
       no-change|pr|local-commit) STATUS=degraded; SUMMARY="DEGRADED: $why — $SUMMARY" ;;
+      merged|pr-needs-review) SUMMARY="DEGRADED: $why — $SUMMARY" ;;   # status kept; `degraded` field set
       *) SUMMARY="$SUMMARY; DEGRADED: $why" ;;
     esac
   fi
@@ -370,50 +847,72 @@ if [ "$DRY_RUN" -eq 0 ]; then
 fi
 bash "$SELF_DIR/cli-fingerprint.sh" --versions 2>&1 | cut -f1,3 | sed 's/^/  /'
 
+# GitHub slug for gh -R / the HTTPS fallback: from origin's URL, else gh.
+SLUG=$(git -C "$REPO" remote get-url origin 2>/dev/null | sed -nE 's#^.*github\.com[:/]+##p' | sed -E 's#/$##; s#\.git$##')
+[ -n "$SLUG" ] || SLUG=$(cd "$REPO" && timeout 60 gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
+log "github repo: ${SLUG:-unknown}"
+if [ -z "$SLUG" ] && [ "$DRY_RUN" -eq 0 ] && [ "$NO_PR" -eq 0 ]; then
+  fail "cannot determine the GitHub repo (origin URL / gh repo view) — needed to open and merge the PR; use --no-pr"
+fi
+
 # ---------- base selection ----------
-# At most ONE open scout PR: if one exists, today's run stacks on its branch
-# and pushes to it, instead of opening a competing PR.
+# Always a FRESH origin/master. An older open scout PR is never stacked on any
+# more: it is merged first if it passes the gates, else closed as superseded.
 section "base"
-REUSE_BRANCH=""; REUSE_URL=""
 if command -v gh >/dev/null 2>&1; then
   # A FAILED lookup is not "no open PR": treating it so (API blip, rate limit,
   # timeout) opened a second, conflicting scout PR next to the open one
   # (review finding 2026-09-22). Parse errors count as failures too.
+  # Only PRs this job provably owns are ever merged or closed (owned_scout_prs).
   gh_rc=0
-  prs_json=$(cd "$REPO" && timeout 60 gh pr list --state open --limit 100 --json headRefName,url 2>"$ARTIFACTS/gh.err") || gh_rc=$?
-  [ "$gh_rc" -eq 0 ] && { open_pr=$(printf '%s' "$prs_json" | python3 -c 'import json,sys
-prs=[p for p in json.load(sys.stdin) if p["headRefName"].startswith("claude/model-scout-")]
-prs.sort(key=lambda p: p["headRefName"])
-print("%s\t%s" % (prs[-1]["headRefName"], prs[-1]["url"]) if prs else "")' 2>>"$ARTIFACTS/gh.err") || gh_rc=97; }
+  login=$(cd "$REPO" && timeout 60 gh api user -q .login 2>"$ARTIFACTS/gh.err") && [ -n "$login" ] || gh_rc=98
+  [ "$gh_rc" -eq 0 ] && { prs_json=$(cd "$REPO" && timeout 60 gh pr list --state open --limit 100 \
+    --json headRefName,url,author,isCrossRepository,baseRefName,body 2>"$ARTIFACTS/gh.err") || gh_rc=$?; }
+  [ "$gh_rc" -eq 0 ] && { open_prs=$(owned_scout_prs "$prs_json" "$login" "$ARTIFACTS" 2>>"$ARTIFACTS/gh.err") || gh_rc=97; }
   if [ "$gh_rc" -ne 0 ]; then
-    msg="gh pr list failed (exit $gh_rc: $(head -c 200 "$ARTIFACTS/gh.err" | tr '\n' ' ')) — cannot enforce one open scout PR"
+    msg="gh api user / pr list failed (exit $gh_rc: $(head -c 200 "$ARTIFACTS/gh.err" | tr '\n' ' ')) — cannot handle older scout PRs"
     if [ "$DRY_RUN" -eq 1 ] || [ "$NO_PR" -eq 1 ]; then log "WARN: $msg"
     elif [ -n "$BASE" ]; then log "WARN: $msg — explicit --base: committing locally only"; NO_PR=1
     else fail "$msg"; fi
-  elif [ -n "$open_pr" ]; then
-    IFS=$'\t' read -r REUSE_BRANCH REUSE_URL <<<"$open_pr"
-    OPEN_PR_URL="$REUSE_URL"
-    log "open scout PR: $REUSE_URL ($REUSE_BRANCH)"
+  elif [ -n "$open_prs" ]; then
+    while IFS= read -r line; do [ -n "$line" ] && OPEN_PRS+=("$line"); done <<<"$open_prs"
+    OPEN_PR_URL=$(cut -f2 <<<"${OPEN_PRS[-1]}")
+    log "${#OPEN_PRS[@]} open scout PR(s) owned by $login: $(printf '%s\n' "${OPEN_PRS[@]}" | cut -f2 | paste -sd' ')"
   else
     log "no open scout PR"
   fi
 else
-  log "gh missing — cannot check for an open scout PR"
+  log "gh missing — cannot check for open scout PRs"
 fi
 
 if [ -n "$BASE" ]; then
-  # An explicit base is a manual/test run: don't stack on the open PR, and
-  # don't open a second one next to it either (publish falls back to --no-pr).
-  if [ -n "$REUSE_BRANCH" ] && [ "$NO_PR" -eq 0 ]; then
+  # An explicit base is a manual/test run: leave older scout PRs alone, and
+  # don't open a second one next to them either (publish falls back to --no-pr).
+  if [ "${#OPEN_PRS[@]}" -gt 0 ] && [ "$NO_PR" -eq 0 ]; then
     log "explicit --base with an open scout PR — will commit locally only (no second PR)"
     NO_PR=1
   fi
-  REUSE_BRANCH=""; REUSE_URL=""
-elif [ -n "$REUSE_BRANCH" ]; then
-  timeout 120 git -C "$REPO" fetch --quiet origin "$REUSE_BRANCH" || fail "git fetch of open scout branch $REUSE_BRANCH failed"
-  BASE="origin/$REUSE_BRANCH"
 else
-  timeout 120 git -C "$REPO" fetch --quiet origin master || fail "git fetch origin master failed"
+  remote_git "$REPO" fetch -- "+refs/heads/master:refs/remotes/origin/master" || fail "git fetch origin master failed"
+  if [ "${#OPEN_PRS[@]}" -gt 0 ]; then
+    section "older scout PRs"
+    if [ -z "$SLUG" ]; then
+      log "WARN: GitHub repo unknown — older scout PRs not handled"
+    else
+      OPEN_PR_URL=""
+      act=1; { [ "$DRY_RUN" -eq 1 ] || [ "$NO_PR" -eq 1 ]; } && act=0
+      handle_stale_prs "$act"
+      if [ "${#STALE_UNRESOLVED[@]}" -gt 0 ]; then
+        # One open scout PR at most: while an older one can't be closed, today's
+        # run publishes nothing (it would stack a second PR and lose track of it).
+        STATUS=pr-needs-review; PR_URL="$OPEN_PR_URL"
+        NEEDS_REVIEW="older scout PR still open, publication blocked today: $(printf '%s; ' "${STALE_UNRESOLVED[@]}" | sed 's/; $//')"
+        SUMMARY="$NEEDS_REVIEW"
+        exit 0
+      fi
+      [ "$MERGED_ANY" = 1 ] && { remote_git "$REPO" fetch -- "+refs/heads/master:refs/remotes/origin/master" || fail "git fetch origin master failed after merging an older scout PR"; }
+    fi
+  fi
   BASE="origin/master"
 fi
 BASE_SHA=$(git -C "$REPO" rev-parse --verify --quiet "$BASE^{commit}") || fail "base ref not found: $BASE"
@@ -454,7 +953,7 @@ fence() { echo '```'; cat; echo '```'; }
   echo "- Today: **$DATE**. Research window: **$SINCE → $DATE** (last successful scout run: ${PREV_SUCCESS:-none — first run, window is 14 days})."
   [ "$X_SINCE" != "$SINCE" ] && echo "- X search window: **$X_SINCE → $DATE**"' (`$MODEL_SCOUT_X_SINCE`) — wider than the research window because the last run(s) had no X search; cover X chatter from that whole span.'
   echo "- Worktree (your cwd; edit ONLY here): \`$WT\`"
-  echo "- Base: \`$BASE\` (\`${BASE_SHA:0:12}\`)${REUSE_URL:+ — this stacks on the still-open scout PR $REUSE_URL: its changes are already in the tree; extend its scout/last-report.md (new dated section on top) rather than replacing it}."
+  echo "- Base: \`$BASE\` (\`${BASE_SHA:0:12}\`). Your diff becomes a PR that the wrapper MERGES ITSELF today if its gates pass (no human review): see \"What happens to your diff\" above."
   echo "- Run marker: \`$MARKER\` — must appear in EVERY prompt you send to any model."
   echo "- Throwaway workdir root: \`$WORK_ROOT\` — make each workdir with \`w=\$(mktemp -d $WORK_ROOT/w.XXXXXX) && echo \"\$w\" >> $REGISTRY\`."
   echo "- Artifacts dir: \`$ARTIFACTS\` — write \`grok-research.md\` (the x-recency pass), \`grok-fallback.md\` (only if x-recency failed), \`second-review.md\` and \`status\` here."
@@ -493,10 +992,13 @@ if [ "$BASE" = origin/master ] && [ -s "$ROUTE_HEALTH_FILE" ]; then
     log "published the live routecheck verdict to $LIVE_HEALTH (tree = origin/master, unmodified)"
 fi
 
-# The latest LIVE routecheck on this tree (the pre-run one, or the agent's
-# re-run after its edits) still failing is actionable even on a no-change run —
-# e.g. codex auth lapsed and the agent, rightly, changed nothing.
+# The latest LIVE routecheck on this tree (the pre-run one, the agent's re-run
+# after its edits, or the wrapper's final one) still failing is actionable even
+# on a no-change run — e.g. codex auth lapsed and the agent, rightly, changed
+# nothing. Sets RH_FAIL (-> failed) / RH_XAI (-> degraded); re-callable, the
+# last call wins (finish() adds them to DEGRADED / RESEARCH_DEGRADED).
 check_route_health() {
+  RH_FAIL="" RH_XAI=""
   [ -s "$ROUTE_HEALTH_FILE" ] || return 0
   grep -qE '^[0-9-]+ ok' "$ROUTE_HEALTH_FILE" && return 0
   local auth="" fails xai_names others
@@ -509,12 +1011,12 @@ check_route_health() {
   others=$(awk -v ids="$xai_names" 'BEGIN {n = split(ids, a, " "); for (i = 1; i <= n; i++) x[a[i]] = 1}
     {for (i = 1; i <= NF; i++) if (!($i in x)) printf "%s ", $i}' <<<"$fails")
   if [ -n "$fails" ] && [ -z "$others" ]; then
-    RESEARCH_DEGRADED+=("live routecheck fails only the xai route ($fails) — XAI_API_KEY rejected / out of xAI credits / rate-limited; fix the key in ~/.profile")
+    RH_XAI="live routecheck fails only the xai route ($fails) — XAI_API_KEY rejected / out of xAI credits / rate-limited; fix the key in ~/.profile"
     return 0
   fi
-  grep -qsF 'AUTH/QUOTA' "$RC_OUT" "$WORK_ROOT"/*/routecheck.txt && auth=" (AUTH/QUOTA errors: codex login / cursor-agent login)"
-  grep -qsE '^FAIL +auth:xai' "$RC_OUT" "$WORK_ROOT"/*/routecheck.txt && auth="$auth (XAI_API_KEY rejected / out of xAI credits — fix the key in ~/.profile)"
-  DEGRADED+=("live routecheck still FAILS: $(cut -d' ' -f3- "$ROUTE_HEALTH_FILE" | head -c 200)$auth")
+  grep -qsF 'AUTH/QUOTA' "$RC_OUT" "$ARTIFACTS/routecheck-final.txt" "$WORK_ROOT"/*/routecheck.txt && auth=" (AUTH/QUOTA errors: codex login / cursor-agent login)"
+  grep -qsE '^FAIL +auth:xai' "$RC_OUT" "$ARTIFACTS/routecheck-final.txt" "$WORK_ROOT"/*/routecheck.txt && auth="$auth (XAI_API_KEY rejected / out of xAI credits — fix the key in ~/.profile)"
+  RH_FAIL="live routecheck still FAILS: $(cut -d' ' -f3- "$ROUTE_HEALTH_FILE" | head -c 200)$auth"
 }
 
 DRIFT_OUT=$(timeout 180 bash bin/catalog-drift.sh 2>&1); DRIFT_RC=$?
@@ -620,6 +1122,7 @@ if [ "$A_ERR" = true ] || [ "$AGENT_RC" -ne 0 ]; then
   fail "agent failed (exit $AGENT_RC, $A_SUBTYPE): $(printf '%s' "$A_RESULT" | head -c 200)"
 fi
 
+RESEARCHED=1
 AGENT_STATUS=$(head -n1 "$ARTIFACTS/status" 2>/dev/null | tr -d '\r')
 log "agent status: ${AGENT_STATUS:-<none>}"
 [ -n "$AGENT_STATUS" ] || fail "agent finished without writing $ARTIFACTS/status (any partial diff is in logs/$DATE.patch)"
@@ -681,6 +1184,10 @@ if [ -z "$BLOCKED" ]; then
 fi
 check_route_health
 AGENT_SUMMARY="${AGENT_STATUS#ok}"; AGENT_SUMMARY="${AGENT_SUMMARY#blocked}"; AGENT_SUMMARY="${AGENT_SUMMARY# }"
+# Nobody reads a merged PR's "Needs Dan" section, so the agent also lists those
+# items in artifacts/needs-dan; they go to last-run.json and the banner.
+NEEDS_DAN=$(grep -v '^[[:space:]]*$' "$ARTIFACTS/needs-dan" 2>/dev/null | head -5 | paste -sd';' - | sed 's/;/; /g' | head -c 400)
+[ -n "$NEEDS_DAN" ] && log "needs Dan: $NEEDS_DAN"
 
 # ---------- gate ----------
 section "gate"
@@ -688,12 +1195,18 @@ section "gate"
 # Only routing-layer files may change. Anything else (install.sh, settings,
 # this script, the cleanup scripts, the scout prompt, skills) is reverted:
 # those are reviewed by hand, never rewritten by the daily job.
-ALLOW='^(bin/(routes\.tsv|model-run\.sh|catalog-drift\.sh|cli-fingerprint\.sh)|tests/routecheck\.sh|tests/workflows/[^/]+\.js|hooks/route-guard\.sh|hooks/route-health-banner\.sh|agents/model-runner\.md|model-selection\.md|model-usage\.md|README\.md|system-map\.md|scout/(evaluated\.tsv|last-report\.md))$'
+ALLOW='^(bin/(routes\.tsv|model-run\.sh|catalog-drift\.sh|cli-fingerprint\.sh)|tests/(routecheck\.sh|mock-catalog\.tsv)|tests/workflows/[^/]+\.js|hooks/route-guard\.sh|hooks/route-health-banner\.sh|agents/model-runner\.md|model-selection\.md|model-usage\.md|README\.md|system-map\.md|scout/(evaluated\.tsv|last-report\.md))$'
+# A reverted edit is kept in logs/<date>.reverted.patch, and it also stops the
+# auto-merge: the agent thought something outside the routing layer needed
+# changing, so a human should look at the whole picture.
+REVERTED=()
 git add -A
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   if ! printf '%s\n' "$f" | grep -qE "$ALLOW"; then
     log "REVERTED out-of-scope change: $f"
+    REVERTED+=("$f")
+    git diff --cached -- "$f" >>"$LOGDIR/$DATE.reverted.patch" 2>/dev/null
     git reset -q -- "$f"
     if git cat-file -e "HEAD:$f" 2>/dev/null; then git checkout -q HEAD -- "$f"; else rm -rf -- "$f"; fi
   fi
@@ -707,6 +1220,7 @@ if [ -z "$MEANINGFUL" ]; then
   else
     STATUS=no-change; SUMMARY="no routing change${AGENT_SUMMARY:+: $AGENT_SUMMARY}"
   fi
+  [ "${#REVERTED[@]}" -gt 0 ] && SUMMARY="$SUMMARY; reverted out-of-scope edit(s) ${REVERTED[*]} (logs/$DATE.reverted.patch)"
   exit 0
 fi
 log "changed files:"; git diff --cached --stat | sed 's/^/  /'
@@ -721,7 +1235,10 @@ ROUTECHECK_XAI_SOFT=1 timeout 600 bash tests/routecheck.sh --no-live >"$ARTIFACT
 GATE_RC=$?
 grep -E '^FAIL |^WARN .*ROUTECHECK_XAI_SOFT' "$ARTIFACTS/routecheck-gate.txt" | sed 's/^/  /'
 [ "$GATE_RC" -eq 0 ] || fail "routecheck --no-live fails on the agent's diff (exit $GATE_RC) — not publishing"
-[ -s "$ARTIFACTS/second-review.md" ] || AGENT_SUMMARY="${AGENT_SUMMARY:+$AGENT_SUMMARY; }NO second review"
+# The reviewer the BASE routes second-review to (the agent may not re-route
+# its own review in the same run).
+REVIEW_MODEL=$(git show "$BASE_SHA:bin/routes.tsv" 2>/dev/null | awk -F'\t' '$1=="task" && $2=="second-review" {print $3; exit}')
+second_review_ok "$ARTIFACTS/second-review.md" "${REVIEW_MODEL:-?}" || AGENT_SUMMARY="${AGENT_SUMMARY:+$AGENT_SUMMARY; }NO valid second review"
 
 # ---------- commit ----------
 section "commit"
@@ -743,6 +1260,52 @@ EOF
 COMMIT=$(git rev-parse HEAD)
 log "committed ${COMMIT:0:12}: $subject"
 
+# ---------- auto-merge gates (local part) ----------
+# final_live_check: the FINAL live routecheck, of exactly HEAD, run by the
+# wrapper (the agent's last run may predate its last edit; a rebase makes a new
+# tree). Strict — no XAI_SOFT — so its verdict is true; check_route_health then
+# tolerates xai-only failures (= degraded, still merges) and nothing else.
+# Sets FINAL_LIVE, FINAL_SHA (the tested commit), FINAL_WHY.
+final_live_check() {
+  FINAL_LIVE=fail FINAL_SHA=$(git rev-parse HEAD) FINAL_WHY=""
+  log "final live routecheck of ${FINAL_SHA:0:12}"
+  rm -f "$ROUTE_HEALTH_FILE"   # its verdict must be this run's, not an earlier one's
+  timeout 2400 bash tests/routecheck.sh >"$ARTIFACTS/routecheck-final.txt" 2>&1 9>&-
+  local rc=$?
+  log "final live routecheck exit $rc"; grep -E '^(FAIL|WARN) ' "$ARTIFACTS/routecheck-final.txt" | sed 's/^/  /'
+  if [ ! -s "$ROUTE_HEALTH_FILE" ]; then FINAL_WHY="final live routecheck exit $rc without a verdict"; return 1; fi
+  check_route_health
+  if [ -n "$RH_FAIL" ]; then FINAL_WHY="final $RH_FAIL"; return 1; fi
+  FINAL_LIVE=ok
+}
+
+# Everything that can be decided before GitHub is involved. Any reason here
+# leaves today's PR open for a human ("pr-needs-review").
+section "auto-merge gates"
+MERGE_WHY=()
+[ -n "$EXPLICIT_BASE" ] && MERGE_WHY+=("explicit --base $EXPLICIT_BASE (manual run): never auto-merged")
+[ -n "$BLOCKED" ] && MERGE_WHY+=("run BLOCKED: $BLOCKED")
+second_review_ok "$ARTIFACTS/second-review.md" "${REVIEW_MODEL:-?}" || MERGE_WHY+=("$REVIEW_WHY")
+[ "${#REVERTED[@]}" -gt 0 ] && MERGE_WHY+=("the agent also edited out-of-scope file(s), reverted — see $LOGDIR/$DATE.reverted.patch: ${REVERTED[*]}")
+# The whole PR diff against a FRESH origin/master — not against where the
+# worktree started — is what must be routing data.
+if remote_git . fetch -- "+refs/heads/master:refs/remotes/origin/master"; then
+  path_gate . origin/master HEAD || MERGE_WHY+=("$PATH_WHY")
+else
+  MERGE_WHY+=("git fetch of master failed: cannot gate the PR diff")
+fi
+if [ "${#MERGE_WHY[@]}" -gt 0 ]; then
+  log "no final live routecheck: the PR already needs review"
+elif [ "$ROUTECHECK_MODE" != live ] || ! grep -q ROUTECHECK_MARKER tests/routecheck.sh; then
+  MERGE_WHY+=("no final live routecheck (MODEL_SCOUT_ROUTECHECK=$ROUTECHECK_MODE)")
+elif [ "$NO_PR" -eq 1 ]; then
+  log "--no-pr: final live routecheck skipped (nothing will be merged)"
+else
+  final_live_check || MERGE_WHY+=("$FINAL_WHY")
+fi
+if [ "${#MERGE_WHY[@]}" -eq 0 ]; then log "local auto-merge gates: pass"
+else log "local auto-merge gates: $(printf '%s; ' "${MERGE_WHY[@]}")"; fi
+
 # ---------- publish ----------
 new_branch_name() {
   local b="claude/model-scout-$DATE"
@@ -761,63 +1324,47 @@ if [ "$NO_PR" -eq 1 ]; then
   exit 0
 fi
 
-keep_local() {  # keep_local <why>: park today's commit on a local branch, then fail
-  local b; b=$(new_branch_name)
-  git -C "$REPO" branch -f "$b" "$COMMIT" >/dev/null 2>&1 && BRANCH="$b"
-  fail "$1 — NOT published; today's commit ${COMMIT:0:12} kept on local branch ${BRANCH:-?}"
-}
-BRANCH="${REUSE_BRANCH:-$(new_branch_name)}"
-if [ -n "$REUSE_BRANCH" ]; then
-  # The user merges quickly: a push to a just-merged branch is silently
-  # orphaned. Today's commit sits ON the old scout branch, so only a MERGED PR
-  # may be "branched afresh" — by replaying the commit onto origin/master (a
-  # plain new branch would re-propose everything if it was squash-merged). A
-  # CLOSED-unmerged PR was rejected: a new PR from this commit would bring the
-  # rejected changes back. An unknown state (gh failed) proves nothing.
-  state=$(cd "$REPO" && timeout 60 gh pr view "$REUSE_URL" --json state -q .state 2>/dev/null) || state=""
-  case "$state" in
-    OPEN) ;;
-    MERGED)
-      log "scout PR $REUSE_URL was merged during the run — replaying ${COMMIT:0:12} onto origin/master"
-      OPEN_PR_URL=""
-      timeout 120 git fetch --quiet origin master || keep_local "git fetch origin master failed after $REUSE_URL merged"
-      if git checkout -q --detach origin/master && git -c user.useConfigOnly=true cherry-pick "$COMMIT" >/dev/null 2>&1; then
-        COMMIT=$(git rev-parse HEAD)
-        REUSE_BRANCH=""; REUSE_URL=""; BRANCH=$(new_branch_name)
-      else
-        git cherry-pick --abort >/dev/null 2>&1
-        keep_local "scout PR $REUSE_URL merged mid-run and today's commit does not replay cleanly onto origin/master"
-      fi ;;
-    CLOSED) OPEN_PR_URL=""; keep_local "scout PR $REUSE_URL was closed unmerged during the run (today's commit is stacked on its rejected changes)" ;;
-    *) keep_local "could not re-check scout PR $REUSE_URL before pushing (gh pr view failed)" ;;
-  esac
-fi
-if ! timeout 180 git push --quiet origin "HEAD:refs/heads/$BRANCH"; then
-  # SSH may be unavailable under cron — retry over HTTPS with gh's credentials.
-  slug=$(cd "$REPO" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
-  [ -n "$slug" ] && timeout 180 git -c credential.helper= -c credential.helper='!gh auth git-credential' \
-    push --quiet "https://github.com/$slug.git" "HEAD:refs/heads/$BRANCH" ||
-    { git -C "$REPO" branch -f "$BRANCH" "$COMMIT" >/dev/null 2>&1
-      fail "git push of $BRANCH failed (commit ${COMMIT:0:12} kept on local branch $BRANCH)"; }
+BRANCH=$(new_branch_name)
+if ! remote_git . push -- "HEAD:refs/heads/$BRANCH"; then
+  git -C "$REPO" branch -f "$BRANCH" "$COMMIT" >/dev/null 2>&1
+  fail "git push of $BRANCH failed (commit ${COMMIT:0:12} kept on local branch $BRANCH)"
 fi
 log "pushed $BRANCH"
 
 BODY="$ARTIFACTS/pr-body.md"
-{ cat scout/last-report.md; echo; echo "---"; echo "Run marker \`$MARKER\` · log \`$LOG\` · agent $A_MODEL, $A_TURNS turns, \$$A_COST"; echo
+{ cat scout/last-report.md; echo; echo "---"; echo "Run marker \`$MARKER\` · log \`$LOG\` · agent $A_MODEL, $A_TURNS turns, \$$A_COST"
+  # <!-- model-scout-pr -->: ownership marker. scout-verified-sha: the only
+  # evidence a later run accepts to merge this PR — written only after every
+  # local gate, the final live routecheck included, passed on exactly that SHA.
+  echo "<!-- model-scout-pr -->"
+  if [ "${#MERGE_WHY[@]}" -eq 0 ]; then
+    echo "<!-- scout-verified-sha: $FINAL_SHA -->Auto-merge: every local gate passed on \`${FINAL_SHA:0:12}\` (final live routecheck ok) — the scout merges this PR itself."
+  else
+    echo "Auto-merge: NOT auto-merged — $(printf '%s; ' "${MERGE_WHY[@]}" | sed 's/; $//')"
+  fi; echo
   echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"; } >"$BODY"
-if [ -n "$REUSE_BRANCH" ]; then
-  (cd "$REPO" && timeout 60 gh pr edit "$REUSE_BRANCH" --body-file "$BODY" >/dev/null) || log "WARN: gh pr edit failed"
-  PR_URL="$REUSE_URL"
-else
-  PR_URL=$(cd "$REPO" && timeout 60 gh pr create --base master --head "$BRANCH" \
-    --title "$subject" --body-file "$BODY" 2>&1 | grep -Eo 'https://github\.com/[^ ]+/pull/[0-9]+' | tail -1)
-  [ -n "$PR_URL" ] || fail "branch $BRANCH pushed but gh pr create failed"
-fi
+PR_URL=$(cd "$REPO" && timeout 60 gh pr create --base master --head "$BRANCH" \
+  --title "$subject" --body-file "$BODY" 2>&1 | grep -Eo 'https://github\.com/[^ ]+/pull/[0-9]+' | tail -1)
+[ -n "$PR_URL" ] || fail "branch $BRANCH pushed but gh pr create failed"
 OPEN_PR_URL="$PR_URL"
 log "PR: $PR_URL"
 if [ -n "$BLOCKED" ]; then
-  STATUS=failed; SUMMARY="BLOCKED: $BLOCKED — partial changes in $PR_URL"
+  STATUS=failed; SUMMARY="BLOCKED: $BLOCKED — partial changes in $PR_URL (left open)"
+  exit 0
+fi
+
+# ---------- auto-merge ----------
+section "auto-merge"
+if [ "${#MERGE_WHY[@]}" -eq 0 ] && try_merge_pr; then
+  MERGED_ANY=1; OPEN_PR_URL=""
+  STATUS=merged; SUMMARY="${AGENT_SUMMARY:-routing update} (auto-merged)"
+  log "merged $PR_URL"
 else
-  STATUS="pr"; SUMMARY="$AGENT_SUMMARY"
+  [ "${#MERGE_WHY[@]}" -eq 0 ] && MERGE_WHY+=("$NEEDS_WHY")
+  NEEDS_REVIEW=$(printf '%s; ' "${MERGE_WHY[@]}" | sed 's/; $//')
+  STATUS=pr-needs-review; SUMMARY="$AGENT_SUMMARY — left open for review: $NEEDS_REVIEW"
+  log "PR left open for review: $NEEDS_REVIEW"
+  ghr pr comment "$PR_URL" --body "Not auto-merged by the model scout: $NEEDS_REVIEW. Review and merge by hand, or leave it: the next daily run merges it if its gates pass then, otherwise closes it as superseded and re-derives from master." >/dev/null 2>&1 ||
+    log "WARN: gh pr comment failed"
 fi
 exit 0
