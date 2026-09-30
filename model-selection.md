@@ -41,6 +41,7 @@ Reliability 3\* → 4\* (hallucination 34%).
 | ------------ | --------------- | ------------ | ----- | ----------- |
 | composer-2.5 | 10              | 6            | 4*    | 5*          |
 | gpt-6-astra  | 6               | 9            | 8     | 6           |
+| gpt-6.1-sol* | 9*              | 8*           | 6*    | 5*          |
 | gpt-6-sol    | 9*              | 8            | 6*    | 5*          |
 | gpt-6-luna   | 10*             | 5*           | 4*    | 4*          |
 | grok-4.7     | 10*             | 7            | 4*    | 5*          |
@@ -55,6 +56,13 @@ Reliability 3\* → 4\* (hallucination 34%).
 | fable-5.1    | 2               | 9            | 9*    | 6*          |
 
 `*` = thin public evidence; treat as provisional.
+
+**gpt-6.1-sol** (OpenAI, released 2026-09-29; Codex's new priority-1 "latest
+workhorse", $2/$10 per Mtok, 1.05M context; route pinned to `high` effort)
+was added by hand on 2026-09-30 so it can be delegated to by id immediately.
+Its row is a **placeholder copy of gpt-6-sol's** — no benchmarks gathered yet —
+and the daily model scout will re-score it. Until then, judge its output as you
+would gpt-6-sol's (Reliability under the unsupervised bar).
 
 **Benchmark numbers below come from different index versions — never mix them.**
 The pre-2026-09 rows quote AA Intelligence Index **v4.1.1** (fable-5 59.9,

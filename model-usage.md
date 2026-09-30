@@ -76,7 +76,8 @@ messages, routecheck's test matrix and the catalog-drift check all derive from
 it. When the catalog changes, edit routes.tsv (only), then run `routecheck`.
 Current ids: run `bash ~/dotfiles/claude/bin/model-run.sh` with no args, or
 read the tsv. Codex: `gpt-6-astra` is the frontier tier (GPT-6, effort pinned to
-`high`); `gpt-6-sol` / `gpt-6-luna` (2026-09-22, catalog default effort
+`high`); `gpt-6.1-sol` (2026-09-29, needs codex-cli ≥ 0.159.0; catalog
+default `low`, pinned to `high` like Astra) is the newest Sol; `gpt-6-sol` / `gpt-6-luna` (2026-09-22, catalog default effort
 `medium`, no pin) supersede `gpt-5.6-sol` / `gpt-5.6-luna`, which stay routable
 as legacy; `gpt-5.6-terra` stays the bulk default (there is no GPT-6 Terra).
 `gpt-5.5` leaves Codex for ChatGPT sign-in on 2026-10-14. Grok: `grok-4.7-*` is

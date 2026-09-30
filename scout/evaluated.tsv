@@ -20,3 +20,4 @@ date	vendor	model	verdict	note
 2026-09-22	DeepSeek	deepseek-v4.1-flash	not-routable	GA 2026-09-10; not in Cursor/Codex catalogs (AA changelog)
 2026-09-22	Xiaomi	mimo-v2.6-pro	not-routable	2026-09-21/22, MIT weights; not in any catalog (AA changelog, mimo.mi.com)
 2026-09-22	Alibaba	qwen3.8-max / qwen3.8-omni-flash	not-routable	Sep 2026; not in any catalog (AA changelog)
+2026-09-30	OpenAI	gpt-6.1-sol	routed	added by hand (user request); scores are a placeholder copy of gpt-6-sol — scout should benchmark/re-score and decide whether it supersedes gpt-6-sol
