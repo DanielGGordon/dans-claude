@@ -451,9 +451,10 @@ try_merge_pr() {
 #   3. only if HEAD is still refs/heads/master: update index + work tree with
 #      the two-tree merge `read-tree -m -u old new` (keeps unrelated local
 #      edits, refuses if a locally modified file changes — like pull --ff-only);
-#   4. re-check HEAD. Any failure after step 2 undoes what it can (work tree
-#      back with read-tree new->old, master back with a CAS) and records the
-#      lag; if master can't be moved back it records "master ref updated, work
+#   4. re-check HEAD: if it switched meanwhile, touch nothing more and record
+#      "switched branches during the routing update; run git status". A
+#      refused read-tree moves master back with a CAS (only moves master) and
+#      records the lag; if that CAS fails it records "master ref updated, work
 #      tree needs `git reset --keep master`". Never forced.
 # Not on master: step 2 still fast-forwards the (not checked out) master ref —
 # harmless — and the checkout is recorded as lagging on its branch.
@@ -488,10 +489,9 @@ update_live_checkout() {
       if out=$(git -C "$live" read-tree -m -u "$old" "$new" 2>&1); then
         if [ "$(git -C "$live" symbolic-ref -q HEAD)" = refs/heads/master ]; then
           LIVE_UPDATED=1
-        else  # HEAD switched mid-update: put that branch's work tree back
-          git -C "$live" read-tree -m -u "$new" "$old" >/dev/null 2>&1
+        else  # HEAD switched mid-update: touch nothing more (a reverse read-tree would write into THAT branch's checkout)
           _live_lag "$(git -C "$live" symbolic-ref -q --short HEAD || echo 'detached HEAD')" \
-            "HEAD switched away from master mid-update — work tree restored, master ref updated"
+            "live checkout switched branches during the routing update; run \`git -C $live status\` and check the routing files"
           return
         fi
       elif git -C "$live" update-ref -m "model-scout: undo fast-forward" refs/heads/master "$old" "$new"; then
