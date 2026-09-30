@@ -20,15 +20,20 @@
 #    cron line is installed; without the scout they get a one-line count.
 #    Fail-open: a missing/slow/unauthenticated CLI gets one line, never a block.
 # 4. Model scout: reads ~/.claude/model-scout/last-run.json (written by the
-#    daily bin/model-scout.sh cron job) and prints ONE [model-scout] line only
-#    when it's actionable: the last run failed, the last run was DEGRADED (its
-#    research had no X search — x-recency failed, e.g. XAI_API_KEY rejected,
-#    and the web-only cursor-grok fallback ran), a scout PR is waiting for
-#    review (`open_pr`, kept across later no-change runs), a `local-commit`
-#    run's (--no-pr) unpublished branch still exists in this repo, or the last run is
-#    >36h old while the cron line is installed (so opting out with
-#    MODEL_SCOUT_CRON=0 doesn't nag forever) — including a cron job that has
-#    never managed to write last-run.json at all. No network calls.
+#    daily bin/model-scout.sh cron job, which merges its own routing PRs) and
+#    prints ONE [model-scout] line only when it's actionable: the last run
+#    failed; it was DEGRADED (its research had no X search — x-recency failed,
+#    e.g. XAI_API_KEY rejected, and the web-only cursor-grok fallback ran; for
+#    an auto-merged run that is a quiet "merged … but degraded" note); its PR
+#    was left open for review (`pr-needs-review`: URL + the gate that stopped
+#    it); another scout PR is still open (`open_pr`); the agent listed items
+#    for Dan (`needs_dan`); a `local-commit` run's (--no-pr) unpublished branch
+#    still exists in this repo; or the last run is >36h old while the cron line
+#    is installed (so opting out with MODEL_SCOUT_CRON=0 doesn't nag forever) —
+#    including a cron job that has never managed to write last-run.json at all.
+#    Plus one separate line while the live checkout lags the master the scout
+#    merged into (`live_checkout_behind`, re-checked here against HEAD, so it
+#    disappears once that branch is merged/rebased). No network calls.
 set -u
 f="$HOME/.claude/route-health.txt"
 if [ -f "$f" ]; then
@@ -96,12 +101,20 @@ import json, subprocess, sys, time
 d = json.load(open(sys.argv[1])); cron_on = sys.argv[2] == "1"
 parts = []
 status, date, summary = d.get("status"), d.get("date", "?"), (d.get("summary") or "")[:160]
-open_pr = d.get("open_pr") or (d.get("pr_url") if status == "pr" else None)
+open_pr = d.get("open_pr") or (d.get("pr_url") if status in ("pr", "pr-needs-review") else None)
 if status == "failed":
     parts.append(f"last run FAILED ({date}): {summary} — log {d.get('log', '?')}")
 elif status == "degraded":
     why = (d.get("summary") or "").removeprefix("DEGRADED: ")[:160]
     parts.append(f"WARNING last run DEGRADED ({date}): {why} — log {d.get('log', '?')}")
+elif status == "merged" and d.get("degraded"):
+    # Merged and live, but researched without X — quiet, one clause.
+    parts.append(f"auto-merged {d.get('pr_url') or 'routing PR'} ({date}) but research was degraded: {d['degraded'][:120]}")
+elif status == "pr-needs-review":
+    why = (d.get("needs_review") or summary)[:200]
+    parts.append(f"routing PR NOT auto-merged, needs review: {open_pr or d.get('pr_url')} — {why}"
+                 + (" (research also degraded: no X search)" if d.get("degraded") else ""))
+    open_pr = None   # already shown
 elif status == "local-commit" and d.get("branch"):
     # --no-pr run: its commit is only on a local branch. Info, not a warning —
     # and only while the branch exists (deleted = dealt with; the next run
@@ -110,12 +123,27 @@ elif status == "local-commit" and d.get("branch"):
     if subprocess.run(["git", "-C", sys.argv[3], "show-ref", "--verify", "--quiet", f"refs/heads/{b}"]).returncode == 0:
         parts.append(f"unpublished routing commit on local branch {b} ({date}, --no-pr) — review, then push + PR or delete it")
 if open_pr:
-    parts.append(f"routing PR awaiting review: {open_pr}" + (f" — {summary}" if status == "pr" else ""))
+    parts.append(f"scout PR still open: {open_pr}" + (f" — {summary}" if status == "pr" else "")
+                 + " (the next run merges it if its gates pass, else closes it)")
+if d.get("needs_dan"):
+    parts.append(f"needs Dan ({date}): {d['needs_dan'][:200]}")
 age_h = (time.time() - (d.get("finished_at") or 0)) / 3600
 if cron_on and age_h > 36:
     parts.append(f"last run was {date} ({age_h:.0f}h ago) — the daily cron job isn't running; see ~/.claude/model-scout/cron.log")
 if parts:
     print("[model-scout] " + "; ".join(parts))
+# Routing is read live from this checkout: say so while it lags the merged master.
+behind, target = d.get("live_checkout_behind"), d.get("live_target")
+if behind:
+    lags = True
+    if target:
+        lags = subprocess.run(["git", "-C", sys.argv[3], "merge-base", "--is-ancestor", target, "HEAD"],
+                              stderr=subprocess.DEVNULL).returncode != 0
+    if lags:
+        if behind == "master":
+            print(f"[model-scout] routing on disk lags master: {d.get('live_checkout_note') or 'git pull --ff-only failed'} — run `git -C {sys.argv[3]} pull --ff-only`")
+        else:
+            print(f"[model-scout] routing on disk lags master: {sys.argv[3]} is on '{behind}', so the routing the scout merged ({date}) is not live until that branch is merged or rebased onto master")
 PY
 fi
 exit 0
