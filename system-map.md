@@ -261,9 +261,11 @@ the route-health, `[model-scout]` and `[alfred]` banners. See `README.md` there.
   updates the routing table/docs in its own worktree under
   `~/.cache/model-scout/` (always based on a fresh `origin/master`), opens a
   `claude/model-scout-*` PR against this repo's master and **merges it itself**
-  (`gh pr merge --squash`) when its gates pass — the one sanctioned auto-merge;
-  it never pushes to master directly. An older still-open scout PR is merged
-  first if it passes, else closed as superseded. After a merge it fast-forwards
+  (`gh pr merge --squash`) when its gates pass — data-only diffs (routes.tsv,
+  routing docs, `tests/mock-catalog.tsv`); any code change waits for a human.
+  The one sanctioned auto-merge; it never pushes to master directly. An older
+  scout PR it owns is merged first only if the wrapper verified its exact head
+  SHA, else closed as superseded. After a merge it fast-forwards
   THIS live checkout (`~/dotfiles/claude`, whose `bin/routes.tsv` every
   delegation reads) only when it is on `master`; on a feature branch it
   touches nothing and the `[model-scout]` banner says routing on disk lags

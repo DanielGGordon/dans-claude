@@ -15,21 +15,23 @@ the table as it is and say so in the report.
 
 The merge gates (all must hold, otherwise the PR stays open for Dan):
 
-- you did not write `blocked`, and the second review ran;
+- you did not write `blocked`, and the second review really ran: its file is
+  model-run's `--task-type second-review` output ending in `model-run-exit=0`
+  (Step 5's command writes that line — don't change it);
 - `routecheck --no-live` passes, and a **final live routecheck** the wrapper
   runs on your committed tree passes (only xai-key failures are tolerated);
-- the diff touches only routing data: `bin/routes.tsv`, `model-selection.md`,
+- the diff is **data only**: `bin/routes.tsv`, `model-selection.md`,
   `model-usage.md`, `agents/model-runner.md`, `README.md`, `system-map.md`,
-  `scout/*`, `tests/workflows/*.js`; `hooks/route-guard.sh` only inside the
-  `RETIRED` dict; `tests/routecheck.sh` only inside its Tier 0.5 mock section,
-  without dropping a check. `bin/model-run.sh`, and the rest of
-  `tests/routecheck.sh`, auto-merge only when the pre-run live routecheck was
-  already failing (you are repairing a CLI break);
+  `scout/evaluated.tsv`, `scout/last-report.md`, `tests/mock-catalog.tsv`,
+  plus new `    "old": "successor",` lines inside `RETIRED` in
+  `hooks/route-guard.sh` (exactly that shape, one per line);
 - you edited nothing outside the allowed files (rule 2 below).
 
-Stay inside routing data unless a fix really needs more: an edit to
-`bin/catalog-drift.sh`, `bin/cli-fingerprint.sh` or the banner, for example,
-parks the whole PR (every change in it) until Dan merges it by hand.
+Any code change — `bin/model-run.sh`, `tests/routecheck.sh`, any other `.sh`,
+`.js` or `.py` file — parks the whole PR (every change in it) until Dan merges
+it by hand, **even a CLI-break repair**: a human reviews code. Make the repair
+anyway when a route is broken (it is still the right fix), but keep it as
+small as possible and say in the report that the PR waits for Dan.
 
 Your job, in order:
 
@@ -68,10 +70,13 @@ catalog drift, and unrouted catalog ids. Read it first.
      is fine.
 2. **Only these files may change.** The wrapper reverts edits to anything else:
    - `bin/routes.tsv`, `bin/model-run.sh`, `bin/catalog-drift.sh`, `bin/cli-fingerprint.sh`
-   - `tests/routecheck.sh`, `tests/workflows/*.js`
+   - `tests/routecheck.sh`, `tests/mock-catalog.tsv`, `tests/workflows/*.js`
    - `hooks/route-guard.sh`, `hooks/route-health-banner.sh`
    - `agents/model-runner.md`, `model-selection.md`, `model-usage.md`, `README.md`, `system-map.md`
    - `scout/evaluated.tsv`, `scout/last-report.md`
+
+   Only the data files among these auto-merge (see "What happens to your
+   diff"); the code ones are allowed, but park the PR for Dan.
 
    If a fix belongs somewhere else, such as `bin/test-chat-cleanup.sh` or
    `install.sh`, describe it under "Needs Dan" in the report **and** in
@@ -343,8 +348,8 @@ Decision rules:
     "User-Facing", "Reviews & Planning", and "Subagent & Workflow Guidelines"
     (orchestrator defaults).
   - Update the Claude Models section of model-usage.md.
-  - Update `tests/workflows/orchestration-smoke-claude.js` if its model list
-    names versions.
+  - If `tests/workflows/orchestration-smoke-claude.js`'s model list names
+    versions, don't edit it (code); add a "Needs Dan" line instead.
   - Replace an old Claude row only when the alias (`opus`, `sonnet`, `fable`)
     now points at the new model. Otherwise add a row.
 
@@ -366,17 +371,17 @@ to update (see commit 3d3f857, grok-4.7):
 
 1. `bin/routes.tsv`: rows, plus dated rationale `#` comments. Keep the header
    accurate.
-2. `hooks/route-guard.sh`: the `RETIRED` dict, for newly retired ids.
-3. `tests/routecheck.sh`: the mock-catalog fixture (the list the Tier 0.5
-   mock `cursor-agent --list-models` / `codex debug models` return).
-   - It must contain **every routed id**. Otherwise the mock tier reports it
-     as vanished.
-   - Its hypothetical "next version" ids (e.g. `grok-4.8`, `gpt-7-nova`) must
-     stay ahead of the routed ones, together with the assertions that name
-     them ("stops at grok-4.7"). Keep the header comment example consistent.
-4. `tests/workflows/orchestration-smoke-model-runner.js`: `IDS` and `TASKS`
-   must match routes.tsv task rows and preferred ids. The exception is
-   `x-recency`, which stays out on purpose (see the comment there).
+2. `hooks/route-guard.sh`: the `RETIRED` dict, for newly retired ids — one
+   `    "old-id": "successor-id",` line each, nothing else.
+3. `tests/mock-catalog.tsv` (data read by routecheck's Tier 0.5 mock tier —
+   never edit `tests/routecheck.sh` for a route change): see its header.
+   - It must list **every routed cursor/codex id** as `routed`, or the mock
+     tier reports it vanished.
+   - Its hypothetical "next version" ids (e.g. `grok-4.8`, `gpt-7-nova`) and
+     the matching `newer` rows must stay ahead of the routed ones.
+4. `tests/workflows/orchestration-smoke-model-runner.js` (`IDS`/`TASKS`): do
+   NOT edit it (code — it would park the PR). If its lists are now stale, add
+   one "Needs Dan" line saying so.
 5. `model-selection.md`:
    - rankings intro: dates, and the "X added YYYY-MM-DD" sentence
    - table rows
@@ -478,7 +483,7 @@ Skip this step only if the tree has no changes besides `scout/`.
 4. Run:
 
    ```bash
-   bash bin/model-run.sh --task-type second-review "$w/review-prompt.md" "$w" > "$w/review-out.md" 2>&1; echo "exit=$?"
+   bash bin/model-run.sh --task-type second-review "$w/review-prompt.md" "$w" > "$w/review-out.md" 2>&1; echo "model-run-exit=$?" | tee -a "$w/review-out.md"
    cp "$w/review-out.md" "$MODEL_SCOUT_ARTIFACTS/second-review.md"
    ```
 

@@ -167,30 +167,20 @@ grep -q -- '--task-type <type> -> <model-id>' "$AGENT_MD" && ok "agent-contract:
 # no network. This is the fake-injection seam: failure modes (auth, transport,
 # retry, prose false-positives) are provable without a live outage.
 MOCKBIN="$WORK/mockbin"; mkdir -p "$MOCKBIN"
+export MOCK_CATALOG="$DIR/tests/mock-catalog.tsv"
 cat > "$MOCKBIN/codex" <<'MOCK'
 #!/usr/bin/env bash
-# Catalog reads (used by the catalog-drift unit tests): a fake future catalog —
-# grok 4.8 / gpt-7-nova exist, cursor-grok-4.5-low is gone. gpt-6-astra is
-# present (so a routed id is NOT reported vanished); gpt-5.7-sol is included
-# deliberately and must NOT be "newer" — routed gpt-6 outranks 5.7 under the
-# detector's family-max semantics — but MUST be "unrouted" (that finding closes
-# the gap: a gpt-5.x point release or a new gpt-6 tier is still surfaced).
-# grok-4.8-* and gpt-7-nova are the other unrouted ids; auto is listed but
-# matched by routes.tsv's `ignore auto` row (2026-09-22), so it must NOT be. All grok-4.7-* ids
-# actually routed in routes.tsv are included so they are NOT reported vanished
-# — grok-4.8 is the hypothetical next bump used to exercise "newer".
+# Catalog reads (used by the catalog-drift unit tests) come from the DATA file
+# tests/mock-catalog.tsv ($MOCK_CATALOG) — see its header.
 # MOCK_MODE=catalog-down simulates a logged-out/broken CLI for the fail-open test.
 [ "${MOCK_MODE:-ok}" = catalog-down ] && { echo "Not logged in"; exit 1; }
 if [ "${1:-}" = "--list-models" ]; then
-  printf 'Available models\n\nauto - Auto (default)\n'
-  for id in grok-4.8-high grok-4.8-xhigh grok-4.7-high grok-4.7-high-fast grok-4.7-xhigh grok-4.7-medium grok-4.7-low \
-            cursor-grok-4.6-high cursor-grok-4.6-high-fast \
-            cursor-grok-4.6-xhigh cursor-grok-4.6-medium cursor-grok-4.6-low cursor-grok-4.5-high \
-            cursor-grok-4.5-high-fast cursor-grok-4.5-medium composer-2.5 composer-2.5-fast glm-5.2-high glm-5.2-max; do
-    echo "$id - Mock"; done; exit 0
+  printf 'Available models\n\n'
+  awk -F'\t' '$1=="catalog" && $2=="cursor" {print $3 " - Mock"}' "$MOCK_CATALOG"; exit 0
 fi
 if [ "${1:-}" = "debug" ]; then
-  echo '{"models":[{"slug":"gpt-7-nova","visibility":"list"},{"slug":"gpt-6-astra","visibility":"list"},{"slug":"gpt-6-sol","visibility":"list"},{"slug":"gpt-6-luna","visibility":"list"},{"slug":"gpt-5.7-sol","visibility":"list"},{"slug":"gpt-5.6-sol","visibility":"list"},{"slug":"gpt-5.6-terra","visibility":"list"},{"slug":"gpt-5.6-luna","visibility":"list"},{"slug":"gpt-5.5","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}'; exit 0
+  awk -F'\t' '$1=="catalog" && $2=="codex" {printf "%s{\"slug\":\"%s\",\"visibility\":\"%s\"}", (n++ ? "," : "{\"models\":["), $3, ($4=="hidden" ? "hide" : "list")}
+    END {print "]}"}' "$MOCK_CATALOG"; exit 0
 fi
 printf '%s\n' "$*" > "${MOCK_ARGS:-/dev/null}"
 case "${MOCK_MODE:-ok}" in
@@ -335,40 +325,52 @@ grep -q -- '--ephemeral' "$WORK/args-terra-persist.txt" \
 grep -q -- '--ephemeral' "$WORK/args-cursor.txt" \
   && bad "mock:ephemeral-not-passed-to-cursor" "cursor got a codex-only flag" || ok "mock:ephemeral-not-passed-to-cursor"
 
-# catalog-drift detector against the fake future catalog above (zero tokens, no network)
+# catalog-drift detector against the mock catalog (tests/mock-catalog.tsv —
+# data only; the expected findings are listed there too). Zero tokens, no network.
+mc() { awk -F'\t' "$1" "$MOCK_CATALOG"; }
 mock_drift=$(XAI_API_KEY=mock-key CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_drift_st=$?
-mock_nv=$(grep $'^newer\t\|^vanished\t' <<<"$mock_drift")
-[ "$mock_drift_st" = 1 ] \
-  && grep -q $'^newer\t.*grok-4.8-\*.*stops at grok-4.7' <<<"$mock_nv" \
-  && grep -q $'^newer\t.*gpt-7-\*.*stops at gpt-6' <<<"$mock_nv" \
-  && grep -q $'^vanished\t.*cursor-grok-4.5-low' <<<"$mock_nv" \
-  && ! grep -q 'gpt-5.7' <<<"$mock_nv" \
-  && ! grep -q $'^vanished\t.*gpt-6-astra' <<<"$mock_nv" \
-  && ! grep -q 'glm\|composer\|xAI' <<<"$mock_nv" \
-  && ok "mock:catalog-drift-detects-newer+vanished" \
-  || bad "mock:catalog-drift-detects-newer+vanished" "exit $mock_drift_st: $(printf '%s' "$mock_drift" | tr '\n' '|')"
-# unrouted: ids no model/retired/ignore row accounts for. gpt-5.7-sol is exactly
-# the tier-at-an-old-version case version-max can't see; auto is ignored by the
-# real table's `ignore auto` row, so it must not show.
-grep -q $'^unrouted\tCodex catalog has 2 unrouted ids: gpt-5.7-sol, gpt-7-nova' <<<"$mock_drift" \
-  && grep -q $'^unrouted\tCursor catalog has 2 unrouted ids: .*grok-4.8-high' <<<"$mock_drift" \
-  && ! grep -q $'^unrouted\t.*auto' <<<"$mock_drift" \
-  && ok "mock:catalog-drift-unrouted-summary" \
-  || bad "mock:catalog-drift-unrouted-summary" "$(grep unrouted <<<"$mock_drift" | tr '\n' '|')"
+mock_why=""
+[ "$mock_drift_st" = 1 ] || mock_why="exit $mock_drift_st (want 1)"
+while IFS=$'\t' read -r glob stops; do
+  grep -qF "$glob" <<<"$(grep $'^newer\t' <<<"$mock_drift" | grep -F "stops at $stops")" || mock_why="$mock_why; no newer $glob/stops at $stops"
+done < <(mc '$1=="newer" {print $2 "\t" $3}')
+while IFS= read -r id; do
+  grep $'^vanished\t' <<<"$mock_drift" | grep -qE "(^|[^A-Za-z0-9.-])${id//./\\.}([^A-Za-z0-9.-]|$)" || mock_why="$mock_why; no vanished $id"
+done < <(mc '$1=="vanished" {print $2}')
+[ "$(grep -c $'^newer\t' <<<"$mock_drift")" = "$(mc '$1=="newer"' | grep -c .)" ] || mock_why="$mock_why; unexpected newer finding"
+[ "$(grep -c $'^vanished\t' <<<"$mock_drift")" = "$(mc '$1=="vanished"' | grep -c .)" ] || mock_why="$mock_why; unexpected vanished finding (a routed id missing from tests/mock-catalog.tsv?)"
+[ -z "$mock_why" ] && ok "mock:catalog-drift-detects-newer+vanished" \
+  || bad "mock:catalog-drift-detects-newer+vanished" "${mock_why#; } — $(grep $'^newer\t\|^vanished\t' <<<"$mock_drift" | tr '\n' '|')"
+# unrouted: ids no model/retired/ignore row accounts for — exactly the
+# `unrouted` rows (ignored ones such as auto must not show).
+mock_why=""
+for be in Codex Cursor; do
+  n=$(awk -F'\t' -v b="${be,,}" '$1=="catalog" && $2==b && $4=="unrouted"' "$MOCK_CATALOG" | grep -c .)
+  if [ "$n" -gt 0 ]; then grep -q $'^unrouted\t'"$be catalog has $n unrouted id" <<<"$mock_drift" || mock_why="$mock_why; $be summary is not $n ids"
+  else ! grep -q $'^unrouted\t'"$be catalog" <<<"$mock_drift" || mock_why="$mock_why; $be summary present, want none"; fi
+done
+[ -z "$mock_why" ] && ok "mock:catalog-drift-unrouted-summary" \
+  || bad "mock:catalog-drift-unrouted-summary" "${mock_why#; }: $(grep unrouted <<<"$mock_drift" | tr '\n' '|')"
+want_unr=$(mc '$1=="catalog" && $4=="unrouted" {print $2 "\t" $3}' | sort | tr '\n' ' ')
 mock_unr=$(XAI_API_KEY=mock-key CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$DRIFT" --unrouted 2>/dev/null); mock_unr_st=$?
 [ "$mock_unr_st" = 1 ] \
-  && [ "$(sort <<<"$mock_unr" | tr '\n' ' ')" = "$(printf 'codex\tgpt-5.7-sol\ncodex\tgpt-7-nova\ncursor\tgrok-4.8-high\ncursor\tgrok-4.8-xhigh\n' | sort | tr '\n' ' ')" ] \
+  && [ "$(sort <<<"$mock_unr" | tr '\n' ' ')" = "$want_unr" ] \
   && ok "mock:catalog-drift--unrouted-lists-ids" \
-  || bad "mock:catalog-drift--unrouted-lists-ids" "exit $mock_unr_st: $(tr '\n' '|' <<<"$mock_unr")"
-# ignore rows: bare glob matches any backend; "<backend>:<glob>" only that one
-# (cursor:gpt-7-* must NOT hide Codex's gpt-7-nova). Needs its own routes.tsv,
-# so run a copy of the detector next to a patched table.
+  || bad "mock:catalog-drift--unrouted-lists-ids" "exit $mock_unr_st: $(tr '\n' '|' <<<"$mock_unr") (want $want_unr)"
+# ignore rows: "<backend>:<glob>" hides only that backend. Hide every unrouted
+# cursor id with a cursor: row, and add a cursor: row naming a CODEX unrouted id
+# (wrong backend — must NOT hide it): exactly the codex unrouted ids remain.
+# Needs its own routes.tsv, so run a copy of the detector next to a patched table.
 IGN="$WORK/ignore-repo/bin"; mkdir -p "$IGN"; cp "$DRIFT" "$RUN" "$IGN/"
-{ cat "$TABLE"; printf 'ignore\tauto\tCursor meta-router, not a model\nignore\tcursor:grok-4.8-*\tmock: seen, not yet routed\nignore\tcursor:gpt-7-*\tmock: wrong-backend scope\n'; } > "$IGN/routes.tsv"
+{ cat "$TABLE"
+  mc '$1=="catalog" && $2=="cursor" && $4=="unrouted" {print "ignore\tcursor:" $3 "\tmock: seen, not yet routed"}'
+  mc '$1=="catalog" && $2=="codex" && $4=="unrouted" {print "ignore\tcursor:" $3 "\tmock: wrong-backend scope"; exit}'
+} > "$IGN/routes.tsv"
+want_ign=$(mc '$1=="catalog" && $2=="codex" && $4=="unrouted" {print $2 "\t" $3}' | sort | tr '\n' ' ')
 mock_ign=$(XAI_API_KEY=mock-key CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache" PATH="$MOCKBIN:$PATH" bash "$IGN/catalog-drift.sh" --unrouted 2>/dev/null)
-[ "$(sort <<<"$mock_ign" | tr '\n' ' ')" = "$(printf 'codex\tgpt-5.7-sol\ncodex\tgpt-7-nova\n' | tr '\n' ' ')" ] \
+[ -n "$want_ign" ] && [ "$(sort <<<"$mock_ign" | tr '\n' ' ')" = "$want_ign" ] \
   && ok "mock:catalog-drift-ignore-rows(+backend-scope)" \
-  || bad "mock:catalog-drift-ignore-rows(+backend-scope)" "$(tr '\n' '|' <<<"$mock_ign")"
+  || bad "mock:catalog-drift-ignore-rows(+backend-scope)" "$(tr '\n' '|' <<<"$mock_ign") (want $want_ign)"
 mock_nodrift=$(MOCK_MODE=catalog-down XAI_API_KEY=mock-key CATALOG_DRIFT_CACHE_DIR="$WORK/mock-drift-cache2" PATH="$MOCKBIN:$PATH" bash "$DRIFT" 2>&1); mock_nodrift_st=$?
 [ "$mock_nodrift_st" = 2 ] && grep -q $'^unavailable\t' <<<"$mock_nodrift" && ! grep -q $'^newer\|^vanished' <<<"$mock_nodrift" \
   && ok "mock:catalog-drift-fail-open-when-catalogs-down" \
