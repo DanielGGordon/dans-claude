@@ -34,8 +34,10 @@ model	gpt-6-astra	codex	high
 # gpt-6.1-sol: appeared in the Codex catalog by 2026-09-30 (catalog-drift
 # flagged it unrouted). Routed on Dan's request for scoped evaluations; no
 # rankings row yet -- unbenchmarked here, treat like gpt-6-sol (Reliability
-# under the unsupervised bar; judge its output). Default effort, no pin.
-model	gpt-6.1-sol	codex
+# under the unsupervised bar; judge its output). Its Codex catalog default
+# effort is LOW (like astra), so it is pinned to high; ask for medium per call
+# with MODEL_RUN_EFFORT=medium (the model-runner agent passes `effort: medium`).
+model	gpt-6.1-sol	codex	high
 model	gpt-6-sol	codex
 model	gpt-6-luna	codex
 # gpt-5.5 leaves Codex for ChatGPT sign-in (= this machine's seat auth) on

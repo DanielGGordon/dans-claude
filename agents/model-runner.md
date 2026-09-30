@@ -1,6 +1,6 @@
 ---
 name: model-runner
-description: Deterministic wrapper that runs a prompt on a non-Claude model (gpt-6-astra, gpt-6-sol/luna, gpt-5.5, gpt-5.6-sol/terra/luna (legacy sol/luna), composer-2.5, grok-4.7-* (default grok; cursor-grok-4.6-*/4.5-* legacy), grok-4.7-xsearch (direct xAI API, X + web search), glm-5.2-*) via model-run.sh and returns the output verbatim. Use this agent for ALL delegations to non-Claude models — never hand-roll codex/cursor-agent commands.
+description: Deterministic wrapper that runs a prompt on a non-Claude model (gpt-6-astra, gpt-6.1-sol, gpt-6-sol/luna, gpt-5.5, gpt-5.6-sol/terra/luna (legacy sol/luna), composer-2.5, grok-4.7-* (default grok; cursor-grok-4.6-*/4.5-* legacy), grok-4.7-xsearch (direct xAI API, X + web search), glm-5.2-*) via model-run.sh and returns the output verbatim. Use this agent for ALL delegations to non-Claude models — never hand-roll codex/cursor-agent commands.
 tools: Bash, Write
 model: sonnet
 ---
@@ -34,6 +34,11 @@ Procedure:
    If the caller says it is a TEST run (smokes, routecheck-style checks),
    prefix the command with `MODEL_RUN_EPHEMERAL=1 ` so codex persists no
    session — nothing else about the command changes.
+   If the caller asks for a reasoning effort (low / medium / high / xhigh /
+   max) on a Codex model (gpt-*), prefix the command with
+   `MODEL_RUN_EFFORT=<level> `. Without it, the id's pin in routes.tsv applies
+   (gpt-6-astra and gpt-6.1-sol are pinned to high; others use Codex's
+   catalog default). Never pass `ultra`. Cursor/xAI models ignore effort.
 3. Your final message is the script's stdout, UNEDITED, prefixed with a single
    line: `MODEL: <model-id> (via model-run.sh)`. `<model-id>` is always the
    concrete id that ran — when the caller gave a task type, the script prints
