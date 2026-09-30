@@ -173,8 +173,11 @@ run_codex() {
   # (97 ROUTE-OK threads had piled up). `--ephemeral` = "Run without persisting
   # session files to disk" (codex-cli 0.155.1).
   [ "${MODEL_RUN_EPHEMERAL:-0}" = 1 ] && args+=(--ephemeral)
+  # </dev/null: codex-cli 0.159 reads stdin whenever it isn't a TTY ("Reading
+  # additional input from stdin...") and blocks until the timeout if the
+  # caller's stdin is an open pipe (seen 2026-09-30 from a Claude Code Bash call).
   timeout "$TIMEOUT" codex exec --dangerously-bypass-approvals-and-sandbox \
-    -C "$WORKDIR" "${args[@]}" "$(cat "$PROMPTFILE")" 2>&1
+    -C "$WORKDIR" "${args[@]}" "$(cat "$PROMPTFILE")" </dev/null 2>&1
 }
 run_cursor() {
   (cd "$WORKDIR" && timeout "$TIMEOUT" cursor-agent --print --trust --force \
