@@ -1,4 +1,104 @@
-# Model scout 2026-09-30: routed gpt-6.1-sol (supersedes gpt-6-sol, pinned high); sonnet-5 row dropped
+# Model scout 2026-10-01: no route change; Gemini 4 Argon on watch (Fairwind-only); 2026-09-30: routed gpt-6.1-sol, dropped sonnet-5 row
+
+## 2026-10-01
+
+### Summary
+
+- **No routing change today.** Live catalog drift and `--unrouted` were both empty, and live routecheck was ALL ROUTES OK before and after. Only `scout/evaluated.tsv` and this report changed.
+- **Google launched Gemini 4 Argon on 2026-09-30, but it isn't usable here yet.** It is rolling out only to Google's Fairwind program (trusted cyber defenders) and the US government. Paid API and Google AI Ultra access come "next", with no date and no published API id. It is not in Cursor's or Codex's catalog, so it is **`watch`**: no rankings row, no `ignore` row.
+  - Artificial Analysis (2026-09-30) puts it at **AA Intelligence Index v4.3.2 53 (high)**, level with gpt-6-astra and 1 above gpt-6.1-sol. Its **AA-Omniscience hallucination rate is 15%**, the lowest AA has measured above 45 on the index.
+  - When it reaches Cursor's catalog it will show up as unrouted. It is then a real candidate for `second-review` on Reliability, at $1.99 per index task at the introductory price ($3.98 at list).
+- **Re-checked the watch items. None changed:** gpt-6.1-sol Ultrafast (no id or price, not in `codex debug models`), gpt-6-cyber (no release; `gpt-5.4-cyber` was shut down on 2026-10-01) and claude-haiku-5-5 (still "coming weeks").
+- **Claude Sonnet 4.5 is deprecated** (notice 2026-09-30, retires 2026-11-30, successor `claude-sonnet-5-5`). It was never routed here, and its Cursor ids are already matched by `ignore cursor:claude-4.5-*`. Logged only.
+- **The x-recency pass searched X** (`x_search=10`), so no fallback was needed.
+
+### Routing changes
+
+- **`scout/evaluated.tsv`**: 5 rows (gemini-4-argon, gpt-6.1-sol-ultrafast, gpt-6-cyber, claude-haiku-5-5, claude-sonnet-4-5).
+- No other file changed.
+
+### Models evaluated
+
+| model | vendor | released | verdict | why |
+| --- | --- | --- | --- | --- |
+| gemini-4-argon | Google | 2026-09-30 (limited) | watch | Fairwind/government only, no API id, not in any catalog. AA v4.3.2 53 (high), hallucination 15% |
+| gpt-6.1-sol-ultrafast | OpenAI | "coming days" | watch | Re-check: still no id or price, not in the Codex catalog |
+| gpt-6-cyber | OpenAI | — | watch | Re-check: no release post. gpt-5.4-cyber shut down 2026-10-01 |
+| claude-haiku-5-5 | Anthropic | "coming weeks" | watch | Re-check: still unreleased |
+| claude-sonnet-4-5 | Anthropic | (deprecated 2026-09-30) | ignore | Retires 2026-11-30. Never routed; Cursor ids already ignored |
+
+### Evidence
+
+- blog.google, "Gemini 4 Argon: our next era of frontier intelligence" (Koray Kavukcuoglu, 2026-09-30):
+  - rollout "to a set of trusted cyber defenders through our Fairwind Program", then "paid API customers and Google AI Ultra subscribers"
+  - introductory price $2 / $10 per Mtok, cached input 95% off, then $4 / $20
+  - 1M-token output limit
+  - no API id published
+  - vendor benchmarks (DeepSWE v1.1 77.9%, AutomationBench 51.3%, CWE-bench v1 68%) are not quoted in repo files
+- AA article "Gemini 4 Argon: Google is back as one of the top three labs in intelligence achieved" (2026-09-30):
+  - Intelligence Index 53 (high)
+  - AA-Omniscience hallucination rate 15%, accuracy 50%, Omniscience Index 42
+  - $1.99 per index task at launch pricing, $3.98 at list
+  - ~62k output tokens per task
+  - Terminal-Bench 4 57%
+  - "selected users only"
+- AA model page `gemini-4-argon` (fetched 2026-10-01): label "Gemini 4 Argon (High)", v4.3.2 53, $1.99 per index task, release date 2026-09-30.
+  - **Conflict:** the model page says the hallucination rate is "not publicly available", while AA's own article prints 15%. The 15% comes from the article and is quoted only in `scout/evaluated.tsv`.
+- TechCrunch (2026-09-30): Fairwind-only availability, no API id, no price.
+- developers.openai.com/api/docs/deprecations (fetched 2026-10-01): `gpt-5.4-cyber`, notice 2026-09-11, shutdown 2026-10-01. No gpt-5.5, gpt-5.6-\* or gpt-6-\* entries.
+- platform.claude.com model-deprecations (fetched 2026-10-01): `claude-sonnet-4-5-20250929` deprecated 2026-09-30, retires 2026-11-30, replacement `claude-sonnet-5-5`.
+- `cursor-agent --list-models` and `codex debug models` (live, 2026-10-01): no Gemini 4, no `gpt-6.1-sol` Ultrafast id, no GLM-5.3, no new grok, composer or kimi ids.
+
+### Unverified — not quoted
+
+- LMArena: `gemini-4-argon-high` preliminary #1 on text overall at 1533 ±9; Agent Arena #3. This is a grok lead and was not fetched.
+- @walterdelta11's claim that Argon beats Astra and Opus 5.5 on "13 of 18 benchmarks". It paraphrases a Pichai chart image.
+- The Bloomberg report, via X, that Google employees found coding weaknesses in Argon.
+- Sol Ultrafast at "6× price": derived by posters from Astra Ultrafast's multiplier, with no OpenAI price row.
+- Prediction-market odds for GPT-6 Cyber, Qwen 4 and "Gemini 4.0" in early October.
+
+### Route health
+
+- **Before** (wrapper, live): exit 0, ALL ROUTES OK, no drift, no unrouted ids.
+- **After** (live, this run): exit 0, **ALL ROUTES OK**, 126 PASS, 0 WARN, 0 FAIL. `--no-live` passes too.
+- **CLI versions:** unchanged since the 2026-09-30 run (claude 2.1.285, codex-cli 0.159.2, cursor-agent 2026.09.28-64d2043).
+  - Upstream has since shipped Claude Code 2.1.286 (2026-09-30), which retries once on the previous same-tier model when the API refuses an alias's model, and codex-cli 0.159.3 (account-security reminders).
+  - Neither changes a flag or output format the router uses.
+- **No invocation repair was needed.**
+
+### Second review
+
+Skipped: the tree has no changes outside `scout/`, per Step 5.
+
+### Research provenance
+
+- x-recency: `model-run: xai-tools x_search=10 web_search=28 x_posts=57 cited_urls=37 status=completed cost_usd=1.3457 store=false`, exit 0. **No fallback.**
+- Claude WebSearch:
+  - "new AI model release October 1 2026"
+  - "GPT-6.1 Sol Ultrafast Codex available"
+  - "Claude Haiku 5.5 release"
+  - "Gemini 4 Argon Google launch"
+  - `"Gemini 4 Argon" Artificial Analysis Intelligence Index`
+  - "blog.google Gemini 4 Argon Fairwind"
+  - "Anthropic news Claude September 30 2026"
+  - "xAI grok new model September 30 2026"
+  - Chinese labs, 2026-09-30
+- Claude WebFetch:
+  - blog.google Gemini 4 Argon post
+  - AA Argon article and model page
+  - TechCrunch Argon article
+  - geeky-gadgets (discarded as speculative)
+  - llm-stats.com updates
+  - github.com/openai/codex/releases
+  - cursor.com/changelog
+  - Claude Code CHANGELOG.md
+  - platform.claude.com model-deprecations
+  - developers.openai.com deprecations
+
+### Needs Dan
+
+- Nothing new today. When Gemini 4 Argon reaches Cursor's catalog, a scout run will route it. Expect it to challenge gpt-6-astra for `second-review`, since its hallucination rate is 15% against Astra's 51%.
+
 
 ## 2026-09-30
 
