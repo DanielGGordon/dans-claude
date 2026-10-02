@@ -58,8 +58,9 @@ capable model arrives at its weakest setting if nobody pins it. So the effort
 lives in the routing table, not in your prompt:
 
 - `bin/routes.tsv` has an optional **4th column** on `model` rows (codex only):
-  the reasoning effort for that id. `gpt-6-astra` is pinned to **`high`**;
-  everything else is blank (= backend default).
+  the reasoning effort for that id. `gpt-6-astra` and `gpt-6.1-sol` are pinned
+  to **`high`**; everything else is blank (= backend default).
+- `gpt-6.1-sol` is pinned to **`high`** too (catalog default is also `low`).
 - Override for one call with `MODEL_RUN_EFFORT=<low|medium|high|xhigh|max>`
   (e.g. `MODEL_RUN_EFFORT=xhigh bash ~/dotfiles/claude/bin/model-run.sh
   gpt-6-astra prompt.md`). Ignored with a warning on cursor-backed models.
