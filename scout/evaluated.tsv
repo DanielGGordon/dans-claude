@@ -54,3 +54,8 @@ date	vendor	model	verdict	note
 2026-10-01	OpenAI	gpt-6-cyber	watch	re-check: no release post; meanwhile gpt-5.4-cyber was shut down 2026-10-01, replacement 'the most capable cyber model available to you' (developers.openai.com/api/docs/deprecations, notice 2026-09-11)
 2026-10-01	Anthropic	claude-haiku-5-5	watch	re-check: still unreleased, 'coming weeks' (anthropic.com/claude-sonnet-5-5, 2026-09-28)
 2026-10-01	Anthropic	claude-sonnet-4-5	ignore	deprecated 2026-09-30, retires 2026-11-30 -> claude-sonnet-5-5; never routed (Claude is native), Cursor ids already matched by ignore cursor:claude-4.5-* (platform.claude.com model-deprecations)
+2026-10-02	Google	gemini-4-argon	watch	re-check: still Fairwind-only; 'Google has not given dates for the later rollout stages'; no API id; not in cursor-agent --list-models or cursor.com/docs/models (ghacks.net 2026-10-02; cursor.com/docs/models fetched 2026-10-02)
+2026-10-02	OpenAI	gpt-6.1-sol-ultrafast	watch	re-check: still 'coming days', no id or price; not in codex debug models (2026-10-02)
+2026-10-02	OpenAI	gpt-6-cyber	watch	re-check: no release, id or price; rumor lists only (grok x-recency 2026-10-02)
+2026-10-02	Anthropic	claude-haiku-5-5	watch	re-check: still unreleased; Claude Code CHANGELOG through 2.1.287 names no Haiku 5.5 (fetched 2026-10-02)
+2026-10-02	Z.ai	glm-5.3	not-routable	re-check: cursor.com/docs/models now lists GLM 5.3 / 5.3 Flash (page: 1M context, Low/High/Max, 'Add it to the model picker from Cursor Settings > Models'), but no glm-5.3* id in cursor-agent --list-models (2026-10-02); routable only once the catalog lists it
