@@ -1,4 +1,110 @@
-# Model scout 2026-10-02: no change; GLM 5.3 on Cursor's docs but not in cursor-agent's catalog; 2026-10-01: Gemini 4 Argon on watch; 2026-09-30: routed gpt-6.1-sol
+# Model scout 2026-10-03: no change; 5 watch items re-checked, Grok 4.8 added to watch; 2026-10-02: GLM 5.3 on Cursor's docs but not in cursor-agent; 2026-10-01: Gemini 4 Argon on watch; 2026-09-30: routed gpt-6.1-sol
+
+## 2026-10-03
+
+### Summary
+
+- **No routing change today.** Live catalog drift and `--unrouted` were both empty, and the wrapper's live routecheck was ALL ROUTES OK. `cursor-agent --list-models` and `codex debug models` are unchanged from 2026-10-02. Only `scout/evaluated.tsv` and this report changed.
+- **No model from a tracked lab shipped on 2026-10-02 or 2026-10-03.** Grok's X + web pass, my own searches, the AA changelog, llm-stats.com and the digitalapplied.com October tracker all agree. The window's releases are speech, decision and translation models from Microsoft, Cloudflare, Amazon and Bilibili. None of them is in either catalog.
+- **Re-checked the watch items. None changed:**
+  - Gemini 4 Argon: still Fairwind-only, with no API id or date.
+  - gpt-6.1-sol Ultrafast: OpenAI's Codex docs now say "coming later", and the catalog lists only the Fast tier.
+  - gpt-6-cyber: no release.
+  - claude-haiku-5-5: not in the Claude Code CHANGELOG through 2.1.288.
+  - GLM 5.3: still IDE opt-in only; not in `cursor-agent`.
+- **New watch item: Grok 4.8.** xAI's release notes (updated 2026-10-02) still list grok-4.7 as current. The only evidence is a single X post claiming 4.8 strings in Cursor code, which the post itself calls unverified.
+- **gpt-5.5 leaves Codex on 2026-10-14.** I re-confirmed this on OpenAI's page today. It is already documented in routes.tsv, model-usage.md and model-selection.md, so nothing to edit; the scout run on or after 10-14 should retire it when `catalog-drift` flags it vanished.
+- **The x-recency pass searched X** (`x_search=9`), so no fallback was needed.
+
+### Routing changes
+
+- **`scout/evaluated.tsv`**: 7 rows (gemini-4-argon, gpt-6.1-sol-ultrafast, gpt-6-cyber, claude-haiku-5-5, glm-5.3, grok-4.8, gpt-5.3-codex / gpt-5.1 / gpt-5.4-nano).
+- No other file changed.
+
+### Models evaluated
+
+| model | vendor | released | verdict | why |
+| --- | --- | --- | --- | --- |
+| gemini-4-argon | Google | 2026-09-30 (limited) | watch | Re-check: still Fairwind-only. No API id or public date; not in Cursor's catalog or docs |
+| gpt-6.1-sol-ultrafast | OpenAI | "coming later" | watch | Re-check: Codex docs moved from "coming days" to "coming later"; catalog lists only the priority (Fast) tier |
+| gpt-6-cyber | OpenAI | — | watch | Re-check: no release, id or price |
+| claude-haiku-5-5 | Anthropic | "coming weeks" | watch | Re-check: still unreleased |
+| glm-5.3 | Z.ai | 2026-08-14 (weights) | not-routable | Re-check: Cursor IDE opt-in via Settings > Models; absent from `cursor-agent --list-models` |
+| grok-4.8 | xAI | — | watch | Not released; xAI release notes list grok-4.7 as current; rumor only |
+| gpt-5.3-codex / gpt-5.1 / gpt-5.4-nano | OpenAI | — | ignore | API deprecation notice 2026-10-01 (shutdown 2027-04-01); never routed; Cursor ids already covered by `cursor:gpt-*` |
+
+### Evidence
+
+- learn.chatgpt.com/docs/models (the redirect target of developers.openai.com/codex/models.md; fetched 2026-10-03; page shows no date):
+  - "On October 14, 2026, GPT-5.5 will retire from ChatGPT, ChatGPT Work, and Codex on all plans … This retirement does not apply to the OpenAI API." The page names `gpt-6-sol` as the replacement for paid plans.
+  - "Ultrafast support for GPT-6.1 Sol is coming later."
+- `codex debug models` (live, 2026-10-03):
+  - Visible slugs are unchanged: gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-{sol,terra,luna}, gpt-5.5.
+  - gpt-6.1-sol lists only the `priority` ("Fast", 2x) service tier and still defaults to `low` effort; the route is pinned to high.
+- `cursor-agent --list-models` (live, 2026-10-03): unchanged. No glm-5.3, gemini-4, grok-4.8 or new composer ids.
+- developers.openai.com/api/docs/deprecations (fetched 2026-10-03): the 2026-10-01 notice deprecates `gpt-5.3-codex` and `gpt-5.1` (→ `gpt-6-sol`) and `gpt-5.4-nano` (→ `gpt-6-luna`), with shutdown on 2027-04-01. None of them is routed.
+- cursor.com/docs/models and /docs/models/glm-5-3 (fetched 2026-10-03):
+  - GLM 5.3 is listed at "$1.4" input, "$0.26" cache read and "$4.4" output, "the same per-token rates as GLM 5.2". Added via "Cursor Settings > Models".
+  - No Gemini 4, Grok 4.8, GPT-6.1 Sol, Haiku 5.5 or newer Composer.
+- forum.cursor.com/t/…/170764 (2026-09-06/07): Cursor staff said "GLM-5.3 and 5.3 Flash have never been built-in Cursor models" at that time; that user had set it up with their own API key. This explains the conflicting forum reports grok cited.
+- artificialanalysis.ai/changelog (fetched 2026-10-03): no entries on 10-02. 10-03 has only Ling 3.1 Flash (InclusionAI), 41, which isn't in either catalog.
+- Claude Code CHANGELOG (raw, fetched 2026-10-03): 2.1.288 adds `/code-review --max-findings` and fixes for `--resume` and compaction. No new model or alias, and no `-p` / `--output-format` / `--no-session-persistence` change.
+- github.com/openai/codex/releases (fetched 2026-10-03): the newest stable is still 0.160.0 (2026-10-01); 0.162.0-alpha.2/.3 are pre-releases (2026-10-02).
+- cursor.com/changelog (fetched 2026-10-03): newest entry is still 2026-09-23.
+
+### Unverified — not quoted
+
+- Grok 4.8 strings in Cursor code and Grok Build tests (@AIMarketMind, 2026-10-03): a single post that calls itself unverified.
+- GPT-6.1 Sol at "up to 73 tok/s after an OpenAI slowdown patch" (@som_dutt_, 2026-10-03): an analyst claim, not an OpenAI measurement.
+- Endor Labs Agent Security League, 2026-10-02 (grok lead; not fetched):
+  - Codex + GPT-6.1 Sol: FuncPass 77.7%, SecPass 34.1%, 0 confirmed cheating.
+  - Astra: 82.1% / 34.6%.
+- GitHub Copilot removed Gemini 3.5/3.6 Flash, Kimi K2.7 Code and Claude Opus 4.7 on 2026-10-02 (github.blog changelog, per grok; not fetched). This doesn't affect Cursor or Codex catalogs, which still list those ids (all ignored here).
+- Gemini 4 Argon vendor benchmarks (DeepSWE v1.1 77.9%, AutomationBench 51.3%), per grok from blog.google and 9to5google: there's still no route, so nothing is quoted.
+- GLM 5.3 vendor benchmarks from the HF card (Terminal-Bench 2.1 88.2, DeepSWE v1.1 66.9): not fetched; no route.
+
+### Route health
+
+- **Before** (wrapper, live): exit 0, ALL ROUTES OK, no drift, no unrouted ids.
+- **After**: `bash tests/routecheck.sh --no-live` gave 93 PASS, 0 WARN, 0 FAIL, and "FREE TIERS OK".
+  - I didn't re-run the live check because no route changed. The wrapper's live run this morning already used today's CLI versions.
+- **CLI versions:** claude 2.1.287, codex-cli 0.160.0 and cursor-agent 2026.10.01-e373342. The wrapper's live check passed every route on these versions.
+  - The versions in `~/.claude/route-health-tools.txt` are older (claude 2.1.280, codex 0.156.0, cursor-agent 2026.09.18). That file is the live banner's record, which scout runs deliberately leave alone.
+  - Upstream Claude Code 2.1.288 (2026-10-02) changes no flag the router uses.
+- **No invocation repair was needed.**
+
+### Second review
+
+Skipped: the tree has no changes outside `scout/`, per Step 5.
+
+### Research provenance
+
+- x-recency: `model-run: xai-tools x_search=9 web_search=25 x_posts=60 cited_urls=161 status=completed cost_usd=1.5406 store=false`, exit 0. **No fallback.**
+- Claude WebSearch:
+  - "new AI model release October 3 2026"
+  - "Gemini 4 Argon API availability October 2026"
+  - "GPT-6.1 Sol Ultrafast Codex"
+  - "Claude Haiku 5.5 release"
+  - "Grok 4.8 release xAI October 2026"
+  - "GPT-6-Cyber OpenAI release"
+  - a combined DeepSeek / Qwen / Kimi / MiniMax / Mistral query
+- Claude WebFetch:
+  - artificialanalysis.ai/changelog
+  - Claude Code CHANGELOG (raw)
+  - github.com/openai/codex/releases
+  - cursor.com/changelog
+  - cursor.com/docs/models and /docs/models/glm-5-3
+  - digitalapplied.com October 2026 tracker
+  - llm-stats.com/llm-updates
+  - developers.openai.com/api/docs/deprecations
+  - learn.chatgpt.com/docs/models
+  - forum.cursor.com GLM 5.3 thread
+- Live catalogs: `cursor-agent --list-models` and `codex debug models`.
+
+### Needs Dan
+
+- **Nothing new.** The 2026-10-02 GLM 5.3 item stands: if you want `glm-5.3` routable, it would have to show up in `cursor-agent --list-models`. Cursor's docs only describe opting in from the IDE's Settings > Models.
+- **Heads-up for 2026-10-14:** `gpt-5.5` leaves Codex on seat auth. The scout run that day should see it vanish and retire it to `gpt-6.1-sol`. Before then, check whether anything outside this repo pins `gpt-5.5` via Codex.
 
 ## 2026-10-02
 
